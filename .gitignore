@@ -1,0 +1,14 @@
+.vscode/launch.json
+.vscode/tasks.json
+backend/app/__pycache__/config.cpython-313.pyc
+backend/app/__pycache__/main.cpython-313.pyc
+backend/app/core/__pycache__/__init__.cpython-313.pyc
+backend/app/core/__pycache__/chroma_client.cpython-313.pyc
+backend/app/core/__pycache__/database.cpython-313.pyc
+backend/app/core/__pycache__/redis_client.cpython-313.pyc
+backend/app/routers/__pycache__/__init__.cpython-313.pyc
+backend/app/routers/__pycache__/admin.cpython-313.pyc
+backend/app/routers/__pycache__/auth.cpython-313.pyc
+backend/app/routers/__pycache__/chat.cpython-313.pyc
+backend/app/routers/__pycache__/docs.cpython-313.pyc
+backend/app/routers/__pycache__/monitor.cpython-313.pyc
