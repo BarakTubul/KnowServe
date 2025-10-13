@@ -12,3 +12,4 @@ backend/app/routers/__pycache__/auth.cpython-313.pyc
 backend/app/routers/__pycache__/chat.cpython-313.pyc
 backend/app/routers/__pycache__/docs.cpython-313.pyc
 backend/app/routers/__pycache__/monitor.cpython-313.pyc
+.env
