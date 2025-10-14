@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     REDIS_URL: str
 
+    CHROMA_PATH: str
+
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
         env_file_encoding="utf-8"
