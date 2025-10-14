@@ -13,3 +13,11 @@ backend/app/routers/__pycache__/chat.cpython-313.pyc
 backend/app/routers/__pycache__/docs.cpython-313.pyc
 backend/app/routers/__pycache__/monitor.cpython-313.pyc
 .env
+backend/app/__pycache__/__init__.cpython-313.pyc
+backend/app/models/__pycache__/__init__.cpython-313.pyc
+backend/app/models/__pycache__/chat_history.cpython-313.pyc
+backend/app/models/__pycache__/department.cpython-313.pyc
+backend/app/models/__pycache__/document.cpython-313.pyc
+backend/app/models/__pycache__/monitor_log.cpython-313.pyc
+backend/app/models/__pycache__/organization.cpython-313.pyc
+backend/app/models/__pycache__/user.cpython-313.pyc
