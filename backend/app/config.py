@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     DB_PORT: int
     DB_NAME: str
 
+    REDIS_URL: str
+
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
         env_file_encoding="utf-8"
