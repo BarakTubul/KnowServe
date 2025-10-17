@@ -8,7 +8,7 @@ from app.utils.hashing import hash_password, verify_password
 from app.utils.jwt import create_access_token
 from app.schemas import auth_schema
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter( tags=["Auth"])
 logger = logging.getLogger(__name__)
 
 
