@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     CHROMA_PATH: str
 
+    JWT_SECRET_KEY: str
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
         env_file_encoding="utf-8"

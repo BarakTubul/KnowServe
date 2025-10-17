@@ -48,8 +48,15 @@ async def init_db():
 
 
 async def close_db():
-    """
-    Gracefully close database connections.
-    SQLAlchemy handles pooling automatically, so this is mainly for logging.
-    """
-    print("🛑 Database connection closed.")
+    """Dispose all SQLAlchemy connections on shutdown."""
+    engine.dispose()
+    print("🛑 Database engine disposed.")
+
+
+def get_db():
+    """Provide a new database session for each request."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
