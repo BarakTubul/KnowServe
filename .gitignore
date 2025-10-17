@@ -4,6 +4,7 @@ backend/app/__pycache__
 backend/app/core/__pycache__
 backend/app/routers/__pycache__
 backend/app/models/__pycache__
+backend/app/utils/__pycache__
 
 .env
 backend/chroma_data
