@@ -1,1 +1,23 @@
+# Core web framework
+fastapi
+uvicorn[standard]
+
+# Database & ORM
+sqlalchemy
+psycopg2-binary
+
+# Caching & vector store
+redis
+chromadb
+
+# Environment configuration
+python-dotenv
 pydantic[email]
+pydantic-settings
+
+# Authentication & security
+passlib[argon2]
+python-jose[cryptography]
+
+# File uploads / form handling
+python-multipart
