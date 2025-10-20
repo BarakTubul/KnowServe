@@ -1,80 +1,92 @@
 # app/services/docs_service.py
-import json
-import httpx
-from app.core.redis_client import redis_client
-from app.core.chroma_client import chroma_client
-from app.config import settings
 from app.models.document import Document
+from app.models.department import Department
 from app.core.database import SessionLocal
-from sqlalchemy.orm import Session
 
 class DocsService:
+    """Handles creation, retrieval and update of documents."""
 
     @staticmethod
-    def fetch_from_external(department: str | None = None):
-        """Fetch docs from external API and store in DB + Chroma + Redis."""
-        db: Session = SessionLocal()
+    def list_all() -> list[dict]:
+        """Return all documents with their linked departments."""
+        db = SessionLocal()
+        docs = db.query(Document).all()
+        result = [
+            {
+                "id": d.id,
+                "title": d.title,
+                "source_url": d.source_url,
+                "departments": [dep.name for dep in d.departments],
+                "is_active": d.is_active,
+            }
+            for d in docs
+        ]
+        db.close()
+        return result
 
-        try:
-            base_url = settings.EXTERNAL_DOCS_API
-            url = f"{base_url}?department={department}" if department else base_url
 
-            response = httpx.get(url, timeout=20)
-            response.raise_for_status()
-            docs_data = response.json()
-
-            for doc in docs_data:
-                title = doc.get("title")
-                source_url = doc.get("url") or doc.get("source_url")
-                dept_name = doc.get("department") or department
-
-                # Save or update document
-                existing = db.query(Document).filter_by(source_url=source_url).first()
-                if existing:
-                    existing.title = title
-                    existing.department_id = DocsService.map_department_name_to_id(db, dept_name)
-                else:
-                    new_doc = Document(
-                        title=title,
-                        source_url=source_url,
-                        department_id=DocsService.map_department_name_to_id(db, dept_name)
-                    )
-                    db.add(new_doc)
-                db.commit()
-
-            # Refresh cache
-            redis_client.delete("docs:list")
-            print(f"✅ Documents synced for department: {department or 'all'}")
-
-        except Exception as e:
-            print(f"❌ Fetch failed: {e}")
-        finally:
+    @staticmethod
+    def list_allowed(department_id: int) -> list[dict]:
+        """Return documents accessible to a specific department."""
+        db = SessionLocal()
+        dept = db.query(Department).get(department_id)
+        if not dept:
             db.close()
+            return []
+        result = [
+            {"id": d.id, "title": d.title, "source_url": d.source_url}
+            for d in dept.documents
+        ]
+        db.close()
+        return result
+
 
     @staticmethod
-    def list_allowed(department_id: int):
-        """Return allowed documents for a department (with Redis cache)."""
-        cache_key = f"docs:dept:{department_id}"
+    def add_document(title: str, source_url: str, department_ids: list[int]):
+        """Create a new document and assign it to one or more departments."""
+        db = SessionLocal()
+        departments = db.query(Department).filter(Department.id.in_(department_ids)).all()
 
-        cached = redis_client.get(cache_key)
-        if cached:
-            return json.loads(cached)
-
-        db: Session = SessionLocal()
-        try:
-            docs = db.query(Document).filter_by(department_id=department_id).all()
-            results = [
-                {"id": d.id, "title": d.title, "source_url": d.source_url}
-                for d in docs
-            ]
-            redis_client.setex(cache_key, 600, json.dumps(results))
-            return results
-        finally:
+        if not departments:
             db.close()
+            raise ValueError("No valid departments found for the provided IDs.")
+
+        new_doc = Document(title=title, source_url=source_url)
+        new_doc.departments.extend(departments)
+
+        db.add(new_doc)
+        db.commit()
+        db.refresh(new_doc)
+        db.close()
+        return new_doc
+
 
     @staticmethod
-    def map_department_name_to_id(db: Session, name: str):
-        """Stub for mapping department name → id (implement later)."""
-        from app.models.department import Department
-        dept = db.query(Department).filter_by(name=name).first()
-        return dept.id if dept else None
+    def update_permissions(doc_id: int, department_ids: list[int]):
+        """Update which departments have access to the document."""
+        db = SessionLocal()
+        doc = db.query(Document).get(doc_id)
+        if not doc:
+            db.close()
+            raise ValueError("Document not found.")
+
+        departments = db.query(Department).filter(Department.id.in_(department_ids)).all()
+        doc.departments = departments  # Replace current links
+        db.commit()
+        db.refresh(doc)
+        db.close()
+        return {"message": "Permissions updated.", "departments": [d.name for d in departments]}
+
+
+    @staticmethod
+    def delete_document(doc_id: int):
+        """Delete a document."""
+        db = SessionLocal()
+        doc = db.query(Document).get(doc_id)
+        if not doc:
+            db.close()
+            raise ValueError("Document not found.")
+        db.delete(doc)
+        db.commit()
+        db.close()
+        return {"message": f"Document {doc_id} deleted successfully."}

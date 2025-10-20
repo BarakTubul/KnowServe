@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 
+from .routers.admin import router as admin_router
+
 #Local imports
 from .config import settings
 from .core.database import init_db, close_db
@@ -11,7 +13,7 @@ from .core.redis_client import init_redis, close_redis
 from .core.chroma_client import init_chroma, close_chroma
 
 #Import routers (they’ll be added later)
-from .routers import auth, chat, docs, admin, monitor
+from .routers import auth, chat, docs, monitor
 
 
 # -------------------------------------------------------------
@@ -72,7 +74,7 @@ async def shutdown_event():
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(chat.router, prefix="/chat", tags=["Chat"])
 app.include_router(docs.router, prefix="/documents", tags=["Documents"])
-app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(admin_router, prefix="/admin", tags=["Admin"])
 app.include_router(monitor.router, prefix="/monitor", tags=["Monitoring"])
 
 

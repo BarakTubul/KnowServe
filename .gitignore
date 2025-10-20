@@ -9,3 +9,7 @@ backend/app/schemas/__pycache__
 .env
 backend/chroma_data
 
+backend/app/routers/admin/__pycache__
+
+backend/app/services/__pycache__
+
