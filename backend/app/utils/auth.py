@@ -61,7 +61,7 @@ def require_user(user: dict = Depends(get_current_user)):
 
 def require_admin(user: dict = Depends(get_current_user)):
     """Restrict access to admin users only."""
-    if user.get("role") != "ADMIN":
+    if user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to access this resource.",

@@ -1,11 +1,9 @@
 # app/routers/admin/__init__.py
-from fastapi import APIRouter, Depends
-from app.utils.auth import require_admin
+from fastapi import APIRouter
 from app.routers.admin import docs
 
 router = APIRouter(
-    tags=["Admin"],
-    dependencies=[Depends(require_admin)]
+    tags=["Admin"]
 )
 
 # Include all admin sub-routers
