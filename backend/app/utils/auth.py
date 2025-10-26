@@ -67,3 +67,22 @@ def require_admin(user: dict = Depends(get_current_user)):
             detail="You do not have permission to access this resource.",
         )
     return user
+
+
+def require_user_with_department(user: dict = Depends(get_current_user)):
+    """
+    Ensure that the user belongs to a department.
+    Admins automatically pass.
+    """
+    if user.get("role") == "admin":
+        return user
+
+    department_id = user.get("department_id")
+    if not department_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not belong to any department.",
+        )
+
+    return user
+

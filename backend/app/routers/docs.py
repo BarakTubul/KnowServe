@@ -1,13 +1,20 @@
 # app/routers/docs.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Depends, status
 from app.services.docs_service import DocsService
+from app.utils.auth import require_user_with_department
 
 router = APIRouter( tags=["Documents"])
 
-@router.get("/", summary="List allowed documents for a department")
-async def get_allowed_documents(department_id: int):
+@router.get("/my", summary="List documents for the user's own department")
+async def list_my_department_docs(current_user=Depends(require_user_with_department)):
     """
-    Return all documents accessible to a specific department.
-    Accessible to regular authenticated users.
+    Returns all documents accessible to the user's department.
+    Admins see all documents.
     """
-    return {"documents": DocsService.list_allowed(department_id)}
+    if current_user["role"] == "admin":
+        documents = await DocsService.list_all()
+    else:
+        documents = await DocsService.list_allowed(current_user["department_id"])
+
+    return {"documents": documents}
+

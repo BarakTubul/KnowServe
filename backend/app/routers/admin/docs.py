@@ -13,7 +13,7 @@ async def add_document(title: str, source_url: str, department_ids: List[int]):
     Example: department_ids=[1,2,3]
     """
     try:
-        doc = DocsService.add_document(title, source_url, department_ids)
+        doc = await DocsService.add_document(title, source_url, department_ids)
         return {
             "message": "Document added successfully",
             "id": doc.id,
@@ -27,7 +27,8 @@ async def add_document(title: str, source_url: str, department_ids: List[int]):
 @router.get("/", summary="List all documents")
 async def list_all_documents():
     """Return all documents in the KB with their departments."""
-    return {"documents": DocsService.list_all()}
+    documents = await DocsService.list_all()
+    return {"documents": documents}
 
 
 # ---------- UPDATE ----------
@@ -49,7 +50,7 @@ async def update_document_permission(doc_id: int, department_ids: List[int]):
 async def delete_document(doc_id: int):
     """Remove a document."""
     try:
-        return DocsService.delete_document(doc_id)
+        return await DocsService.delete_document(doc_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

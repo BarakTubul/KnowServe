@@ -126,7 +126,7 @@ def login_user(request: auth_schema.LoginRequest, db: Session = Depends(get_db))
             )
 
         access_token = create_access_token(
-            data={"sub": user.email, "role": user.role.value, "user_id": user.id}
+            data={"sub": user.email, "role": user.role.value, "user_id": user.id,"department_id": user.department_id}
         )
 
         return {
