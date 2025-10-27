@@ -1,26 +1,41 @@
 # app/routers/admin/docs.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from app.services.docs_service import DocsService
+from app.schemas.docs_schema import DocumentUploadForm
 
 router = APIRouter()
 
 # ---------- CREATE ----------
-@router.post("/", summary="Add a new document (multi-department)")
-async def add_document(title: str, source_url: str, department_ids: List[int]):
+@router.post("/upload", summary="Upload multiple department documents")
+async def upload_documents(form: DocumentUploadForm = Depends()):
     """
-    Add a document and assign it to one or more departments.
-    Example: department_ids=[1,2,3]
+    Upload multiple named documents to Google Drive and store metadata in DB.
+    Each document gets its own name and is linked to one or more departments.
     """
     try:
-        doc = await DocsService.add_document(title, source_url, department_ids)
+        uploaded_docs = []
+
+        for file, name in zip(form.files, form.names):
+            doc = await DocsService.upload_to_drive_and_add_doc(
+                file=file,
+                name=name,
+                department_name=form.department_name,
+                department_ids=form.department_ids,
+            )
+            uploaded_docs.append({
+                "id": doc.id,
+                "title": doc.title,
+                "source_url": doc.source_url,
+            })
+
         return {
-            "message": "Document added successfully",
-            "id": doc.id,
-            "departments": [d.name for d in doc.departments],
+            "message": f"{len(uploaded_docs)} documents uploaded successfully.",
+            "documents": uploaded_docs,
         }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 # ---------- READ ----------
@@ -46,12 +61,24 @@ async def update_document_permission(doc_id: int, department_ids: List[int]):
 
 
 # ---------- DELETE ----------
-@router.delete("/{doc_id}", summary="Delete a document")
-async def delete_document(doc_id: int):
-    """Remove a document."""
+@router.delete("/", summary="Delete multiple documents")
+async def delete_documents(doc_ids: List[int]):
+    """
+    Delete multiple documents from the database and Google Drive.
+    Example request body: [1, 2, 3]
+    """
     try:
-        return await DocsService.delete_document(doc_id)
+        results = []
+        for doc_id in doc_ids:
+            result = await DocsService.delete_document(doc_id)
+            results.append(result)
+
+        return {
+            "message": f"{len(results)} document(s) deleted successfully.",
+            "results": results,
+        }
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
