@@ -21,3 +21,10 @@ python-jose[cryptography]
 
 # File uploads / form handling
 python-multipart
+
+#Google
+
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib

@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     CHROMA_PATH: str
 
     JWT_SECRET_KEY: str
+
+    DRIVE_FOLDER_ENGINEERING:str
+    DRIVE_FOLDER_HR:str
+    DRIVE_FOLDER_FINANCE:str
+    DRIVE_FOLDER_MARKETING:str
+    DRIVE_FOLDER_RND:str
+    CREDENTIALS_PATH:str
+    
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
         env_file_encoding="utf-8"
