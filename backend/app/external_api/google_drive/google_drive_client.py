@@ -27,7 +27,9 @@ class GoogleDriveClient:
         Initialize the Drive client for a specific department.
         Each department has its own folder ID in Drive.
         """
-        self.credentials_path = settings.CREDENTIALS_PATH
+        self.credentials_path = os.path.join(
+            os.path.dirname(__file__), "knowserve-1f6ab01f57f5.json"
+        )
 
         self.scopes = ["https://www.googleapis.com/auth/drive.file"]
         self.folder_id = DEPARTMENT_FOLDER_MAP.get(department_name)

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     DRIVE_FOLDER_FINANCE:str
     DRIVE_FOLDER_MARKETING:str
     DRIVE_FOLDER_RND:str
-    CREDENTIALS_PATH:str
+    # CREDENTIALS_PATH:str
     
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
