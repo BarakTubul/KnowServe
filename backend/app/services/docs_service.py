@@ -1,12 +1,13 @@
 from app.models.document import Document
 from app.models.department import Department
 from app.core.database import SessionLocal
-from app.core.redis_client import get_cache, set_cache  # ✅ NEW
+from app.core.redis_client import get_cache, set_cache, redis_client
+from app.tasks.ingestion_task import IngestionTask
 import asyncio
 
 
 class DocsService:
-    """Handles creation, retrieval and update of documents with caching."""
+    """Handles creation, retrieval, and update of documents with caching and ingestion."""
 
     # -------------------------------------------------------------
     # 🔹 List all documents (cached)
@@ -27,8 +28,9 @@ class DocsService:
                 "id": d.id,
                 "title": d.title,
                 "source_url": d.source_url,
+                "status": d.status,
                 "departments": [dep.name for dep in d.departments],
-                "is_active": d.is_active,
+                "is_active": getattr(d, "is_active", True),
             }
             for d in docs
         ]
@@ -57,7 +59,12 @@ class DocsService:
             return []
 
         result = [
-            {"id": d.id, "title": d.title, "source_url": d.source_url}
+            {
+                "id": d.id,
+                "title": d.title,
+                "source_url": d.source_url,
+                "status": d.status,
+            }
             for d in dept.documents
         ]
         db.close()
@@ -67,33 +74,50 @@ class DocsService:
         return result
 
     # -------------------------------------------------------------
-    # 🔹 Add new document (invalidate caches)
+    # 🔹 Add new document (trigger ingestion)
     # -------------------------------------------------------------
     @staticmethod
     async def add_document(title: str, source_url: str, department_ids: list[int]):
-        """Create a new document and assign it to one or more departments."""
+        """Create a new document, assign departments, and trigger ingestion."""
         db = SessionLocal()
-        departments = db.query(Department).filter(Department.id.in_(department_ids)).all()
+        try:
+            departments = (
+                db.query(Department)
+                .filter(Department.id.in_(department_ids))
+                .all()
+            )
+            if not departments:
+                raise ValueError("No valid departments found for the provided IDs.")
 
-        if not departments:
+            # 🧱 Create document with status 'pending'
+            new_doc = Document(
+                title=title,
+                source_url=source_url,
+                status="pending",
+            )
+            new_doc.departments.extend(departments)
+
+            db.add(new_doc)
+            db.commit()
+            db.refresh(new_doc)
+            print(f"📄 Added new document {new_doc.id} ({title}) with status 'pending'.")
+
+        finally:
             db.close()
-            raise ValueError("No valid departments found for the provided IDs.")
 
-        new_doc = Document(title=title, source_url=source_url)
-        new_doc.departments.extend(departments)
-
-        db.add(new_doc)
-        db.commit()
-        db.refresh(new_doc)
-        db.close()
-
-        # 🔄 Invalidate caches
-        from app.core.redis_client import redis_client
+        # 🧹 Invalidate caches
         if redis_client:
             await redis_client.delete("docs:all")
             for dep_id in department_ids:
                 await redis_client.delete(f"docs:department:{dep_id}")
             print("🧹 [Redis] Invalidated caches after add_document()")
+
+        # 🚀 Trigger asynchronous ingestion
+        try:
+            await IngestionTask.run_background(new_doc.id, source_url)
+            print(f"🚀 [Ingestion] Task started for document {new_doc.id}")
+        except Exception as e:
+            print(f"❌ [Ingestion] Failed to trigger for document {new_doc.id}: {e}")
 
         return new_doc
 
@@ -109,14 +133,17 @@ class DocsService:
             db.close()
             raise ValueError("Document not found.")
 
-        departments = db.query(Department).filter(Department.id.in_(department_ids)).all()
+        departments = (
+            db.query(Department)
+            .filter(Department.id.in_(department_ids))
+            .all()
+        )
         doc.departments = departments
         db.commit()
         db.refresh(doc)
         db.close()
 
         # 🔄 Invalidate caches
-        from app.core.redis_client import redis_client
         if redis_client:
             await redis_client.delete("docs:all")
             for dep_id in department_ids:
@@ -138,13 +165,11 @@ class DocsService:
             raise ValueError("Document not found.")
 
         affected_department_ids = [d.id for d in doc.departments]
-
         db.delete(doc)
         db.commit()
         db.close()
 
         # 🔄 Invalidate caches
-        from app.core.redis_client import redis_client
         if redis_client:
             await redis_client.delete("docs:all")
             for dep_id in affected_department_ids:

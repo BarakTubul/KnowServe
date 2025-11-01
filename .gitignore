@@ -13,3 +13,6 @@ backend/app/routers/admin/__pycache__
 
 backend/app/services/__pycache__
 
+backend/app/external_api/google_drive/knowserve-1f6ab01f57f5.json
+backend/classes_KnowServe.plantuml
+backend/packages_KnowServe.plantuml
