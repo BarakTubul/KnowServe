@@ -10,6 +10,7 @@ class Document(Base):
     title = Column(String(255), nullable=False)
     source_url = Column(String(512), nullable=False)
     is_active = Column(Boolean, default=True)
+    status =Column(String(255), nullable=False)
 
     # Many-to-many relationship to Department
     departments = relationship(

@@ -15,9 +15,8 @@ async def add_document(title: str, source_url: str, department_ids: List[int]):
     try:
         doc = await DocsService.add_document(title, source_url, department_ids)
         return {
-            "message": "Document added successfully",
-            "id": doc.id,
-            "departments": [d.name for d in doc.departments],
+            "message": "Document received.",
+            "id": doc["id"],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

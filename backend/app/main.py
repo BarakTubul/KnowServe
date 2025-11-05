@@ -16,7 +16,7 @@ from .core.chroma_client import init_chroma, close_chroma
 from  .utils.auth import require_user
 
 #Import routers (they’ll be added later)
-from .routers import auth, chat, docs, monitor
+from .routers import auth, chat, docs, monitor,ws
 
 
 # -------------------------------------------------------------
@@ -79,7 +79,7 @@ app.include_router(chat.router, prefix="/chat", tags=["Chat"],dependencies=[Depe
 app.include_router(docs.router, prefix="/documents", tags=["Documents"], dependencies=[Depends(require_user)])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"],dependencies=[Depends(require_admin)])
 app.include_router(monitor.router, prefix="/monitor", tags=["Monitoring"],dependencies=[Depends(require_admin)])
-
+app.include_router(ws.router, prefix="/ws", tags=["WebSocket"],dependencies=[Depends(require_admin)])
 
 # -------------------------------------------------------------
 # 💓 Health Check Endpoint

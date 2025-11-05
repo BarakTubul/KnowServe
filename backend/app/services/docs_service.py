@@ -2,7 +2,7 @@ from app.models.document import Document
 from app.models.department import Department
 from app.core.database import SessionLocal
 from app.core.redis_client import get_cache, set_cache, redis_client
-from app.tasks.ingestion_task import IngestionTask
+from app.tasks.ingestion_task import run_ingestion_task
 import asyncio
 
 
@@ -74,7 +74,7 @@ class DocsService:
         return result
 
     # -------------------------------------------------------------
-    # 🔹 Add new document (trigger ingestion)
+    # 🔹 Add new document (trigger ingestion via Celery)
     # -------------------------------------------------------------
     @staticmethod
     async def add_document(title: str, source_url: str, department_ids: list[int]):
@@ -93,10 +93,10 @@ class DocsService:
             new_doc = Document(
                 title=title,
                 source_url=source_url,
+                is_active=True,
                 status="pending",
             )
             new_doc.departments.extend(departments)
-
             db.add(new_doc)
             db.commit()
             db.refresh(new_doc)
@@ -105,21 +105,13 @@ class DocsService:
         finally:
             db.close()
 
-        # 🧹 Invalidate caches
-        if redis_client:
-            await redis_client.delete("docs:all")
-            for dep_id in department_ids:
-                await redis_client.delete(f"docs:department:{dep_id}")
-            print("🧹 [Redis] Invalidated caches after add_document()")
 
-        # 🚀 Trigger asynchronous ingestion
-        try:
-            await IngestionTask.run_background(new_doc.id, source_url)
-            print(f"🚀 [Ingestion] Task started for document {new_doc.id}")
-        except Exception as e:
-            print(f"❌ [Ingestion] Failed to trigger for document {new_doc.id}: {e}")
+        # 🚀 Dispatch Celery ingestion job
+        run_ingestion_task.delay(new_doc.id, source_url, department_ids)
+        print(f"🚀 [Celery] Dispatched ingestion task for document {new_doc.id}")
 
-        return new_doc
+        # ✅ Return
+        return {"id":new_doc.id}
 
     # -------------------------------------------------------------
     # 🔹 Update permissions (invalidate caches)

@@ -21,3 +21,8 @@ python-jose[cryptography]
 
 # File uploads / form handling
 python-multipart
+
+#agent framework
+
+#celery
+celery[redis]
