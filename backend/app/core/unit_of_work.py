@@ -3,6 +3,7 @@ from contextlib import AbstractContextManager
 from app.core.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.department_repository import DepartmentRepository
+from app.repositories.user_repository import UserRepository
 
 class UnitOfWork(AbstractContextManager):
     def __init__(self):
@@ -16,6 +17,7 @@ class UnitOfWork(AbstractContextManager):
         # Attach repositories
         self.documents = DocumentRepository(self.session)
         self.departments = DepartmentRepository(self.session)
+        self.users = UserRepository(self.session)
 
         return self
     
