@@ -1,0 +1,73 @@
+@startuml name
+title KnowServe - Semantic RAG & Monitoring Architecture
+
+class User {
+    +user_id: int
+    +sendQuery(query: str)
+}
+
+class Frontend {
+    +displayResponse(response: str)
+    +sendToChatController(query: str)
+}
+
+class ChatController {
+    +process_query(user_id: int, query: str): str
+}
+
+class ChatService {
+    -semantic_cache: SemanticCacheManager
+    -retriever: RetrieverAgent
+    -summarizer: SummarizerAgent
+    -assistant: AssistantAgent
+    -monitor: MonitorAgent
+    -cache_manager: CacheManager
+    -chat_history: ChatHistory
+    +handle_query(user_id: int, query: str): str
+    -compute_embedding(query: str): list[float]
+}
+
+class SemanticCacheManager {
+    +search_similar(query_embedding: list[float], threshold: float = 0.9): Optional[str]
+    +store(query_embedding: list[float], answer: str, doc_ids: list[int])
+}
+
+class RetrieverAgent {
+    +retrieve_docs(query: str, department: Optional[str] = None): list[str]
+}
+
+class SummarizerAgent {
+    +summarize(docs: list[str]): str
+}
+
+class AssistantAgent {
+    +generate_answer(summary: str, query: str): str
+}
+
+class MonitorAgent {
+    +validate_answer(query: str, answer: str): bool
+    +log_metrics(query: str, response_time: float, quality_score: float)
+}
+
+class CacheManager {
+    +store_cache(key: str, value: str)
+    +get_cache(key: str): Optional[str]
+}
+
+class ChatHistory {
+    +save_chat(user_id: int, query: str, answer: str)
+    +get_chat_history(user_id: int): list
+}
+
+User --> Frontend
+Frontend --> ChatController
+ChatController --> ChatService
+ChatService --> SemanticCacheManager
+ChatService --> RetrieverAgent
+ChatService --> SummarizerAgent
+ChatService --> AssistantAgent
+ChatService --> MonitorAgent
+ChatService --> CacheManager
+ChatService --> ChatHistory
+
+@enduml

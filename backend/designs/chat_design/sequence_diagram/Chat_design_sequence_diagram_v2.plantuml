@@ -1,0 +1,63 @@
+@startuml name
+title KnowServe - Query Processing & Agentic Workflow
+
+actor User
+participant Frontend
+participant ChatController
+participant ChatService
+participant SemanticCacheManager
+participant RetrieverAgent
+participant SummarizerAgent
+participant AssistantAgent
+participant MonitorAgent
+participant CacheManager
+participant ChatHistory
+
+User -> Frontend: enter query
+Frontend -> ChatController: process_query(query)
+ChatController -> ChatService: handle_query(user_id, query)
+
+ChatService -> ChatService: compute_embedding(query)
+ChatService -> SemanticCacheManager: search_similar(embedding, threshold=0.9)
+
+alt Semantic Cache Hit
+    SemanticCacheManager --> ChatService: cached_answer
+    ChatService -> MonitorAgent: validate_answer(query, cached_answer)
+    alt Validated
+        MonitorAgent --> ChatService: True
+        ChatService -> ChatHistory: save_chat(user_id, query, cached_answer)
+        ChatService --> ChatController: cached_answer
+    else Rejected
+        MonitorAgent --> ChatService: False
+        ChatService -> RetrieverAgent: retrieve_docs(query)
+        RetrieverAgent --> ChatService: documents
+        ChatService -> SummarizerAgent: summarize(docs)
+        SummarizerAgent --> ChatService: summary
+        ChatService -> AssistantAgent: generate_answer(summary, query)
+        AssistantAgent --> ChatService: answer
+        ChatService -> MonitorAgent: validate_answer(query, answer)
+        MonitorAgent --> ChatService: validation_result
+        ChatService -> SemanticCacheManager: store(embedding, answer, doc_ids)
+        ChatService -> ChatHistory: save_chat(user_id, query, answer)
+        ChatService --> ChatController: answer
+    end
+else Semantic Cache Miss
+    SemanticCacheManager --> ChatService: None
+    ChatService -> RetrieverAgent: retrieve_docs(query)
+    RetrieverAgent --> ChatService: documents
+    ChatService -> SummarizerAgent: summarize(docs)
+    SummarizerAgent --> ChatService: summary
+    ChatService -> AssistantAgent: generate_answer(summary, query)
+    AssistantAgent --> ChatService: answer
+    ChatService -> MonitorAgent: validate_answer(query, answer)
+    MonitorAgent --> ChatService: validation_result
+    ChatService -> SemanticCacheManager: store(embedding, answer, doc_ids)
+    ChatService -> CacheManager: store_cache(query_hash, answer)
+    ChatService -> ChatHistory: save_chat(user_id, query, answer)
+    ChatService --> ChatController: answer
+end
+
+ChatController --> Frontend: final_response
+Frontend --> User: displayResponse(response)
+
+@enduml

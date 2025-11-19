@@ -6,6 +6,7 @@ from enum import Enum
 class UserRole(Enum):
     EMPLOYEE = "employee"
     MANAGER = "manager"
+    ADMIN = "admin"
 
 class User(Base):
     __tablename__ = "users"

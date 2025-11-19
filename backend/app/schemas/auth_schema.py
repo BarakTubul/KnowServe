@@ -14,13 +14,22 @@ class RegisterRequest(BaseModel):
     role: UserRole = UserRole.EMPLOYEE
     department_id: int | None = None
 
+    # ✅ Normalize role input to lowercase
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v):
+        if isinstance(v, str):
+            v = v.lower().strip()
+            try:
+                return UserRole(v)
+            except ValueError:
+                raise ValueError(f"Invalid role '{v}'. Must be one of {[r.value for r in UserRole]}")
+        return v
+
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, v: str):
-        """
-        Ensure the password meets minimum security requirements.
-        (Backend-enforced but generic error to avoid leaking rules.)
-        """
+        """Ensure the password meets minimum security requirements."""
         if len(v) < 8 or not any(c.isdigit() for c in v) or not any(c.isupper() for c in v):
             raise ValueError("Password does not meet security requirements.")
         return v
@@ -31,7 +40,7 @@ class RegisterRequest(BaseModel):
                 "name": "Alice Johnson",
                 "email": "alice@example.com",
                 "password": "SecurePass123",
-                "role": "employee",
+                "role": "employee",  # ✅ lowercase in example
                 "department_id": 2
             }
         }
