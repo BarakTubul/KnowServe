@@ -1,7 +1,7 @@
 from app.models.document import Document
 from app.models.department import Department
 from app.core.database import SessionLocal
-from app.core.redis_client import get_cache, set_cache, redis_client
+from app.core.redis_client import get_cache, set_cache, invalidate_caches
 from app.tasks.ingestion_task import run_ingestion_task
 import asyncio
 
@@ -14,7 +14,6 @@ class DocsService:
     # -------------------------------------------------------------
     @staticmethod
     async def list_all() -> list[dict]:
-        """Return all documents with their linked departments."""
         cache_key = "docs:all"
         cached = await get_cache(cache_key)
         if cached:
@@ -45,7 +44,6 @@ class DocsService:
     # -------------------------------------------------------------
     @staticmethod
     async def list_allowed(department_id: int) -> list[dict]:
-        """Return documents accessible to a specific department."""
         cache_key = f"docs:department:{department_id}"
         cached = await get_cache(cache_key)
         if cached:
@@ -78,7 +76,6 @@ class DocsService:
     # -------------------------------------------------------------
     @staticmethod
     async def add_document(title: str, source_url: str, department_ids: list[int]):
-        """Create a new document, assign departments, and trigger ingestion."""
         db = SessionLocal()
         try:
             departments = (
@@ -89,7 +86,6 @@ class DocsService:
             if not departments:
                 raise ValueError("No valid departments found for the provided IDs.")
 
-            # 🧱 Create document with status 'pending'
             new_doc = Document(
                 title=title,
                 source_url=source_url,
@@ -105,20 +101,17 @@ class DocsService:
         finally:
             db.close()
 
-
         # 🚀 Dispatch Celery ingestion job
         run_ingestion_task.delay(new_doc.id, source_url, department_ids)
         print(f"🚀 [Celery] Dispatched ingestion task for document {new_doc.id}")
 
-        # ✅ Return
-        return {"id":new_doc.id}
+        return {"id": new_doc.id}
 
     # -------------------------------------------------------------
     # 🔹 Update permissions (invalidate caches)
     # -------------------------------------------------------------
     @staticmethod
     async def update_permissions(doc_id: int, department_ids: list[int]):
-        """Update which departments have access to the document."""
         db = SessionLocal()
         doc = db.query(Document).get(doc_id)
         if not doc:
@@ -136,11 +129,8 @@ class DocsService:
         db.close()
 
         # 🔄 Invalidate caches
-        if redis_client:
-            await redis_client.delete("docs:all")
-            for dep_id in department_ids:
-                await redis_client.delete(f"docs:department:{dep_id}")
-            print("🧹 [Redis] Invalidated caches after update_permissions()")
+        keys = ["docs:all"] + [f"docs:department:{dep_id}" for dep_id in department_ids]
+        await invalidate_caches(keys)
 
         return {"message": "Permissions updated.", "departments": [d.name for d in departments]}
 
@@ -149,7 +139,6 @@ class DocsService:
     # -------------------------------------------------------------
     @staticmethod
     async def delete_document(doc_id: int):
-        """Delete a document and clear relevant caches."""
         db = SessionLocal()
         doc = db.query(Document).get(doc_id)
         if not doc:
@@ -162,10 +151,7 @@ class DocsService:
         db.close()
 
         # 🔄 Invalidate caches
-        if redis_client:
-            await redis_client.delete("docs:all")
-            for dep_id in affected_department_ids:
-                await redis_client.delete(f"docs:department:{dep_id}")
-            print("🧹 [Redis] Invalidated caches after delete_document()")
+        keys = ["docs:all"] + [f"docs:department:{dep_id}" for dep_id in affected_department_ids]
+        await invalidate_caches(keys)
 
         return {"message": f"Document {doc_id} deleted successfully."}

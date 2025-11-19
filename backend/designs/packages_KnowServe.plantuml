@@ -1,0 +1,114 @@
+@startuml packages_KnowServe
+set namespaceSeparator none
+package "app" as app {
+}
+package "app.config" as app.config {
+}
+package "app.core" as app.core {
+}
+package "app.core.chroma_client" as app.core.chroma_client {
+}
+package "app.core.database" as app.core.database {
+}
+package "app.core.redis_client" as app.core.redis_client {
+}
+package "app.main" as app.main {
+}
+package "app.models" as app.models {
+}
+package "app.models.chat_history" as app.models.chat_history {
+}
+package "app.models.department" as app.models.department {
+}
+package "app.models.department_documents" as app.models.department_documents {
+}
+package "app.models.document" as app.models.document {
+}
+package "app.models.monitor_log" as app.models.monitor_log {
+}
+package "app.models.organization" as app.models.organization {
+}
+package "app.models.user" as app.models.user {
+}
+package "app.routers" as app.routers {
+}
+package "app.routers.admin" as app.routers.admin {
+}
+package "app.routers.admin.docs" as app.routers.admin.docs {
+}
+package "app.routers.auth" as app.routers.auth {
+}
+package "app.routers.chat" as app.routers.chat {
+}
+package "app.routers.docs" as app.routers.docs {
+}
+package "app.routers.monitor" as app.routers.monitor {
+}
+package "app.schemas" as app.schemas {
+}
+package "app.schemas.auth_schema" as app.schemas.auth_schema {
+}
+package "app.services" as app.services {
+}
+package "app.services.docs_service" as app.services.docs_service {
+}
+package "app.utils" as app.utils {
+}
+package "app.utils.auth" as app.utils.auth {
+}
+package "app.utils.hashing" as app.utils.hashing {
+}
+package "app.utils.jwt" as app.utils.jwt {
+}
+app.core.chroma_client --> app.config
+app.core.database --> app.config
+app.core.database --> app.models
+app.core.redis_client --> app.config
+app.main --> app.config
+app.main --> app.core.chroma_client
+app.main --> app.core.database
+app.main --> app.core.redis_client
+app.main --> app.routers
+app.main --> app.routers.admin
+app.main --> app.routers.auth
+app.main --> app.routers.chat
+app.main --> app.routers.docs
+app.main --> app.routers.monitor
+app.main --> app.utils.auth
+app.main --> app.utils.auth
+app.models --> app.core.database
+app.models --> app.models.chat_history
+app.models --> app.models.department
+app.models --> app.models.document
+app.models --> app.models.monitor_log
+app.models --> app.models.organization
+app.models --> app.models.user
+app.models.chat_history --> app.core.database
+app.models.department --> app.core.database
+app.models.department --> app.models.department_documents
+app.models.department_documents --> app.core.database
+app.models.document --> app.core.database
+app.models.document --> app.models.department_documents
+app.models.monitor_log --> app.core.database
+app.models.organization --> app.core.database
+app.models.user --> app.core.database
+app.routers --> app.routers.admin
+app.routers.admin --> app.routers.admin
+app.routers.admin --> app.routers.admin.docs
+app.routers.admin.docs --> app.services.docs_service
+app.routers.auth --> app.core.database
+app.routers.auth --> app.models.user
+app.routers.auth --> app.schemas
+app.routers.auth --> app.schemas.auth_schema
+app.routers.auth --> app.utils.hashing
+app.routers.auth --> app.utils.jwt
+app.routers.docs --> app.services.docs_service
+app.routers.docs --> app.utils.auth
+app.schemas.auth_schema --> app.models.user
+app.services.docs_service --> app.core.database
+app.services.docs_service --> app.core.redis_client
+app.services.docs_service --> app.models.department
+app.services.docs_service --> app.models.document
+app.utils.auth --> app.utils.jwt
+app.utils.jwt --> app.config
+@enduml

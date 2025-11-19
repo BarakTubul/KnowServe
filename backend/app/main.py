@@ -51,12 +51,21 @@ app.add_middleware(
 # -------------------------------------------------------------
 @app.on_event("startup")
 async def startup_event():
-    """Initialize connections to external services on startup."""
+    """Initialize connections & start event listener on app startup."""
+    from app.core.event_listener import listen_for_ingestion_events
+    import asyncio
+
+    # 1️⃣ Initialize external dependencies in parallel
     await asyncio.gather(
         init_db(),
         init_redis(),
         init_chroma(),
     )
+
+    # 2️⃣ Launch the Redis pub/sub listener in the background
+    asyncio.create_task(listen_for_ingestion_events())
+    print("📡 Redis event listener started")
+
     print("✅ KnowServe backend started successfully.")
 
 
@@ -79,7 +88,7 @@ app.include_router(chat.router, prefix="/chat", tags=["Chat"],dependencies=[Depe
 app.include_router(docs.router, prefix="/documents", tags=["Documents"], dependencies=[Depends(require_user)])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"],dependencies=[Depends(require_admin)])
 app.include_router(monitor.router, prefix="/monitor", tags=["Monitoring"],dependencies=[Depends(require_admin)])
-app.include_router(ws.router, prefix="/ws", tags=["WebSocket"],dependencies=[Depends(require_admin)])
+app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
 # -------------------------------------------------------------
 # 💓 Health Check Endpoint

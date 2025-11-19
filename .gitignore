@@ -19,3 +19,6 @@ backend/packages_KnowServe.plantuml
 backend/app/tasks/__pycache__/ingestion_task.cpython-313.pyc
 backend/app/tasks/__pycache__/__init__.cpython-313.pyc
 backend/📄 document_ingestion_async.plantuml
+backend/app/tests/websocket_client.html
+backend/designs/📄 document_ingestion_async.plantuml
+backend/designs/classes_KnowServe.plantuml
