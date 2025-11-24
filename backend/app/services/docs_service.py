@@ -21,17 +21,17 @@ class DocsService:
         with UnitOfWork() as uow:
             docs = uow.documents.get_all()
 
-        result = [
-            {
-                "id": d.id,
-                "title": d.title,
-                "source_url": d.source_url,
-                "status": d.status,
-                "departments": [dep.name for dep in d.departments],
-                "is_active": getattr(d, "is_active", True),
-            }
-            for d in docs
-        ]
+            result = [
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "source_url": d.source_url,
+                    "status": d.status,
+                    "departments": [dep.name for dep in d.departments],
+                    "is_active": getattr(d, "is_active", True),
+                }
+                for d in docs
+            ]
 
         await set_cache(cache_key, result, expire_seconds=600)
         print("💾 [Redis] Cache set for list_all()")
@@ -51,15 +51,15 @@ class DocsService:
         with UnitOfWork() as uow:
             docs = uow.documents.get_by_department(department_id)
 
-        result = [
-            {
-                "id": d.id,
-                "title": d.title,
-                "source_url": d.source_url,
-                "status": d.status,
-            }
-            for d in docs
-        ]
+            result = [
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "source_url": d.source_url,
+                    "status": d.status,
+                }
+                for d in docs
+            ]
 
         await set_cache(cache_key, result, expire_seconds=900)
         print(f"💾 [Redis] Cache set for department {department_id}")
@@ -87,13 +87,14 @@ class DocsService:
 
             uow.documents.save(new_doc)
             new_doc.departments = departments
-            print(f"📄 Added new document {new_doc.id} ({title}) with status 'pending'.")
+            new_doc_id = new_doc.id
+            print(f"📄 Added new document {new_doc_id} ({title}) with status 'pending'.")
 
         # After UoW commit → dispatch ingestion
-        run_ingestion_task.delay(new_doc.id, source_url, department_ids)
-        print(f"🚀 [Celery] Dispatched ingestion task for document {new_doc.id}")
+        run_ingestion_task.delay(new_doc_id, source_url, department_ids)
+        print(f"🚀 [Celery] Dispatched ingestion task for document {new_doc_id}")
 
-        return {"id": new_doc.id}
+        return {"id": new_doc_id}
 
     # -------------------------------------------------------------
     # 🔹 Update permissions (invalidate caches)
@@ -106,13 +107,16 @@ class DocsService:
             if not updated_doc:
                 raise ValueError("Document not found.")
 
-        # Invalidate caches AFTER commit
+            # extract departments BEFORE session closes
+            departments_data = [d.name for d in updated_doc.departments]
+
+        # session is now closed → safe to use extracted data
         keys = ["docs:all"] + [f"docs:department:{dep_id}" for dep_id in department_ids]
         await invalidate_caches(keys)
 
         return {
             "message": "Permissions updated.",
-            "departments": [d.name for d in updated_doc.departments],
+            "departments": departments_data,
         }
 
     # -------------------------------------------------------------

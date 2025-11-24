@@ -10,8 +10,9 @@ backend/app/schemas/__pycache__
 backend/chroma_data
 
 backend/app/routers/admin/__pycache__
-
+backend/app/controllers/__pycache__
 backend/app/services/__pycache__
+backend/app/repositories/__pycache__
 
 backend/app/external_api/google_drive/knowserve-1f6ab01f57f5.json
 backend/classes_KnowServe.plantuml

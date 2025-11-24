@@ -7,7 +7,7 @@ from app.models.user import UserRole
 # ----------------------------
 class RegisterRequest(BaseModel):
     """Schema for user registration request."""
-
+    print("inside register request")
     name: str
     email: EmailStr
     password: str

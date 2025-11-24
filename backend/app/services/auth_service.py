@@ -12,7 +12,7 @@ class AuthService:
     # ----------------------------
     @staticmethod
     def register(name: str, email: str, password: str, role: str, department_id: int):
-        role = role.lower()
+        # role = role.lower()
         role_enum = UserRole(role)
 
         with UnitOfWork() as uow:
@@ -46,7 +46,7 @@ class AuthService:
             uow.users.save(user)
         
 
-        return {"message": "User registered successfully", "user_id": user.id}
+        return {"message": "User registered successfully"}
 
     # ----------------------------
     # LOGIN USER
@@ -62,22 +62,26 @@ class AuthService:
             if not verify_password(password, user.password_hash):
                 raise ValueError("Invalid email or password.")
 
-            token = create_access_token(
-                {
-                    "user_id": user.id,
-                    "role": user.role.value,
-                    "department_id": user.department_id,
-                }
-            )
-
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "user": {
+            # 🟢 Extract user data BEFORE session closes
+            user_data = {
                 "id": user.id,
                 "name": user.name,
                 "email": user.email,
                 "role": user.role.value,
                 "department_id": user.department_id,
-            },
+            }
+
+            token = create_access_token(
+                {
+                    "user_id": user_data["id"],
+                    "role": user_data["role"],
+                    "department_id": user_data["department_id"],
+                }
+            )
+
+        # 🟢 Now safe to return (no ORM object outside UoW)
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": user_data,
         }
