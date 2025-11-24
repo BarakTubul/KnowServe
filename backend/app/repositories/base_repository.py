@@ -22,6 +22,8 @@ class BaseRepository(Generic[T]):
     def delete(self, entity: T):
         self.session.delete(entity)
 
-    def save(self, entity: T) -> T:
-        # merge() acts as add-or-update
-        return self.session.merge(entity)
+    def save(self, entity):
+        self.session.add(entity)
+        self.session.flush()   # ensures ID is created immediately
+        return entity
+
