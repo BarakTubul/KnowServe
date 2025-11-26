@@ -5,7 +5,7 @@ from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFile
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from app.core.chroma_client import chroma_client
+from app.core.vector_store import get_vector_store
 
 class DocumentIngestionService:
     """Handles only technical ingestion: download, parse, embed, store."""
@@ -55,16 +55,7 @@ class DocumentIngestionService:
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         chunks = splitter.split_documents(docs)
         print(f"✂️ Split into {len(chunks)} chunks")
-
-        embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"}
-        )
-        vector_store = Chroma(
-            client=chroma_client,
-            collection_name="documents",
-            embedding_function=embeddings,
-        )
+        vector_store = get_vector_store()
         vector_store.add_documents(chunks)
         print(f"💾 Stored {len(chunks)} chunks for doc {doc_id}")
         return {"doc_id": doc_id, "status": "ingested"}
