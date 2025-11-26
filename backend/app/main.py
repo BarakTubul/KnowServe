@@ -12,7 +12,6 @@ from app.utils.auth import require_admin
 from .config import settings
 from .core.database import init_db, close_db
 from .core.redis_client import init_redis, close_redis
-from .core.chroma_client import init_chroma, close_chroma
 from  .utils.auth import require_user
 
 #Import routers (they’ll be added later)
@@ -58,8 +57,7 @@ async def startup_event():
     # 1️⃣ Initialize external dependencies in parallel
     await asyncio.gather(
         init_db(),
-        init_redis(),
-        init_chroma(),
+        init_redis()
     )
 
     # 2️⃣ Launch the Redis pub/sub listener in the background
@@ -74,8 +72,7 @@ async def shutdown_event():
     """Cleanly close connections on shutdown."""
     await asyncio.gather(
         close_db(),
-        close_redis(),
-        close_chroma(),
+        close_redis()
     )
     print("🛑 KnowServe backend shut down cleanly.")
 
