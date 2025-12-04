@@ -5,17 +5,17 @@ from app.models.document import Document
 
 
 class DocsService:
-    """Handles creation, retrieval, and update of documents with caching and ingestion."""
+    """Handles creation, retrieval, ownership, and access control for documents."""
 
     # -------------------------------------------------------------
-    # 🔹 List all documents (cached)
+    # 🔹 List ALL documents (admin, cached)
     # -------------------------------------------------------------
     @staticmethod
-    async def list_all() -> list[dict]:
+    async def list_all_documents() -> list[dict]:
         cache_key = "docs:all"
         cached = await get_cache(cache_key)
         if cached:
-            print("✅ [Redis] Cache hit for list_all()")
+            print("✅ [Redis] Cache hit for list_all_documents()")
             return cached
 
         with UnitOfWork() as uow:
@@ -27,29 +27,31 @@ class DocsService:
                     "title": d.title,
                     "source_url": d.source_url,
                     "status": d.status,
-                    "departments": [dep.name for dep in d.departments],
+                    "allowed_departments": [dep.name for dep in d.departments],
+                    "owner_department_id": getattr(d, "owner_department_id", None),
                     "is_active": getattr(d, "is_active", True),
                 }
                 for d in docs
             ]
 
         await set_cache(cache_key, result, expire_seconds=600)
-        print("💾 [Redis] Cache set for list_all()")
+        print("💾 [Redis] Cache set for list_all_documents()")
         return result
 
     # -------------------------------------------------------------
-    # 🔹 List documents allowed for a department (cached)
+    # 🔹 List documents a department IS ALLOWED to access (cached)
     # -------------------------------------------------------------
     @staticmethod
-    async def list_allowed(department_id: int) -> list[dict]:
-        cache_key = f"docs:department:{department_id}"
+    async def list_documents_with_access(department_id: int) -> list[dict]:
+        cache_key = f"docs:access:{department_id}"
         cached = await get_cache(cache_key)
+
         if cached:
-            print(f"✅ [Redis] Cache hit for department {department_id}")
+            print(f"✅ [Redis] Cache hit for access of department {department_id}")
             return cached
 
         with UnitOfWork() as uow:
-            docs = uow.documents.get_by_department(department_id)
+            docs = uow.documents.get_documents_with_access_for_department(department_id)
 
             result = [
                 {
@@ -62,61 +64,87 @@ class DocsService:
             ]
 
         await set_cache(cache_key, result, expire_seconds=900)
-        print(f"💾 [Redis] Cache set for department {department_id}")
+        print(f"💾 [Redis] Cache set for department access {department_id}")
         return result
 
     # -------------------------------------------------------------
-    # 🔹 Add new document (trigger ingestion via Celery)
+    # 🔹 List documents OWNED by a department
     # -------------------------------------------------------------
     @staticmethod
-    async def add_document(title: str, source_url: str, department_ids: list[int]):
+    async def list_owned_documents(department_id: int) -> list[dict]:
+        with UnitOfWork() as uow:
+            docs = uow.documents.get_documents_owned_by_department(department_id)
+
+            return [
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "source_url": d.source_url,
+                    "status": d.status,
+                }
+                for d in docs
+            ]
+
+    # -------------------------------------------------------------
+    # 🔹 Add new document (sets owner + allowed access + ingestion)
+    # -------------------------------------------------------------
+    @staticmethod
+    async def add_document(title: str, source_url: str, owner_department_id: int, allowed_department_ids: list[int]):
         with UnitOfWork() as uow:
 
-            # Load departments
-            departments = [uow.departments.get(dep_id) for dep_id in department_ids]
-            if not all(departments):
-                raise ValueError("No valid departments found for the provided IDs.")
+            # Load allowed departments
+            allowed_departments = [
+                uow.departments.get(dep_id) for dep_id in allowed_department_ids
+            ]
+            if not all(allowed_departments):
+                raise ValueError("One or more allowed department IDs are invalid.")
 
-            # Create doc
+            # Load owner
+            owner = uow.departments.get(owner_department_id)
+            if not owner:
+                raise ValueError("Invalid owner_department_id provided.")
+
+            # Create document
             new_doc = Document(
                 title=title,
                 source_url=source_url,
                 is_active=True,
                 status="pending",
+                owner_department_id=owner_department_id,
             )
 
             uow.documents.save(new_doc)
-            new_doc.departments = departments
+            new_doc.departments = allowed_departments
             new_doc_id = new_doc.id
-            print(f"📄 Added new document {new_doc_id} ({title}) with status 'pending'.")
 
-        # After UoW commit → dispatch ingestion
-        run_ingestion_task.delay(new_doc_id, source_url, department_ids)
-        print(f"🚀 [Celery] Dispatched ingestion task for document {new_doc_id}")
+            print(f"📄 Created document {new_doc_id} owned by department {owner_department_id}")
+
+        # Kick off ingestion after commit
+        run_ingestion_task.delay(new_doc_id, source_url, allowed_department_ids)
+        print(f"🚀 [Celery] Ingestion task dispatched for document {new_doc_id}")
 
         return {"id": new_doc_id}
 
     # -------------------------------------------------------------
-    # 🔹 Update permissions (invalidate caches)
+    # 🔹 Update document access control (permissions)
     # -------------------------------------------------------------
     @staticmethod
-    async def update_permissions(doc_id: int, department_ids: list[int]):
+    async def update_document_access(doc_id: int, new_allowed_department_ids: list[int]):
         with UnitOfWork() as uow:
-            updated_doc = uow.documents.set_departments(doc_id, department_ids)
+            updated_doc = uow.documents.set_document_access(doc_id, new_allowed_department_ids)
 
             if not updated_doc:
                 raise ValueError("Document not found.")
 
-            # extract departments BEFORE session closes
-            departments_data = [d.name for d in updated_doc.departments]
+            allowed_names = [d.name for d in updated_doc.departments]
 
-        # session is now closed → safe to use extracted data
-        keys = ["docs:all"] + [f"docs:department:{dep_id}" for dep_id in department_ids]
+        # Invalidate caches that depend on access
+        keys = ["docs:all"] + [f"docs:access:{dep_id}" for dep_id in new_allowed_department_ids]
         await invalidate_caches(keys)
 
         return {
-            "message": "Permissions updated.",
-            "departments": departments_data,
+            "message": "Access permissions updated.",
+            "allowed_departments": allowed_names,
         }
 
     # -------------------------------------------------------------
@@ -132,10 +160,7 @@ class DocsService:
             affected_department_ids = [d.id for d in doc.departments]
             uow.documents.delete(doc)
 
-        # Invalidate caches AFTER commit
-        keys = ["docs:all"] + [
-            f"docs:department:{dep_id}" for dep_id in affected_department_ids
-        ]
+        keys = ["docs:all"] + [f"docs:access:{dep_id}" for dep_id in affected_department_ids]
         await invalidate_caches(keys)
 
         return {"message": f"Document {doc_id} deleted successfully."}

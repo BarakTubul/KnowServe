@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
-from app.models.department_documents import DepartmentDocument
+from app.models.department_documents_access import DepartmentDocumentAccess
+
 
 class Department(Base):
     __tablename__ = "departments"
@@ -15,7 +16,7 @@ class Department(Base):
     # Many-to-many with Document
     documents = relationship(
         "Document",
-        secondary="department_documents",
+        secondary="department_documents_access",
         back_populates="departments"
     )
 

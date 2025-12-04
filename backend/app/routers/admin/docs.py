@@ -3,22 +3,26 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
 from app.controllers.admin_docs_controller import AdminDocsController
-
+from app.schemas.document_schema import *
 router = APIRouter()
 
 
-@router.post("/", summary="Add a new document")
-async def add_document(title: str, source_url: str, department_ids: List[int]):
+
+# -------------------------
+# Routes
+# -------------------------
+@router.post("/", summary="Create a new document with owner & allowed access")
+async def create_document(dto: CreateDocumentDTO):
     try:
-        return await AdminDocsController.add_document(title, source_url, department_ids)
+        return await AdminDocsController.create_document(dto)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/{doc_id}/permissions", summary="Update document departments")
-async def update_permissions(doc_id: int, department_ids: List[int]):
+@router.patch("/{doc_id}/access", summary="Update allowed departments for access")
+async def update_document_access(doc_id: int, dto: UpdateAccessDTO):
     try:
-        return await AdminDocsController.update_permissions(doc_id, department_ids)
+        return await AdminDocsController.update_document_access(doc_id, dto)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
