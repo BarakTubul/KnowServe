@@ -25,3 +25,5 @@ backend/designs
 
 backend/app/chroma_data
 
+
+backend/app/pydantic_schemas

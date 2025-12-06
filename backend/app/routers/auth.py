@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from app.controllers.auth_controller import AuthController
-from app.schemas.auth_schema import RegisterRequest, LoginRequest
+from app.pydantic_schemas.auth_schema import RegisterRequest, LoginRequest
 import logging
 
 router = APIRouter(tags=["Auth"])

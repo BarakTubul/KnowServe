@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
 from app.controllers.admin_docs_controller import AdminDocsController
-from app.schemas.document_schema import *
+from app.pydantic_schemas.document_schema import *
 router = APIRouter()
 
 
