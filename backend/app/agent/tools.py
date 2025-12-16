@@ -2,6 +2,7 @@
 
 from langchain_core.tools import tool
 from app.services.docs_service import DocsService
+from app.services.document_retrieval_service import DocumentRetrievalService
 
 
 # ======================================================
@@ -12,21 +13,10 @@ from app.services.docs_service import DocsService
 async def search_documents(query: str, user: dict):
     """
     Search documents using existing backend logic.
-    DocsService enforces permissions automatically.
+    Permissions enforced automatically.
     """
+    return await DocumentRetrievalService.search(query, user)
 
-    department_ids = user.get("departments", [])
-    
-    # ⭐ Use your existing data-access logic
-    # DocsService already knows which docs each department can access
-    docs = []
-    for dep_id in department_ids:
-        allowed_docs = await DocsService.list_documents_with_access(dep_id)
-        docs.extend(allowed_docs)
-
-    # TODO: Replace this with vector search to filter docs by relevance
-    # Returning all accessible docs for now:
-    return docs
 
 
 
@@ -37,33 +27,18 @@ async def search_documents(query: str, user: dict):
 @tool
 async def fetch_document(doc_id: int, user: dict):
     """
-    Fetch full document using DocsService.
-    Permission check is handled inside DocsService.
+    Fetch the full document (metadata + text content).
+    Permission checks and DB lookup are handled inside DocsService.
     """
 
-    department_ids = user.get("departments", [])
+    try:
+        full_doc = await DocsService.get_document_text(doc_id, user)
+        return full_doc
 
-    # Get all documents user has access to
-    allowed_docs = []
-    for dep_id in department_ids:
-        docs = await DocsService.list_documents_with_access(dep_id)
-        allowed_docs.extend(docs)
+    except ValueError as e:
+        # Convert service errors into tool-friendly errors
+        return {"error": str(e)}
 
-    # Check if the requested doc is allowed
-    if not any(doc["id"] == doc_id for doc in allowed_docs):
-        return {"error": "User does not have permission to access this document."}
-
-    # ⭐ Fetch full doc via DB (you have a repo in DocsService)
-    # You may create a new method: DocsService.get_document_full(doc_id)
-    # Stub example:
-
-    full_doc = {
-        "id": doc_id,
-        "title": "PLACEHOLDER",
-        "content": "Full content fetched from DB"
-    }
-
-    return full_doc
 
 
 

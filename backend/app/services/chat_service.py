@@ -1,6 +1,6 @@
 # services/chat_service.py
 
-from agent.graph import graph
+from app.agent.graph import graph
 
 class ChatService:
 

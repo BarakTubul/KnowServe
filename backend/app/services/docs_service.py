@@ -2,6 +2,7 @@ from app.core.unit_of_work import UnitOfWork
 from app.core.redis_client import get_cache, set_cache, invalidate_caches
 from app.tasks.ingestion_task import run_ingestion_task
 from app.models.document import Document
+from app.services.ingestion_service import DocumentIngestionService
 
 
 class DocsService:
@@ -164,3 +165,29 @@ class DocsService:
         await invalidate_caches(keys)
 
         return {"message": f"Document {doc_id} deleted successfully."}
+
+    @staticmethod
+    async def get_document_text(doc_id: int, user: dict) -> dict:
+    # 1. Permission check
+        allowed_docs = []
+        for dep_id in user.get("departments", []):
+            allowed_docs.extend(await DocsService.list_documents_with_access(dep_id))
+
+        if not any(doc["id"] == doc_id for doc in allowed_docs):
+            raise ValueError("No Access to this doc!")
+
+        # 2. Load metadata from DB
+        with UnitOfWork() as uow:
+            doc = uow.documents.get(doc_id)
+            if not doc:
+                raise ValueError("Document not found.")
+            result = {
+                    "id": doc.id,
+                    "title": doc.title,
+                    "source_url": doc.source_url,
+            }              
+
+        # 3. Extract text
+        full_text = DocumentIngestionService.extract_text_from_url(result["source_url"])
+        result["content"] = full_text
+        return result

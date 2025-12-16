@@ -3,10 +3,10 @@
 from langchain_core.messages import AIMessage
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint import MemorySaver
-from langchain_community.chat_models import ChatOllama
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_ollama import ChatOllama
 
-from tools import (
+from app.agent.tools import (
     search_documents,
     summarize_document,
     fetch_document,
@@ -18,12 +18,6 @@ from tools import (
 # =====================================
 llm = ChatOllama(model="llama3", temperature=0)
 
-llm = llm.bind_tools([
-    search_documents,
-    summarize_document,
-    fetch_document,
-    list_user_departments
-])
 
 
 # =====================================
@@ -40,7 +34,7 @@ def agent_node(state: MessagesState):
     }
 
     result = llm.invoke([system_msg] + state["messages"])
-    return {"messages": result}
+    return {"messages": [result]}
 
 
 # =====================================

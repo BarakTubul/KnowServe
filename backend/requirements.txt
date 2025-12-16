@@ -26,3 +26,4 @@ python-multipart
 
 #celery
 celery[redis]
+pytest
