@@ -1,7 +1,12 @@
+import os
 from app.core.unit_of_work import UnitOfWork
 from app.core.redis_client import get_cache, set_cache, invalidate_caches
 from app.tasks.ingestion_task import run_ingestion_task
 from app.models.document import Document
+from app.services.ingestion_service import DocumentIngestionService
+from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
+from app.core.vector_store import get_llama_index
+from app.core.chroma_client import get_chroma_client
 
 
 class DocsService:
@@ -28,7 +33,7 @@ class DocsService:
                     "source_url": d.source_url,
                     "status": d.status,
                     "allowed_departments": [dep.name for dep in d.departments],
-                    "owner_department_id": getattr(d, "owner_department_id", None),
+                    "allowed_department_ids": [dep.id for dep in d.departments],
                     "is_active": getattr(d, "is_active", True),
                 }
                 for d in docs
@@ -59,6 +64,7 @@ class DocsService:
                     "title": d.title,
                     "source_url": d.source_url,
                     "status": d.status,
+                    "allowed_departments": [dep.name for dep in d.departments],
                 }
                 for d in docs
             ]
@@ -89,7 +95,7 @@ class DocsService:
     # 🔹 Add new document (sets owner + allowed access + ingestion)
     # -------------------------------------------------------------
     @staticmethod
-    async def add_document(title: str, source_url: str, owner_department_id: int, allowed_department_ids: list[int]):
+    async def add_document(title: str, source_url: str, allowed_department_ids: list[int]):
         with UnitOfWork() as uow:
 
             # Load allowed departments
@@ -99,25 +105,19 @@ class DocsService:
             if not all(allowed_departments):
                 raise ValueError("One or more allowed department IDs are invalid.")
 
-            # Load owner
-            owner = uow.departments.get(owner_department_id)
-            if not owner:
-                raise ValueError("Invalid owner_department_id provided.")
-
             # Create document
             new_doc = Document(
                 title=title,
                 source_url=source_url,
                 is_active=True,
                 status="pending",
-                owner_department_id=owner_department_id,
             )
 
             uow.documents.save(new_doc)
             new_doc.departments = allowed_departments
             new_doc_id = new_doc.id
 
-            print(f"📄 Created document {new_doc_id} owned by department {owner_department_id}")
+            print(f"📄 Created document {new_doc_id}")
 
         # Kick off ingestion after commit
         run_ingestion_task.delay(new_doc_id, source_url, allowed_department_ids)
@@ -131,19 +131,21 @@ class DocsService:
     @staticmethod
     async def update_document_access(doc_id: int, new_allowed_department_ids: list[int]):
         with UnitOfWork() as uow:
+            # 1. Update the relational DB
             updated_doc = uow.documents.set_document_access(doc_id, new_allowed_department_ids)
-
             if not updated_doc:
                 raise ValueError("Document not found.")
 
             allowed_names = [d.name for d in updated_doc.departments]
+        
+        # Vector store permissions are no longer synced (handled in PostgreSQL)
 
-        # Invalidate caches that depend on access
+        # 3. Invalidate caches
         keys = ["docs:all"] + [f"docs:access:{dep_id}" for dep_id in new_allowed_department_ids]
         await invalidate_caches(keys)
 
         return {
-            "message": "Access permissions updated.",
+            "message": "Access permissions updated in DB.",
             "allowed_departments": allowed_names,
         }
 
@@ -159,8 +161,103 @@ class DocsService:
 
             affected_department_ids = [d.id for d in doc.departments]
             uow.documents.delete(doc)
+        # Sync deletion to ChromaDB
+        # We perform this after the DB commit to ensure consistency
+        await DocsService.delete_from_vector_store(doc_id)
 
         keys = ["docs:all"] + [f"docs:access:{dep_id}" for dep_id in affected_department_ids]
         await invalidate_caches(keys)
 
         return {"message": f"Document {doc_id} deleted successfully."}
+
+    @staticmethod
+    async def delete_from_vector_store(doc_id: int):
+        """Removes all nodes associated with a doc_id from ChromaDB."""
+        from app.core.chroma_client import get_chroma_client
+        client = get_chroma_client()
+        collection = client.get_or_create_collection("documents")
+        
+        # Use a metadata filter to identify all chunks/nodes for this document
+        # This ensures all split parts are removed at once
+        collection.delete(where={"db_doc_id": doc_id})
+        print(f"🗑️ [Chroma] All nodes for doc_id {doc_id} have been deleted.")
+    
+    @staticmethod
+    async def get_document_text(doc_id: int, user: dict) -> dict:
+        """
+        LlamaIndex version: Retrieves text nodes from ChromaDB.
+        """
+
+        # 1. Check permissions in PostgreSQL
+        user_dept_ids = user.get("departments", [])
+        if not user_dept_ids:
+            raise ValueError("User has no department access.")
+
+        allowed = False
+        for dept_id in user_dept_ids:
+            docs = await DocsService.list_documents_with_access(dept_id)
+            if any(doc["id"] == doc_id for doc in docs):
+                allowed = True
+                break
+
+        if not allowed:
+            raise ValueError("You do not have permission to access this document.")
+
+        # 2. Setup Index and Filters
+        index = get_llama_index()
+        filters = MetadataFilters(filters=[
+            ExactMatchFilter(key="db_doc_id", value=doc_id)
+        ])
+
+        # 3. Retrieve Nodes
+        # We use a retriever to get all nodes matching the doc_id
+        retriever = index.as_retriever(filters=filters)
+        print("Querying LlamaIndex with filters:", filters)
+        nodes = await retriever.aretrieve(f"Retrieve all text for document {doc_id}")
+        
+        if not nodes:
+            print(f"LlamaIndex returned 0 nodes for doc_id {doc_id} with exact match filter!")
+            raise ValueError("No Access or document is empty!")
+
+        # 4. Reconstruct Document
+        # LlamaIndex nodes store their original text and metadata
+        full_text = "\n".join([node.get_content() for node in nodes])
+        
+        return {
+            "id": doc_id,
+            "content": full_text
+        }
+
+    @staticmethod
+    async def get_document_file_path(doc_id: int, current_user: dict) -> str:
+        """
+        Validates user permissions and resolves the physical file path of a document PDF.
+        """
+        user_dept_ids = current_user.get("departments", [])
+        if "department_id" in current_user and current_user["department_id"] not in user_dept_ids:
+            if current_user["department_id"] is not None:
+                user_dept_ids.append(current_user["department_id"])
+
+        allowed = False
+        
+        # 1. Check if user is Admin
+        if current_user.get("role") == "admin":
+            allowed = True
+        else:
+            # 2. Check document permissions across all the user's mapped departments
+            for dept_id in user_dept_ids:
+                docs = await DocsService.list_documents_with_access(dept_id)
+                if any(doc["id"] == doc_id for doc in docs):
+                    allowed = True
+                    break
+
+        if not allowed:
+            raise PermissionError("You do not have permission to download this document.")
+            
+        file_path = os.path.join(os.path.dirname(__file__), "..", "static", "docs", f"{doc_id}.pdf")
+        file_path = os.path.normpath(file_path)
+        
+        if not os.path.exists(file_path):
+            raise ValueError("PDF file not found on server.")
+            
+        return file_path

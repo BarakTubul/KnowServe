@@ -1,7 +1,7 @@
 # app/controllers/auth_controller.py
 
 from app.services.auth_service import AuthService
-from app.schemas.auth_schema import RegisterRequest, LoginRequest
+from app.pydantic_schemas.auth_schema import RegisterRequest, LoginRequest
 
 
 class AuthController:

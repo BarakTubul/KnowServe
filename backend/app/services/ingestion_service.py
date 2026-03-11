@@ -1,61 +1,121 @@
-# app/services/ingestion_service.py
-import requests
+import os
+import gdown
 import tempfile
-from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFileLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from app.core.vector_store import get_vector_store
+
+from app.core.vector_store import get_llama_index
 
 class DocumentIngestionService:
-    """Handles only technical ingestion: download, parse, embed, store."""
-
+    
     @staticmethod
-    def _convert_drive_link(url: str) -> str:
-        """Convert Google Drive view link to direct download."""
-        if "drive.google.com" in url and "/file/d/" in url:
-            try:
-                file_id = url.split("/d/")[1].split("/")[0]
-                converted = f"https://drive.google.com/uc?export=download&id={file_id}"
-                print(f"🔗 [Drive] Converted to direct download: {converted}")
-                return converted
-            except Exception as e:
-                print(f"⚠️ [Drive] Failed to parse link: {e}")
-        return url
+    def _extract_drive_file_id(url: str) -> str | None:
+        """
+        Extract file ID from Google Drive share URL.
+        Supports:
+        - https://drive.google.com/file/d/<ID>/view
+        """
+        if "drive.google.com" not in url:
+            return None
 
+        if "/file/d/" in url:
+            return url.split("/file/d/")[1].split("/")[0]
+
+        return None
+
+
+    # ---------------------------------------------------------
+    # 🔹 Google Drive handling
+    # ---------------------------------------------------------
     @staticmethod
-    def _download_file(url: str, suffix: str = ".pdf") -> str:
-        """Download file locally and return its path."""
-        tmp_path = tempfile.NamedTemporaryFile(delete=False, suffix=suffix).name
-        response = requests.get(url, allow_redirects=True)
-        if response.status_code != 200 or not response.content:
-            raise Exception(f"Download failed ({response.status_code}) for {url}")
-        with open(tmp_path, "wb") as f:
-            f.write(response.content)
-        print(f"📥 [Downloader] File saved to {tmp_path}")
-        return tmp_path
+    def _download_file(url: str, doc_id: int = None, suffix: str = ".pdf") -> str:
+        """
+        Download a file locally. If doc_id is provided, saves persistently to /static/docs.
+        """
+        if doc_id:
+            static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "docs")
+            os.makedirs(static_dir, exist_ok=True)
+            tmp_path = os.path.join(static_dir, f"{doc_id}{suffix}")
+        else:
+            tmp_path = tempfile.NamedTemporaryFile(delete=False, suffix=suffix).name
 
+        # 1️⃣ Google Drive → gdown
+        file_id = DocumentIngestionService._extract_drive_file_id(url)
+        if file_id:
+            print(f"📥 [Downloader] Using gdown for Drive file {file_id}. Saving to {tmp_path}")
+            drive_url = f"https://drive.google.com/uc?id={file_id}"
+            gdown.download(drive_url, tmp_path, quiet=False)
+
+            if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+                raise RuntimeError("gdown failed to download file")
+
+            return tmp_path
+
+        else:
+            raise ValueError("Invalid Drive Link!")
+    
     @staticmethod
-    def ingest_from_url_sync(doc_id: int, source_url: str):
-        """Run the ingestion synchronously (for Celery worker)."""
-        print(f"🚀 [Ingestion] Starting pipeline for doc {doc_id}")
-
-        download_url = DocumentIngestionService._convert_drive_link(source_url)
-        file_path = DocumentIngestionService._download_file(download_url)
-
-        # Load PDF or fallback
+    def extract_documents_from_url(source_url: str, metadata: dict) -> list['Document']:
+        """
+        Downloads a PDF and returns a list of LlamaIndex Document objects.
+        """
+        doc_id = metadata.get("db_doc_id")
+        
+        # 1. Reuse your existing download logic (persistent if doc_id provided)
+        file_path = DocumentIngestionService._download_file(source_url, doc_id=doc_id)
+        
         try:
-            loader = PyMuPDFLoader(file_path)
-            docs = loader.load()
-        except Exception:
-            loader = UnstructuredFileLoader(file_path)
-            docs = loader.load()
-        print(f"📄 Loaded {len(docs)} pages")
+            # 2. Use LlamaIndex PyMuPDFReader
+            from llama_index.readers.file import PyMuPDFReader
+            reader = PyMuPDFReader()
+            documents = reader.load(file_path=file_path)
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        chunks = splitter.split_documents(docs)
-        print(f"✂️ Split into {len(chunks)} chunks")
-        vector_store = get_vector_store()
-        vector_store.add_documents(chunks)
-        print(f"💾 Stored {len(chunks)} chunks for doc {doc_id}")
-        return {"doc_id": doc_id, "status": "ingested"}
+            # 3. Attach common metadata to every Document object
+            for doc in documents:
+                doc.metadata.update(metadata)
+            
+            return documents
+        finally:
+            # Cleanup temp file only if it was a temporary ingestion
+            if not doc_id and os.path.exists(file_path):
+                os.remove(file_path)
+
+    @staticmethod
+    def ingest_from_url_sync(doc_id: int, source_url: str, department_ids: list[int]):
+        """
+        Main entry point for Celery or API calls.
+        Now uses the unified extraction method.
+        """
+        # 1. Prepare metadata for this specific document
+        metadata = {
+            "db_doc_id": doc_id,
+            "allowed_department_ids": department_ids
+        }
+
+        # 2. Extract using the unified method
+        documents = DocumentIngestionService.extract_documents_from_url(source_url, metadata)
+
+        # 3. Process into Nodes and Store
+        index = get_llama_index()
+        
+        # SentenceSplitter is token-aware and better for RAG than character splitting
+        from llama_index.core.node_parser import SentenceSplitter
+        splitter = SentenceSplitter(chunk_size=1024, chunk_overlap=100)
+        
+        # This will split the documents and insert them into ChromaDB
+        nodes = splitter.get_nodes_from_documents(documents)
+
+        # 🔐 attach security metadata (only db_doc_id, no department info)
+        for node in nodes:
+            node.metadata.pop("allowed_department_ids", None)
+            node.metadata["db_doc_id"] = int(doc_id)
+
+        index.insert_nodes(nodes)
+
+        return {
+            "doc_id": doc_id,
+            "status": "ingested",
+            "nodes_count": len(nodes)
+        }
+
+
+
+    

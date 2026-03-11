@@ -1,27 +1,32 @@
-.vscode/launch.json
-.vscode/tasks.json
-backend/app/__pycache__
-backend/app/core/__pycache__
-backend/app/routers/__pycache__
-backend/app/models/__pycache__
-backend/app/utils/__pycache__
-backend/app/schemas/__pycache__
+.vscode/
 .env
-backend/chroma_data
 
-backend/app/routers/admin/__pycache__
-backend/app/controllers/__pycache__
-backend/app/services/__pycache__
-backend/app/repositories/__pycache__
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
 
-backend/app/external_api/google_drive/knowserve-1f6ab01f57f5.json
-backend/classes_KnowServe.plantuml
-backend/packages_KnowServe.plantuml
-backend/app/tasks/__pycache__/ingestion_task.cpython-313.pyc
-backend/app/tasks/__pycache__/__init__.cpython-313.pyc
-backend/📄 document_ingestion_async.plantuml
-backend/app/tests/websocket_client.html
-backend/designs
+# Testing Cache
+.pytest_cache/
+.coverage
+htmlcov/
 
-backend/app/chroma_data
+# Node/Frontend Cache
+node_modules/
+dist/
+build/
+.npm/
 
+# Logs
+*.log
+
+# Database Assets
+backend/chroma_data/
+backend/backup/
+
+# Keys / Secrets
+backend/app/external_api/google_drive/knowserve-*.json
+
+# Design Artifacts
+backend/designs/
+*.plantuml
