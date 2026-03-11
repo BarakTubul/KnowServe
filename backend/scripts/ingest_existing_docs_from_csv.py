@@ -1,102 +1,89 @@
-import csv
-from pathlib import Path
-
+import os
+import uuid
+import gdown
+import pandas as pd
+from app.core.vector_store import get_llama_index
+from app.core.chroma_client import get_chroma_client
 from app.services.ingestion_service import DocumentIngestionService
-
-# -----------------------------
-# CONFIG
-# -----------------------------
-CSV_PATH = Path(__file__).parent / "documents.csv"
-CHECKPOINT_PATH = Path(__file__).parent / "ingest_checkpoint.txt"
-
-SKIP_DOC_ID = 20
-BATCH_SIZE = 5
+from llama_index.core.node_parser import SentenceSplitter
 
 
-def load_checkpoint() -> set[int]:
-    if not CHECKPOINT_PATH.exists():
-        return set()
-    return {
-        int(line.strip())
-        for line in CHECKPOINT_PATH.read_text().splitlines()
-        if line.strip().isdigit()
-    }
+def ingest_from_csv():
+    base_path = os.path.dirname(os.path.abspath(__file__))
 
+    docs_path = os.path.join(base_path, "documents.csv")
+    access_path = os.path.join(base_path, "department_documents_access.csv")
 
-def append_checkpoint(doc_id: int):
-    with open(CHECKPOINT_PATH, "a", encoding="utf-8") as f:
-        f.write(f"{doc_id}\n")
+    # 1. Load CSVs
+    docs_df = pd.read_csv(docs_path)
+    access_df = pd.read_csv(access_path)
 
+    # 2. Build permissions map
+    permissions = (
+        access_df.groupby("document_id")["department_id"]
+        .apply(list)
+        .to_dict()
+    )
 
-def main():
-    print("📄 Starting ingestion from CSV (unsorted-safe, checkpointed)\n")
+    try:
+        client = get_chroma_client()
+        client.delete_collection("documents")
+        print("🗑️ Deleted old 'documents' collection from ChromaDB")
+    except Exception as e:
+        print(f"⚠️ Note on collection deletion: {e}")
 
-    ingested = load_checkpoint()
-    if ingested:
-        print(f"🔁 Resuming — {len(ingested)} docs already ingested\n")
+    all_llama_nodes = []
 
-    processed_in_batch = 0
+    # good chunking for policy documents
+    splitter = SentenceSplitter(chunk_size=1024, chunk_overlap=120)
 
-    with open(CSV_PATH, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+    for _, row in docs_df.iterrows():
+        doc_id = int(row["id"])
+        source_url = row["source_url"]
+        allowed_depts = permissions.get(doc_id, [])
 
-        for row in reader:
-            print("Row to ingest: ", row)
-            # -------------------------
-            # 1️⃣ Validate CSV schema
-            # -------------------------
-            if "id" not in row or "source_url" not in row:
-                print("⚠️ CSV must contain doc_id and source_url columns")
-                return
+        if not allowed_depts:
+            print(f"⚠️ Skipping doc {doc_id} ('{row['title']}'): No permissions defined.")
+            continue
 
-            doc_id = int(row["id"])
-            source_url = row["source_url"]
+        print(f"🔄 Processing: {row['title']} (ID: {doc_id})...")
 
-            # -------------------------
-            # 2️⃣ Skip logic
-            # -------------------------
-            if doc_id == SKIP_DOC_ID:
-                print(f"⏭️ Skipping doc_id={doc_id}")
-                continue
+        try:
+            metadata = {
+                "db_doc_id": int(doc_id),
+                "title": str(row["title"]),
+            }
 
-            if doc_id in ingested:
-                continue
+            # extract document pages
+            llama_documents = DocumentIngestionService.extract_documents_from_url(
+                source_url,
+                metadata
+            )
 
-            # -------------------------
-            # 3️⃣ Ingest
-            # -------------------------
-            print(f"🚀 Ingesting doc_id={doc_id}")
+            # split into chunks
+            nodes = splitter.get_nodes_from_documents(llama_documents)
 
-            try:
-                DocumentIngestionService.ingest_from_url_sync(
-                    doc_id=doc_id,
-                    source_url=source_url,
-                )
+            # Format described in the ingestion service: only db_doc_id is needed, no department info.
+            for node in nodes:
+                node.metadata.pop("allowed_dept_ids", None)
+                node.metadata["db_doc_id"] = int(doc_id)
 
-                print(f"✅ Ingested doc_id={doc_id}\n")
+            all_llama_nodes.extend(nodes)
 
-                # 4️⃣ Persist checkpoint
-                append_checkpoint(doc_id)
-                ingested.add(doc_id)
-                processed_in_batch += 1
+            print(f"✅ Generated {len(nodes)} chunks for '{row['title']}'")
 
-            except Exception as e:
-                print(f"❌ Failed to ingest doc_id={doc_id}: {e}\n")
-                print("🛑 Stopping to avoid skipping documents.")
-                return
+        except Exception as e:
+            print(f"❌ Failed to extract '{row['title']}': {e}")
 
-            # -------------------------
-            # 5️⃣ Batch pause
-            # -------------------------
-            if processed_in_batch >= BATCH_SIZE:
-                processed_in_batch = 0
-                answer = input("👉 Continue with next batch? [y/N]: ").strip().lower()
-                if answer != "y":
-                    print("🛑 Stopping by user request.")
-                    return
+    # 4. Insert into vector DB
+    if all_llama_nodes:
+        index = get_llama_index()
+        index.insert_nodes(all_llama_nodes)
 
-    print("🏁 CSV ingestion complete")
+        print("\n🚀 VECTOR STORE REBUILT SUCCESSFULLY")
+        print(f"Total nodes inserted: {len(all_llama_nodes)}")
+        print("Permissions metadata stored as structured JSON (fixed).")
 
 
 if __name__ == "__main__":
-    main()
+    ingest_from_csv()

@@ -1,0 +1,21 @@
+"id","title","source_url","is_active","status","owner_department_id"
+1,"Employee Handbook","https://drive.google.com/file/d/1pGIgF5ISkAt5B4rDWamNY_vRO7JKJf_B/view?usp=sharing",True,"ingested",2
+2,"Quarterly Budget Report — Q1","https://drive.google.com/file/d/1GiP_wRko41JDgLV_6fj_QbXo7cKzZRwE/view?usp=sharing",True,"ingested",3
+3,"Code_review_guidelines","https://drive.google.com/file/d/1CxmmSMgVHidko-EnhrpuimXRN4mRb5I2/view?usp=sharing",True,"ingested",1
+4,"DevOPS deployment pipeline","https://drive.google.com/file/d/1E7f6KyH7Ki2pwJW3hbJM8AdBkI_tsQav/view?usp=sharing",True,"ingested",1
+5,"System Archeitecture Overview","https://drive.google.com/file/d/1vcRYnIndU46ImTfrpX1qW3CRwW4OesXW/view?usp=sharing",True,"ingested",1
+6,"Technical Debt Reduction Plan","https://drive.google.com/file/d/1MDFy4cCksi04zGo89Jo25wrCJwcgo0l7/view?usp=sharing",True,"ingested",1
+7,"Expense Reimbursement Policy","https://drive.google.com/file/d/1I-K1ew8_tREVhr31WnsCVj0p4X-Fho6H/view?usp=sharing",True,"ingested",3
+8,"Payroll Process Guide","https://drive.google.com/file/d/1DrSaM4eLCRXtSXWlFo_2xkSp_YxH7OBX/view?usp=sharing",True,"ingested",3
+9,"Vendor Contracts Summary","https://drive.google.com/file/d/17vE-X1ZHH_bcXw2pP6gbWHTmxa0CwVrp/view?usp=sharing",True,"ingested",3
+10,"Performance Evaluation Template","https://drive.google.com/file/d/1rkIxRxT-pV8lqfwUQoTjbspFxWTsRk6E/view?usp=sharing",True,"ingested",2
+11,"Recruitment Workflow","https://drive.google.com/file/d/1ciAN8dLdiWiBCBrmiR4N82Tfr89J6EyU/view?usp=sharing",True,"ingested",2
+12,"Remote Work Policy","https://drive.google.com/file/d/1s_H7DtmoRkGS-I0uZioYAtNsuJRNAhuH/view?usp=sharing",True,"ingested",2
+13,"2025 Marketing Strategy","https://drive.google.com/file/d/1b9I0fwTvgolpi4FVfwHS7xJ7Nloycv-O/view?usp=sharing",True,"ingested",4
+14,"Brand Guidelines","https://drive.google.com/file/d/1YMVtqH9EQokGyfDN4S08cHYaWAwgaWe1/view?usp=sharing",True,"ingested",4
+15,"Customer Feedback Analysis Report – Q1 2025","https://drive.google.com/file/d/1fSYr7mQBoS-fTLWNMBusSknvQiukFAvL/view?usp=sharing",True,"ingested",4
+16,"Social Media Content Calendar","https://drive.google.com/file/d/1tBBdfrR8Cgw77v4rPsO7aEe27UJ-4yCV/view?usp=sharing",True,"ingested",4
+17,"Experimental Results Dataset — Q1 2025","https://drive.google.com/file/d/1f7_Lke-hGjCjjsMEMLE-9oRMbLjAfmL-/view?usp=sharing",True,"ingested",5
+18,"Innovation Roadmap 2025","https://drive.google.com/file/d/1YSSt8LWDx2O28qpfzLpRSJEYGAqMUOdA/view?usp=sharing",True,"ingested",5
+19,"Patent Filing Summary — 2025 Cycle 1","https://drive.google.com/file/d/1xZ7cwDrVhMKXPdIRVUrvfvJSwaRGCrqr/view?usp=sharing",True,"ingested",5
+20,"Prototype Evaluation Report — March 2025","https://drive.google.com/file/d/13r527nK0CmLxwCr1bUf1hEzodnqcmLcz/view?usp=sharing",True,"ingested",5

@@ -8,7 +8,9 @@ def run_ingestion_task(doc_id: int, source_url: str, department_ids: list[int]):
     print(f"🚀 [Celery] Starting ingestion for doc {doc_id}")
 
     try:
-        DocumentIngestionService.ingest_from_url_sync(doc_id, source_url)
+        # Pass department_ids so the metadata can be attached to the vector nodes
+        DocumentIngestionService.ingest_from_url_sync(doc_id, source_url, department_ids)
+        
         event = {"doc_id": doc_id, "status": "ingested", "departments": department_ids}
         publish_sync("ingestion_complete", event)
         print(f"✅ [Redis] Published ingestion_complete for doc {doc_id}")

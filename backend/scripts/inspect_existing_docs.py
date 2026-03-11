@@ -1,4 +1,5 @@
-from app.core.vector_store import get_vector_store
+import os
+from app.core.vector_store import get_llama_index
 
 # -----------------------------
 # CONFIG
@@ -12,6 +13,7 @@ def get_all_doc_ids(collection) -> list[int]:
     """
     Extract all unique doc_ids from the vector store metadata.
     """
+    # include=['metadatas'] avoids downloading heavy vector data
     result = collection.get(include=["metadatas"])
     metadatas = result.get("metadatas", [])
 
@@ -25,8 +27,12 @@ def get_all_doc_ids(collection) -> list[int]:
 
 
 def main():
-    vector_store = get_vector_store()
-    collection = vector_store._collection
+    # 1. Use your LlamaIndex-native index getter
+    index = get_llama_index()
+    
+    # 2. Access the underlying Chroma collection
+    vector_store = index.storage_context.vector_store
+    collection = vector_store._collection  # Access the raw Chroma collection
 
     # 🔍 Decide which documents to inspect
     if DOC_IDS:
@@ -40,7 +46,7 @@ def main():
         print("⚠️ No documents found in vector store.")
         return
 
-    with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         for i in range(0, len(doc_ids), BATCH_SIZE):
             batch = doc_ids[i : i + BATCH_SIZE]
 
@@ -51,14 +57,22 @@ def main():
             for doc_id in batch:
                 print(f"🔍 Reading chunks for doc_id={doc_id}")
 
+                # Retrieve text and metadata to verify permissions
                 result = collection.get(
                     where={"doc_id": doc_id},
                     include=["documents", "metadatas"],
                 )
 
                 chunks = result.get("documents", [])
+                metas = result.get("metadatas", [])
 
-                f.write(f"\n--- DOCUMENT {doc_id} ({len(chunks)} chunks) ---\n\n")
+                f.write(f"\n--- DOCUMENT {doc_id} ({len(chunks)} chunks) ---\n")
+                
+                # Audit the specific metadata permissions
+                if metas:
+                    # Check the first chunk's permissions as a sample
+                    perms = metas[0].get("allowed_dept_ids", "N/A")
+                    f.write(f"🔐 Permissions (allowed_dept_ids): {perms}\n\n")
 
                 if not chunks:
                     f.write("[⚠️ NO CHUNKS FOUND]\n\n")

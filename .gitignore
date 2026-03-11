@@ -1,19 +1,32 @@
-.vscode/launch.json
-.vscode/tasks.json
+.vscode/
+.env
 
-
-# Python cache
+# Python Cache
 __pycache__/
 *.py[cod]
 *$py.class
 
-.env
-backend/chroma_data
-backend/designs
-backend/app/chroma_data
+# Testing Cache
+.pytest_cache/
+.coverage
+htmlcov/
 
+# Node/Frontend Cache
+node_modules/
+dist/
+build/
+.npm/
 
-backend/vector_store_audit.txt
-backend/scripts/documents.csv
-backend/scripts/ingest_checkpoint.txt
-backend/tests/websocket_client.html
+# Logs
+*.log
+
+# Database Assets
+backend/chroma_data/
+backend/backup/
+
+# Keys / Secrets
+backend/app/external_api/google_drive/knowserve-*.json
+
+# Design Artifacts
+backend/designs/
+*.plantuml

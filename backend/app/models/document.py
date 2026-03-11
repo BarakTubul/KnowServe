@@ -13,9 +13,6 @@ class Document(Base):
     is_active = Column(Boolean, default=True)
     status = Column(String(255), nullable=False)
 
-    # NEW
-    owner_department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
-    owner_department = relationship("Department", backref="owned_documents")
 
     # Existing many-to-many
     departments = relationship(

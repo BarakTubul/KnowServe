@@ -3,11 +3,14 @@ from app.services.docs_service import DocsService
 class AdminDocsController:
 
     @staticmethod
+    async def list_all_documents():
+        return await DocsService.list_all_documents()
+
+    @staticmethod
     async def create_document(dto):
         return await DocsService.add_document(
             title=dto.title,
             source_url=dto.source_url,
-            owner_department_id=dto.owner_department_id,
             allowed_department_ids=dto.allowed_department_ids,
         )
 

@@ -1,32 +1,35 @@
-# app/dependencies/auth.py
-from fastapi import Header, HTTPException, status, Depends
+from fastapi import Header, Cookie, HTTPException, status, Depends
 from typing import Optional
 from app.utils.jwt import decode_access_token
 import json
 
 
 # ------------------------------------------------------
-#  Extract JWT manually from the Authorization header
+#  Extract JWT from Request Cookies or Authorization Header
 # ------------------------------------------------------
 
-def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+def get_current_user(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Cookie(None)
+) -> dict:
     """
-    Extracts and verifies the JWT token manually from the Authorization header.
-    Expected format: 'Authorization: Bearer <token>'
+    Extracts and verifies the JWT token from HttpOnly cookies or Authorization header.
     """
-    if not authorization:
+    if not token and not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header missing",
+            detail="Authentication credentials missing",
         )
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization format. Use 'Bearer <token>'",
-        )
+    # Prioritize HttpOnly cookie
+    if not token and authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization format. Use 'Bearer <token>'",
+            )
+        token = authorization.split(" ")[1]
 
-    token = authorization.split(" ")[1]
     payload = decode_access_token(token)
 
     if not payload:
