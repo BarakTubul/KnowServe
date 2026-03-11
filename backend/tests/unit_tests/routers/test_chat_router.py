@@ -8,7 +8,10 @@ from app.utils.auth import get_current_user
 
 client = TestClient(app)
 
-ROUTE = "/chat/chat-stream"
+ROUTE = "/chat/stream"
+
+# Debug
+print("LOADED ROUTES:", [getattr(r, "path", r.path) for r in app.routes])
 
 
 # ============================================================
@@ -21,7 +24,11 @@ def override_auth():
         return {"id": 1, "email": "test@example.com"}
 
     app.dependency_overrides[get_current_user] = fake_user
-    yield
+    
+    # Block real redis events from spinning up when accessing the app router
+    with patch("app.core.redis_client.redis_client"):
+        yield
+        
     app.dependency_overrides.clear()
 
 
@@ -31,12 +38,12 @@ def override_auth():
 
 @pytest.fixture
 def fake_stream(monkeypatch):
-    async def gen(self, messages, user):
+    async def gen(*args, **kwargs):
         yield "Hello"
         yield " "
         yield "World"
 
-    monkeypatch.setattr(ChatService, "run_query_stream", gen)
+    monkeypatch.setattr("app.routers.chat.ChatService.get_streaming_chat_response", staticmethod(gen))
 
 
 # ============================================================
@@ -80,7 +87,7 @@ async def test_chat_stream_calls_chat_service():
     async def gen(*args, **kwargs):
         yield "ok"
 
-    with patch("app.routers.chat.chat_service.run_query_stream", gen):
+    with patch("app.routers.chat.ChatService.get_streaming_chat_response", staticmethod(gen)):
         response = client.post(
             ROUTE,
             json={"messages": [{"role": "user", "content": "Hello"}], "user": {"id": 5}},
@@ -100,7 +107,7 @@ def test_chat_stream_service_error():
         raise RuntimeError("boom")
         yield  # makes it an async generator
 
-    with patch("app.routers.chat.chat_service.run_query_stream", err):
+    with patch("app.routers.chat.ChatService.get_streaming_chat_response", staticmethod(err)):
         response = client.post(
             ROUTE,
             json={
