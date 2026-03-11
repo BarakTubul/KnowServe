@@ -19,6 +19,16 @@ def get_chroma_client():
     if _chroma_client is not None:
         return _chroma_client
 
+    chroma_host = os.getenv("CHROMA_HOST")
+    chroma_port = os.getenv("CHROMA_PORT", "8000")
+
+    if chroma_host:
+        from chromadb import HttpClient
+        print(f"Connecting to ChromaDB Server at {chroma_host}:{chroma_port}")
+        _chroma_client = HttpClient(host=chroma_host, port=chroma_port)
+        return _chroma_client
+
+    from chromadb import PersistentClient
     # Base directory = backend/app
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
