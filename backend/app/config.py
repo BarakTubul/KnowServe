@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     CHROMA_PATH: str
 
     JWT_SECRET_KEY: str
+    OPENAI_API_KEY: str
+    
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
         env_file_encoding="utf-8"
@@ -26,4 +28,4 @@ class Settings(BaseSettings):
 # Instantiate settings
 settings = Settings()
 
-print(f"⚙️ Loaded settings for {settings.PROJECT_NAME} [{settings.ENVIRONMENT}]")
+print(f"[CONFIG] Loaded settings for {settings.PROJECT_NAME} [{settings.ENVIRONMENT}]")

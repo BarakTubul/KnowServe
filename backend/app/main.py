@@ -1,22 +1,23 @@
 # app/main.py
 
-from fastapi import FastAPI,Depends
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
+import os
 
 from .routers.admin import router as admin_router
 from fastapi.openapi.utils import get_openapi
 from app.utils.auth import require_admin
 
-#Local imports
+# Local imports
 from .config import settings
 from .core.database import init_db, close_db
 from .core.redis_client import init_redis, close_redis
-from  .utils.auth import require_user
+from .utils.auth import require_user
 
-#Import routers (they’ll be added later)
-from .routers import auth, chat, docs, monitor,ws
+# Import routers
+from .routers import auth, chat, docs, monitor, ws
 
+os.environ["CHROMA_TELEMETRY"] = "false"
 
 # -------------------------------------------------------------
 # ✅ Initialize FastAPI App
@@ -26,6 +27,9 @@ app = FastAPI(
     version="1.0.0",
     description="Multi-agent organizational knowledge assistant backend.",
 )
+
+# Ensure Static directories exist and mount them
+os.makedirs("app/static/docs", exist_ok=True)
 
 
 # -------------------------------------------------------------
@@ -51,6 +55,19 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize connections & start event listener on app startup."""
+    
+    print("\n🚀 [SYSTEM] KnowServe backend initializing...")
+
+    # 1. Warm up heavy ML models and indices (LlamaIndex + HuggingFace)
+    # This shifts the ~10-20s load time to boot instead of the first user query.
+    from app.core.vector_store import get_embed_model, get_llama_index
+    get_embed_model()
+    get_llama_index()
+
+    if os.environ.get("TESTING") == "1":
+        print("🧪 Testing mode detected: skipping DB and Redis bg thread initialization.")
+        return
+
     from app.core.event_listener import listen_for_ingestion_events
     import asyncio
 
@@ -70,6 +87,10 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanly close connections on shutdown."""
+    
+    if os.environ.get("TESTING") == "1":
+        return
+
     await asyncio.gather(
         close_db(),
         close_redis()
@@ -78,13 +99,13 @@ async def shutdown_event():
 
 
 # -------------------------------------------------------------
-# 🧠 Include Routers (to be added later)
+# 🧠 Include Routers
 # -------------------------------------------------------------
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
-app.include_router(chat.router, prefix="/chat", tags=["Chat"],dependencies=[Depends(require_user)])
+app.include_router(chat.router, prefix="/chat", tags=["Chat"], dependencies=[Depends(require_user)])
 app.include_router(docs.router, prefix="/documents", tags=["Documents"], dependencies=[Depends(require_user)])
-app.include_router(admin_router, prefix="/admin", tags=["Admin"],dependencies=[Depends(require_admin)])
-app.include_router(monitor.router, prefix="/monitor", tags=["Monitoring"],dependencies=[Depends(require_admin)])
+app.include_router(admin_router, prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
+app.include_router(monitor.router, prefix="/monitor", tags=["Monitoring"], dependencies=[Depends(require_admin)])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
 # -------------------------------------------------------------
@@ -125,5 +146,3 @@ def custom_openapi():
     return app.openapi_schema
 
 app.openapi = custom_openapi
-
-
