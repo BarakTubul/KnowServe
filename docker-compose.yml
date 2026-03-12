@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: knowserve_password
       POSTGRES_DB: knowserve_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -30,7 +30,7 @@ services:
   chromadb:
     image: chromadb/chroma:latest
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - chroma_data:/chroma/chroma
     environment:
@@ -47,7 +47,14 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/static/docs:/app/static/docs
+    env_file:
+      - ./.env
     environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=knowserve_user
+      - DB_PASSWORD=knowserve_password
+      - DB_NAME=knowserve_db
       - DATABASE_URL=postgresql+psycopg2://knowserve_user:knowserve_password@db:5432/knowserve_db
       - REDIS_URL=redis://redis:6379/0
       - CHROMA_HOST=chromadb
@@ -68,7 +75,14 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/static/docs:/app/static/docs
+    env_file:
+      - ./.env
     environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=knowserve_user
+      - DB_PASSWORD=knowserve_password
+      - DB_NAME=knowserve_db
       - DATABASE_URL=postgresql+psycopg2://knowserve_user:knowserve_password@db:5432/knowserve_db
       - REDIS_URL=redis://redis:6379/0
       - CHROMA_HOST=chromadb
@@ -86,7 +100,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - backend
 

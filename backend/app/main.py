@@ -35,10 +35,7 @@ os.makedirs("app/static/docs", exist_ok=True)
 # -------------------------------------------------------------
 # 🌐 CORS Configuration
 # -------------------------------------------------------------
-origins = [
-    "http://localhost:5173",          # Vite frontend (local dev)
-    "https://knowserve.vercel.app",   # Production frontend might change
-]
+origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",")]
 
 app.add_middleware(
     CORSMiddleware,

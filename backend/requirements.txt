@@ -6,11 +6,12 @@ uvicorn[standard]
 sqlalchemy
 psycopg2-binary
 
-# Caching & vector store
+# Caching, queues, and vector store
 redis
+celery[redis]
 chromadb
 
-# Environment configuration
+# Environment and validation
 python-dotenv
 pydantic[email]
 pydantic-settings
@@ -19,11 +20,11 @@ pydantic-settings
 passlib[argon2]
 python-jose[cryptography]
 
-# File uploads / form handling
-python-multipart
-
-#agent framework
-
-#celery
-celery[redis]
-pytest
+# Agent framework and document ingestion
+llama-index
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+llama-index-llms-openai
+llama-index-readers-file
+gdown
+pandas

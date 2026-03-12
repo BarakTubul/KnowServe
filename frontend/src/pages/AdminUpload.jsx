@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { adminUploadApi, fetchAdminDocsApi, updateAdminDocAccessApi, deleteAdminDocApi } from '../services/api';
+import { adminUploadApi, fetchAdminDocsApi, updateAdminDocAccessApi, deleteAdminDocApi, getWsUrl } from '../services/api';
 import './AdminUpload.css';
 
 const AdminUpload = () => {
@@ -72,8 +72,7 @@ const AdminUpload = () => {
 
             // Initiate WebSocket connection for live status
             if (response && response.id) {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/api/ws/documents/${response.id}`;
+                const wsUrl = getWsUrl(`/ws/documents/${response.id}`);
                 const ws = new WebSocket(wsUrl);
 
                 ws.onmessage = (event) => {

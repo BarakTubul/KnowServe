@@ -1,5 +1,23 @@
 // src/services/api.js
-const API_BASE_URL = '/api'; // Proxied to localhost:8000 via Vite
+// In dev (no env var): falls back to '/api' and Vite proxy strips the prefix.
+// In production (Vercel): set VITE_API_BASE_URL=https://your-backend.onrender.com
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+
+/**
+ * Builds a WebSocket URL for the given path (e.g. /ws/documents/1).
+ * In production, derives wss:// from VITE_API_BASE_URL.
+ * In dev, routes through the Vite proxy using the current page host.
+ */
+export const getWsUrl = (path) => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    const wsBase = import.meta.env.VITE_API_BASE_URL
+      .replace(/^https:\/\//, 'wss://')
+      .replace(/^http:\/\//, 'ws://');
+    return `${wsBase}${path}`;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/api${path}`;
+};
 
 /**
  * Handles checking responses and throwing errors if bad response codes happen.

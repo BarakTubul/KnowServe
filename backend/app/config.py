@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str
     OPENAI_API_KEY: str
+
+    # Comma-separated list of allowed CORS origins.
+    # Override in Render env vars when your Vercel URL is known.
+    ALLOWED_ORIGINS: str = "http://localhost:5173,https://localhost:5173"
     
     model_config = SettingsConfigDict(
         env_file=".env",          # Load variables from .env automatically
