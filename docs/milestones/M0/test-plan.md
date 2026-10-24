@@ -45,9 +45,9 @@ Legend: **PASS-LOCAL** = verified by the Owner on the local stack; this is not c
 | M0-AC06 | PASS-LOCAL | OpenAPI export equals baseline; `check:api` and `tsc` pass; drift proven to fail. |
 | M0-AC07 | PARTIAL | Local gates fail on violations (lint/type/format/test; lint-failure proof). Required checks and branch protection are BLOCKED (user applies). |
 | M0-AC08 | BLOCKED | Workflow authored, never run; needs A3/A4. |
-| M0-AC09 | IN PROGRESS | Research agent (M0-09) writing sourced facts; measured values need the deployed spike. |
+| M0-AC09 | PARTIAL | `spike-report.md` has dated, sourced DOCUMENTED values and UNKNOWN items (spot-checked by the Owner, not every figure verified). Nothing is MEASURED: that needs the deployed spike. Billing alerts are config-only (not applied). |
 | M0-AC10 | PASS-LOCAL; deployed BLOCKED | Lost-publish recovery and concurrent dispatchers (SKIP LOCKED) tested; real Cloud Scheduler run not done. |
-| M0-AC11 | BLOCKED | Spike endpoints implemented and tested in-process (exact cookie flags, off by default); domain/TLS/CORS in a browser needs A3/A4/A5. |
+| M0-AC11 | BLOCKED | **Research finding F1:** Cloud Run domain mappings are documented as preview and not production-ready, so the current Terraform mechanism for `api.<domain>` may not be viable; a user decision on the mechanism and its cost is needed first (see `spike-report.md`). Spike endpoints implemented and tested in-process (exact cookie flags, off by default); domain/TLS/CORS in a browser needs A3/A4/A5. |
 | M0-AC12 | PARTIAL | gitleaks over full history: no findings; no secret versions in Terraform (`check_no_secrets.py`); OIDC/Secret Manager behavior BLOCKED. |
 | M0-AC13 | PASS-LOCAL (review) | Skeleton exists; ADR 0001 records rebuild-not-move; legacy folders untouched; history preserved. User confirmation pending on the committed legacy binaries. |
 | M0-AC14 | PASS-LOCAL | Health/readiness (incl. 503), typed config, JSON logs with correlation id across API -> job -> Worker, error envelope without stack traces, compose stack healthy. |

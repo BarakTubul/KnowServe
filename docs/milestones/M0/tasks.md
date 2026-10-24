@@ -15,7 +15,7 @@ Verification commands below are the intended checks. Exact script names are fixe
 | M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | workflows authored; **not run**; BLOCKED (A3/A4) |
 | M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | not started (needs M0-06/08/09) |
 | M0-08 | Same-site domain topology feasibility | M0-06; A5 | Infrastructure | API side done; deployed check BLOCKED (A3/A4/A5) |
-| M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | in progress (research agent) |
+| M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | done (sourced documented values; nothing measured) |
 | M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | workflows authored + actionlint clean; **not run on GitHub** |
 
 M0-01..07 keep their earlier numbering. M0-08..10 were split out of the earlier M0-05/M0-06 drafts, so the work that is genuinely parallel or blocked can run separately. They are part of the OPEN-20 approval.
@@ -31,7 +31,7 @@ Branch `m0/integration` was verified by the Owner after each merge (not just age
 | Frontend | `m0/03-frontend` | yes | 14 tests, typed client, Playwright |
 | Terraform | `m0/05-terraform` | yes | validate only |
 | CI + deploy workflows | `m0/10-ci` | yes | not executed remotely |
-| Research (M0-09) | `m0/09-research` | yes | running |
+| Research (M0-09) | `m0/09-research` | yes | `spike-report.md`; 13 findings, 14 spike items |
 | Independent security review | read-only | yes | findings below |
 
 Real parallel agents were used (five workstreams plus a reviewer, each in its own git worktree under `C:/Users/barak/ks-worktrees/`).
@@ -273,3 +273,10 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 - **Verification:** a deliberately failing commit on a throwaway PR is blocked for each check type; the protection settings are exported.
 - **Integration point:** right after M0-01; extended as streams add tests.
 - **Blocking risks:** service-container image availability for pgvector (verify; fall back per ADR).
+
+### Findings from the provider research that need a decision (`spike-report.md`)
+- **F1 (blocks M0-AC11 design):** Cloud Run domain mapping, used by `infra/terraform/gcp_cloud_run.tf` for `api.<domain>`, is documented as preview and "not production-ready". The alternatives (load balancer, Firebase Hosting) change cost and topology. Decision for the user, with OPEN-04/OPEN-10.
+- **F3:** QStash retries (default 3, backoff up to 6 h) count against the free daily message limit, and the Worker's retryable 409 is retried; the behavior after retries are exhausted is undefined in `jobs-outbox.md`.
+- **F5:** immediate publish after the response may stall under request-based CPU billing; the recovery dispatcher covers it, latency unmeasured.
+- **F6/F7:** Cloud Run timeout is not set in Terraform (default applies) and `deletion_protection` defaults to true in current docs; Terraform provider pins lag the latest releases.
+- **F8:** Neon Free has a 6-hour point-in-time window, no scheduled backups (OPEN-09 input). A GCP budget with alerts does not cap spend.
