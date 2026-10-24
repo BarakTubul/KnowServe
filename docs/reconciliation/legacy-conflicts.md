@@ -38,7 +38,7 @@ The first section is the discrepancy matrix between the previous repo docs and t
 
 **Duplicates reconciled:** rules about access, status codes and caching were previously repeated in several specs. They now live once in SEC-* and are referenced elsewhere. Logging and quota rules moved to MON-* and COST-*.
 
-**Ambiguities:** OPEN-12 to OPEN-18 were reported in the first pass and have since been resolved by the user. New ambiguities found in the second pass are OPEN-19 (Admin and Email OTP) and OPEN-20 (confirm reconciliation-added M0 IDs) (see `../open-decisions.md`).
+**Ambiguities:** OPEN-12 to OPEN-18 were reported in the first pass and have since been resolved by the user. New ambiguities found in the second pass were OPEN-19 (Admin and Email OTP; resolved in the third pass as password-only) and OPEN-20 (confirm reconciliation-added M0 IDs, still open). The third pass also replaced the second pass's ZIP owner-default interpretation with explicit `allowed_departments`, and moved failed-document file replacement into M3 (ADM-18) (see `../open-decisions.md`).
 
 ## 2. Current-code gaps (legacy, not migrated)
 Every target requirement is **not implemented**. Of these, the following legacy behaviors are actively unsafe or contradict the target, and should not be "fixed in place" on the legacy stack without a decision:
@@ -56,10 +56,10 @@ Every target requirement is **not implemented**. Of these, the following legacy 
 ## 3. Recommended implementation order (for user decision; nothing started)
 1. **Approve this docs-only PR and explicitly authorize M0.** OPEN-01 and OPEN-18 are now resolved, so nothing else blocks M0.
 2. **M0** in task-graph order: M0-01 repository transition skeleton, contracts and tooling; then M0-02/03/04/05 as dynamically allocated parallel workstreams (WF-16); then M0-06 integration CI/deploy; then M0-07 review package. This covers the INFRA-03 spike, the same-site domain feasibility (INFRA-11, M0-AC11), OPEN-06, OPEN-09 and OPEN-10.
-3. **M1 Auth & Demo**, including Email OTP (`../milestones/M1/plan.md`). This removes JWT, the self-registered Admin and the shared-memory risks at the root (items 1, 2 and 7 above). Security tests for SEC-01, SEC-03, SEC-13, SEC-16 and SEC-17 run from the start. Decide OPEN-19 during M1 planning.
+3. **M1 Auth & Demo**, including Email OTP (`../milestones/M1/plan.md`). This removes JWT, the self-registered Admin and the shared-memory risks at the root (items 1, 2 and 7 above). Security tests for SEC-01, SEC-03, SEC-13, SEC-16 and SEC-17 run from the start. The Admin is password-only (OPEN-19).
 4. **M2 Library & Access.** Owner/access schema, R2 bytes endpoint, viewer, 404 semantics (items 4, 5, 9).
-5. **M3 Upload & Ingestion.** Outbox, QStash, Worker, ZIP, SSE status (item 3 is retired along with the WebSocket).
+5. **M3 Upload & Ingestion.** Outbox, QStash, Worker, ZIP with explicit `allowed_departments`, failed-document file replacement (ADM-18), SSE status (item 3 is retired along with the WebSocket).
 6. **M4 RAG Chat & Citations** (first usable MVP). Authorized Retriever, citations, history, quotas and kill switch, plus the seed of the eval suite.
-7. **M5 Lifecycle/Hardening** (replace, soft delete cleanup, revocation in history), then **M6 Evaluation & Production hardening**.
+7. **M5 Lifecycle/Hardening** (ready-document replacement with atomic promotion, soft delete cleanup, revocation in history), then **M6 Evaluation & Production hardening**.
 
 Until a milestone replaces it, the legacy app should not be deployed publicly, because of items 1–6.

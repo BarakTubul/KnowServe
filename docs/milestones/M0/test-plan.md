@@ -1,0 +1,74 @@
+# M0 test plan
+
+**Status:** Planned, **not started**. No test exists yet. This is the early test plan required by TEST-01, and it is updated during M0 as real edge cases appear. Tasks are listed in `tasks.md`, and approvals A1–A5 in `plan.md`.
+
+## Test environments
+| Environment | Used for | Providers |
+|---|---|---|
+| Local | Docker Compose: API, Worker, PostgreSQL+pgvector; Vite for the frontend | faked (TEST-09) |
+| CI | Ephemeral Postgres+pgvector service container (strategy fixed by the M0-01 ADR) | faked |
+| Deployed spike | The environment authorized under A3 | real Neon, QStash, Cloud Run, Pages, Scheduler; no AI providers, R2 or Resend in M0 |
+
+## Evidence stages
+- **PR gate:** automated and blocking in CI on every merge into `m0/integration` and on the milestone PR.
+- **Spike evidence:** produced once in the deployed environment and attached to the review package (logs, reports, screenshots of settings).
+- **Post-merge:** can exist only after the user approves and merges the milestone PR. It is recorded in the M0 handoff, not the review package.
+
+## Acceptance criteria
+| ID | Acceptance criterion | Stage | Verification / evidence | Task | Covers |
+|---|---|---|---|---|---|
+| M0-AC01 | Dependencies install reproducibly from lockfiles | PR gate | CI logs of `uv sync --frozen` and `pnpm install --frozen-lockfile`; a drifted lock fails | M0-01, M0-10 | M0-EX1, STACK-35/36, ARCH-15, FE-ARCH-10 |
+| M0-AC02 | The deployed frontend calls the deployed API and renders a successful health/status response | Spike evidence | Playwright smoke against the deployed URLs | M0-03, M0-06 | M0-EX2, INFRA-02, STACK-01 |
+| M0-AC03 | The initial Alembic migration runs on an empty PostgreSQL+pgvector database, both in CI and on Neon; a vector column insert and a distance query succeed | PR gate + spike evidence | `alembic upgrade head` in CI; a pgvector round-trip test; the same migration in the deploy log for Neon | M0-02, M0-06 | M0-EX3, ARCH-11, STACK-11/12 |
+| M0-AC04 | The Worker accepts a correctly signed delivery for an eligible job and rejects a missing or bad signature, or an unknown/ineligible job, before doing any work | PR gate + spike evidence | Integration tests with faked signing keys; one real QStash delivery in the deployed environment | M0-04, M0-06 | M0-EX4, SEC-14, ING-14, ING-21 |
+| M0-AC05 | A duplicate or concurrent delivery of the same minimal job executes it at most once and acknowledges both | PR gate | Worker integration test with concurrent deliveries | M0-04 | M0-EX4, ING-10, ING-15 |
+| M0-AC06 | The generated OpenAPI matches the approved contract, and the generated TS types compile | PR gate | CI contract diff + `tsc --noEmit` | M0-02, M0-03, M0-10 | ARCH-04, STACK-38, FE-ARCH-01 |
+| M0-AC07 | Lint, format, type and test failures block merging to `main` | PR gate | Exported branch-protection settings; a throwaway PR showing each check type blocking | M0-10 | STACK-33/34, TEST-02, FE-ARCH-10/11 |
+| M0-AC08 | The deploy workflow builds both images, deploys API, Worker and Pages, runs migrations and a post-deploy smoke; it does not run for unapproved or failing PRs | Spike evidence (manual authorized dispatch, A3) + post-merge (first deploy on merge of the M0 PR) | Workflow logs and smoke report; a negative run showing the gate | M0-06 | M0-EX5, INFRA-04, INFRA-05 (procedure) |
+| M0-AC09 | Spike report: quotas, free-tier conditions, regions, cold starts, Cloud Run timeouts, QStash behavior, backup capability and monthly cost per service. Measured and estimated values are separated, with dated sources and assumptions, and billing alerts are configured | Spike evidence | `spike-report.md` reviewed; budget alert configuration exported | M0-09, M0-05, M0-07 | M0-EX6, INFRA-03, INFRA-08, COST-01, COST-04 (alerts), ING-22, OPEN-06/09/10 |
+| M0-AC10 | Outbox recovery: a job + outbox row committed in one transaction whose immediate publish is lost is later published by the recovery dispatcher, and the job runs once | PR gate + spike evidence | Integration test with crash injection; one Scheduler-triggered dispatcher run in the deployed environment | M0-04, M0-06 | M0-EX4, ING-12, ING-13, LIFE-09 |
+| M0-AC11 | Same-site topology feasibility, **without login** (login is M1):<br>- `app.<domain>` (Pages) and `api.<domain>` (Cloud Run) serve over TLS<br>- a spike-only endpoint sets a host-only `SameSite=Lax`, `Secure`, `HttpOnly` test cookie on `api.`<br>- a credentialed request from `app.` carries it<br>- a request from another origin is refused by CORS<br>- the domain cost is recorded<br>Alternatively, a documented blocker with alternatives for the user | Spike evidence | Playwright run from `app.` and from a foreign origin; response headers captured; config test showing the endpoint is off by default | M0-08 | M0-EX2, M0-EX6, INFRA-11, AUTH-19 (topology), FE-ARCH-02 |
+| M0-AC12 | No long-lived credentials or secret values in repo, CI or Terraform:<br>- CI deploys through GitHub OIDC / Workload Identity Federation<br>- each service reads its secrets from Secret Manager through its own least-privilege service account<br>- the secret scan passes, and the plan/state contains no secret values | PR gate (scan) + spike evidence | Secret-scan job; workflow auth logs showing no JSON key; IAM bindings export; review of plan/state for secret values | M0-05, M0-06, M0-10 | M0-EX5, INFRA-06, INFRA-07, ARCH-12 |
+| M0-AC13 | The monorepo transition matches the approved plan:<br>- the target skeleton exists and builds<br>- an ADR records move vs rebuild per legacy part and the handling of committed binaries<br>- any legacy removal or move is a separate reviewed commit that preserves history<br>- `AGENTS.md` commands are updated | PR gate (review) | Review of the commits and ADR; `git log --follow` on any moved file | M0-01 | M0-EX1, OPEN-18, STACK-39, FE-ARCH-05 |
+| M0-AC14 | Service baseline for API and Worker:<br>- liveness/readiness (readiness checks the DB)<br>- typed config with `.env.example`<br>- structured JSON logs with a correlation id propagated API → outbox → job → Worker<br>- no secrets in logs<br>- the error envelope on 404/422/500 without stack traces<br>- both services run locally with `docker compose up` | PR gate | Integration tests; log-capture test; Compose health check in CI or locally | M0-02, M0-04 | ARCH-05, ARCH-09, ARCH-12, ARCH-13, MON-03, MON-05, INFRA-01 |
+
+## Review of the earlier draft criteria (OPEN-20)
+| Item | Finding | Change |
+|---|---|---|
+| M0-EX1..6 | Clear and consistent with the specs | Approve unchanged. |
+| M0-AC01, 05, 06 | Clear and automatable | Unchanged (AC05 now also covers concurrent deliveries). |
+| M0-AC02, 03, 04 | Valid but didn't say where the evidence comes from | Real-provider evidence is marked as spike evidence; AC03 states the pgvector round trip. |
+| M0-AC07 | "Checks configured" can't be verified from code alone | Evidence is exported protection settings plus a blocking demonstration. |
+| M0-AC08 | **Impossible as written for the review package**: "after an approved merge" can only happen after the PR is approved | Split into spike evidence (authorized manual dispatch, A3) and post-merge evidence recorded in the handoff. |
+| M0-AC09 | "Prices documented" risked unsourced figures | Requires dated sources, measured vs estimated values, billing alerts and backups. |
+| M0-AC10 | Clear | Approve; adds one deployed dispatcher run. |
+| M0-AC11 | Assumed a login flow that M0 does not have; INFRA-11's test said "login from app." | Refined to a spike-only cookie-echo endpoint, off by default; INFRA-11's test aligned. A documented blocker is still an acceptable outcome. |
+| Missing | No criterion covered OIDC/Secret Manager/no-secrets, the repo transition, or the service baseline (health, logging, error envelope, Compose), although those requirements are tagged M0 | Added M0-AC12, AC13, AC14. |
+| Excessive for M0 | MON-06 error-rate and stuck-outbox alerts need real jobs; a rollback drill needs two real releases | M0 covers only billing alerts (AC09) and a documented rollback procedure (AC08). Operational alerts stay M3; a rollback drill is optional. |
+
+**Recommendation:** approve OPEN-20 **with these refinements**, i.e. M0-EX1..6, M0-AC01..14 as above, and tasks M0-08..10. Reject nothing. The only criterion that would have been impossible (AC08) is fixed by its evidence split.
+
+## Requirement traceability (M0-tagged requirements)
+| Requirement | Acceptance |
+|---|---|
+| ARCH-01..03, ARCH-07 | Review in M0-02 handoff (structure is minimal in M0) |
+| ARCH-04, STACK-38, FE-ARCH-01 | M0-AC06 |
+| ARCH-05, ARCH-09, ARCH-12, ARCH-13, MON-03, MON-05 | M0-AC14 |
+| ARCH-10 | M0-AC08 (two images), M0-AC13 (shared core has >1 consumer) |
+| ARCH-11, STACK-11/12 | M0-AC03 |
+| ARCH-15, STACK-33..36, FE-ARCH-10/11 | M0-AC01, M0-AC07 |
+| FE-ARCH-02 (M0 part: credentials + base URL) | M0-AC11, M0-03 tests |
+| FE-ARCH-04/06/08 (M0 part: setup only) | M0-03 component tests |
+| FE-ARCH-05, STACK-39 | M0-AC13 |
+| ING-10, ING-15 | M0-AC05 |
+| ING-12, ING-13, LIFE-09 | M0-AC10 |
+| ING-14, ING-21, SEC-14 | M0-AC04 |
+| ING-22 | M0-AC09 |
+| INFRA-01 | M0-AC14 |
+| INFRA-02, INFRA-04, INFRA-05 | M0-AC02, M0-AC08 |
+| INFRA-03, INFRA-08, COST-01, COST-04 (alerts) | M0-AC09 |
+| INFRA-06, INFRA-07 | M0-AC12 |
+| INFRA-09, MON-06 (M0 part) | M0-AC14 (logs), M0-AC09 (billing alerts) |
+| INFRA-11, AUTH-19 (topology) | M0-AC11 |
+
+Test names include the requirement or AC id (TEST-07), e.g. `test_ing_14_worker_rejects_bad_signature`.

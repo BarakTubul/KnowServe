@@ -56,6 +56,6 @@ Start from `docs/README.md` for the spec template and rules.
 | Logging, audit, usage | `docs/backend/monitoring.md` |
 | Deployment, Terraform, secrets, cost/quotas | `docs/architecture/infrastructure.md` |
 | Product scope, personas, Demo Mode | `docs/cross-cutting/product-and-ux.md` |
-| Process, milestones, tests | `docs/workflow/agent-workflow.md`, `docs/workflow/testing.md`, `docs/milestones/M0/plan.md`, `docs/milestones/M1/plan.md` |
+| Process, milestones, tests | `docs/workflow/agent-workflow.md`, `docs/workflow/testing.md`, `docs/milestones/M0/plan.md`, `docs/milestones/M0/tasks.md`, `docs/milestones/M0/test-plan.md`, `docs/milestones/M1/plan.md` |
 | Repository layout / monorepo migration | `docs/milestones/M0/plan.md` ("Repository structure") |
 | Why the docs look this way / legacy conflicts | `docs/reconciliation/` |

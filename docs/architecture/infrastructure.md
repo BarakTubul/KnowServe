@@ -33,7 +33,7 @@
 | INFRA-08 | review | Spike report backup section | provider backup capabilities stated without guarantees (OPEN-09) |
 | INFRA-09 | integration | See MON-03 to MON-06 | JSON logs with correlation ids; alerts defined |
 | INFRA-10 | integration | LLM provider mocked down | chat returns an `error` event; library and viewer still 200 |
-| INFRA-11 | spike report + deploy smoke | Pages app host and Cloud Run API host on one custom domain; login from `app.` | cookie set host-only on `api.` with `SameSite=Lax`; credentialed call works from `app.`, fails from another origin; domain cost recorded (M0-AC11) |
+| INFRA-11 | spike report + deploy smoke | Pages app host and Cloud Run API host on one custom domain; spike-only test cookie set by `api.` (M0 has no login) | cookie set host-only on `api.` with `SameSite=Lax`; credentialed call works from `app.`, fails from another origin; domain cost recorded (M0-AC11) |
 | COST-01 | spike report | Measured and estimated monthly cost per service at demo traffic | documented with assumptions (M0-AC09); no guarantee claimed |
 | COST-02 | integration | Exceed a visitor quota | request refused with a clear message; registered quota unaffected |
 | COST-03 | integration | Concurrent requests near the budget limit | total reserved never exceeds the budget |

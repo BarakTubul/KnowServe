@@ -1,15 +1,15 @@
 # Document lifecycle (submission → ready → change → delete)
 
-**Status:** Target spec (M2/M3 core, M5 replace/delete hardening). Not implemented: the legacy flow is Drive URL → Celery → Chroma → Redis → WebSocket. Read this first for any submission, upload or ingestion task, then the linked detailed specs.
+**Status:** Target spec (M2/M3 core including failed-file recovery, M5 ready-document replace/delete hardening). Not implemented: the legacy flow is Drive URL → Celery → Chroma → Redis → WebSocket. Read this first for any submission, upload or ingestion task, then the linked detailed specs.
 
 ## Flow
-1. **Submit** (`../frontend/admin-upload.md`): the Admin uploads a single PDF with metadata, or a ZIP + `manifest.json` through preview and explicit confirm (ADM-03, ADM-11 to ADM-14).
+1. **Submit** (`../frontend/admin-upload.md`): the Admin uploads a single PDF with metadata, or a ZIP + `manifest.json` through preview and explicit confirm (ADM-03, ADM-11 to ADM-14). Single upload preselects the owner department as a reader in the form; every ZIP entry must list `allowed_departments` explicitly, with no default (ADM-05).
 2. **Store and record** (`../backend/admin-docs.md`): the bytes go to private R2. The document, revision, access rows, job and outbox row are written in one transaction (ING-12), and the status is `queued`.
 3. **Dispatch** (`../backend/ingestion.md`): an immediate QStash publish after commit, plus the Cloud Scheduler recovery dispatcher (ING-13). Delivery is at-least-once.
 4. **Process**: the Worker verifies the signature and job (ING-14), claims it with a lease (ING-15), and runs `ProcessDocument`: extract per page, chunk 512/64 within pages, embed, write pgvector, then atomically publish (ING-17). The status becomes `processing` (with a phase), then `ready` or `failed`.
 5. **Observe**: the Admin UI follows the DB-derived SSE status (ING-07).
 6. **Consume** (`../backend/documents.md`, `../backend/chat.md`): departments with access rows see the ready, current revision in the library and viewer and can retrieve it in chat (SEC-07, SEC-08).
-7. **Change**: an access change is an immediate DB update with no re-embedding (ADM-07). Replace version is processed privately and promoted atomically (ADM-15). Soft delete blocks access immediately and is followed by async cleanup (ADM-08, ING-20).
+7. **Change**: an access change is an immediate DB update with no re-embedding (ADM-07). **Recover (M3):** a `failed` document with no current revision can get a replacement file; ID, owner and access are kept and a fresh ingestion attempt starts (ADM-18). **Replace version (M5):** a ready document's new revision is processed privately and promoted atomically (ADM-15). Soft delete blocks access immediately and is followed by async cleanup (ADM-08, ING-20).
 
 ## Target requirements
 | ID | Requirement | Milestone |
@@ -23,6 +23,7 @@
 | LIFE-07 | Retries and duplicate deliveries never duplicate chunks or publish a partial index (ING-10). | M0/M3 |
 | LIFE-08 | Replacement keeps the old ready revision served until the new one is fully published, and keeps the old one if the new one fails (ADM-15). | M5 |
 | LIFE-09 | An outbox row whose immediate publish was lost is published by the recovery dispatcher (ING-13). | M0/M3 |
+| LIFE-10 | Failed-document recovery: `failed` (no current revision) → replacement accepted → `queued` → `processing` → `ready` (now visible to permitted users) or `failed` again (recoverable again). Replacement is refused for `ready`/`queued`/`processing` documents; ready-document replacement is LIFE-08 (M5) (ADM-18). | M3 |
 
 ## Required tests (end-to-end; component tests are in the linked specs)
 | Req | Level | Scenario | Expected |
@@ -36,6 +37,7 @@
 | LIFE-07 | integration | Duplicate delivery | chunk count unchanged |
 | LIFE-08 | integration | Replace with a failing / succeeding revision | old served / new served after publish only |
 | LIFE-09 | integration | Lose the immediate publish; run recovery | job processed once |
+| LIFE-10 | e2e | Upload an image-only PDF → `failed`; replace with a text PDF on the local stack | Admin sees `failed` → `queued` → `ready`; a permitted user sees the doc only after `ready`, under the same ID |
 | happy path | e2e | Upload → ready → a user asks about the content | answer cites filename + page; the citation opens the viewer at that page |
 
 ## Current implementation (LEGACY, not migrated)

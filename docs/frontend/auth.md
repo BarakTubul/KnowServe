@@ -14,7 +14,7 @@
 | FE-AUTH-07 | The email verification page handles success, an expired token and an invalid token, and offers to resend. | M1 |
 | FE-AUTH-08 | A **Try Demo** entry starts a visitor session without signup. The Demo Mode indicator is visible (PROD-01). | M1 |
 | FE-AUTH-09 | A department selector lists **all** API departments for every user and visitor (AUTH-20, OPEN-12), with a Demo Mode note that department choice is self-selected. Switching calls the API, then resets the department-scoped cache, open chat and multi-turn context (SEC-10). A `409 ACTIVE_DEPARTMENT_REQUIRED` response opens the selector instead of showing a generic error. | M1 |
-| FE-AUTH-10 | **Email OTP login**: step 1 asks for the email and always shows the same "if an eligible account exists, a code was sent" message; step 2 accepts a 6-digit code, shows a generic error for wrong/expired/used codes, offers Resend only after the cooldown (AUTH-25), and navigates to the dashboard on success. The code is never stored in web storage or logs. The UI never calls it MFA (AUTH-26). | M1 |
+| FE-AUTH-10 | **Email OTP login**: step 1 asks for the email and always shows the same "if an eligible account exists, a code was sent" message; step 2 accepts a 6-digit code, shows a generic error for wrong/expired/used codes, offers Resend only after the cooldown (AUTH-25), and navigates to the dashboard on success. The code is never stored in web storage or logs. The UI never calls it MFA (AUTH-26). The Admin is **password-only** (OPEN-19): wherever the account is known to be the Admin (e.g. Admin re-authentication or an Admin-specific entry), the OTP option is not shown. On the public login page the role is unknown, so the option stays and the backend enforces the restriction with its neutral response (AUTH-22, AUTH-24); the UI never reveals that an email belongs to the Admin. | M1 |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
@@ -30,6 +30,7 @@
 | FE-AUTH-09 | component + e2e | Switch A→B; all departments listed; a 409 `ACTIVE_DEPARTMENT_REQUIRED` | B data shown, no A chats or docs visible; every API department selectable; selector opened |
 | FE-AUTH-10 | component | Request code; wrong code; resend before/after the cooldown; correct code | neutral message; generic error; resend disabled then enabled; dashboard |
 | FE-AUTH-10 | e2e | OTP login with the faked email provider | session created; same identity as after password login |
+| FE-AUTH-10 | component | Admin-known context (Admin re-auth) / public login page with the Admin email | no OTP option / same neutral "code sent" message as any email, no Admin hint |
 
 ### Retired IDs (do not reuse)
 None. All FE-AUTH-01..06 are kept with updated meaning; FE-AUTH-10 was added for Email OTP.

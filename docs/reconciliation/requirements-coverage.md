@@ -22,9 +22,12 @@ The user approved OPEN-01, 04, 07, 11–18 and a new Email OTP requirement. They
 | OPEN-13 Admin in regular UIs | SEC-17 (new), PROD-05, ADM-02, DOC-02 (retired reason), DOC-03 | yes |
 | OPEN-14 Error contract | ARCH-05, security spec status summary, AUTH-02, AUTH-17, DOC-03, CHAT-05, FE-ARCH-03, FE-AUTH-03, FE-AUTH-09 | yes |
 | OPEN-15 Password policy | AUTH-03, AUTH-15, FE-AUTH-03, M1-AC02 | yes |
-| Email OTP login | AUTH-06, AUTH-21..28 (22–28 new), FE-AUTH-02, FE-AUTH-10 (new), PROD-02, MON-04, MON-05, STACK-13/14, security spec "Related normative rules", `../milestones/M1/plan.md` M1-AC03..06; M0 plan states OTP is not M0 | yes; Admin eligibility **OPEN-19** |
-| OPEN-16 Default upload permissions | ADM-05, FE-ADM-03, FE-ADM-11, SEC-04/05 | yes; ZIP defaulting wording is an interpretation (see `validation-report.md`) |
-| OPEN-17 No extractable text | ING-23 (new), ING-09, ADM-02, ADM-15, ADM-16, FE-ADM-06, DOC-01 test | yes |
+| Email OTP login | AUTH-06, AUTH-21..28 (22–28 new), FE-AUTH-02, FE-AUTH-10 (new), PROD-02, MON-04, MON-05, STACK-13/14, security spec "Related normative rules", `../milestones/M1/plan.md` M1-AC03..06; M0 plan states OTP is not M0 | yes |
+| OPEN-19 Admin password-only (third pass) | AUTH-22, AUTH-24 (+ tests), FE-AUTH-10, PROD-02, M1-AC05 | yes |
+| OPEN-16 Default upload permissions | ADM-05, FE-ADM-03, FE-ADM-11, SEC-04/05 | yes |
+| OPEN-16 follow-up: explicit ZIP `allowed_departments` (third pass) | ADM-05, ADM-11, ADM-12 (+ tests), FE-ADM-03, FE-ADM-11, LIFE flow step 1 | yes; single-PDF default kept and the difference documented |
+| OPEN-17 No extractable text | ING-23 (new), ING-09, ADM-02, ADM-16, FE-ADM-06, DOC-01 test | yes |
+| OPEN-17 follow-up: failed-file replacement in M3 (third pass) | ADM-18 (new), LIFE-10 (new), FE-ADM-13 (new), ADM-15 / FE-ADM-12 / LIFE-08 scoped to ready documents (M5), ING-23, documents data model, PROD-09 | yes |
 | OPEN-18 Monorepo transition | `../milestones/M0/plan.md` "Repository structure" (current / target / M0 transition tasks), STACK-39, FE-ARCH-05, `../../AGENTS.md` index | yes; move-vs-rebuild per module is an M0-01 ADR |
 
 ## Source file → repo docs
@@ -58,7 +61,7 @@ The user approved OPEN-01, 04, 07, 11–18 and a new Email OTP requirement. They
 | Infra: Pages/R2, Cloud Run API+Worker, Neon pgvector, Terraform, Secret Manager, OIDC, Docker/Compose, Cloud Logging | — (none) | INFRA-01..10, COST-01..05, MON-03..06 | updated (new) / feasibility **open** OPEN-06, OPEN-09, OPEN-10 | `../architecture/infrastructure.md` | None implemented; CORS lists Vercel |
 | Tooling: uv/pnpm, Pyright/Ruff, ESLint/Prettier/strict TS, pytest/Vitest/Playwright | backend/architecture.md (unpinned requirements, pytest only) | STACK-30..36, ARCH-15, FE-ARCH-10..11, TEST-06 | updated | `../architecture/tech-stack.md` | Legacy npm, requirements.txt, no tests |
 | Milestones, worktrees, Owner, controlled scope, risk-based debt, early test plan, traceability, concise handoffs | AGENTS.md (stop for approval before every edit) | WF-01..15, TEST-01..09, AGENTS.md | updated | `../workflow/agent-workflow.md` | Not applicable (process) |
-| Open questions not made binding | — | OPEN-02, 03, 05, 06, 08, 09, 10, 19, 20 still open; the rest resolved | open / resolved | `../open-decisions.md` | — |
+| Open questions not made binding | — | OPEN-02, 03, 05, 06, 08, 09, 10, 20 still open; the rest resolved (OPEN-19 in the third pass) | open / resolved | `../open-decisions.md` | — |
 | Deferred fictional corpus preserved, not designed | — | DEF-01, PROD-12 | aligned with source (recorded only) | `../open-decisions.md` | — |
 | Docs-only, no code/deploy/schema changes | — | this branch | updated | `validation-report.md` (diff stat) | — |
 
@@ -68,16 +71,16 @@ The user approved OPEN-01, 04, 07, 11–18 and a new Email OTP requirement. They
 | ARCH | backend/architecture | 01–07, 09 | 08 | 10–15 |
 | AUTH | backend/auth | 01–04, 06–11 | 05, 12 | 13–21; 22–28 (Email OTP, second pass) |
 | DOC | backend/documents | 01, 03–05, 07 | 02, 06 | 08–10 |
-| ADM | backend/admin-docs | 01–05, 07–09 | 06 | 10–17 |
+| ADM | backend/admin-docs | 01–05, 07–09 | 06 | 10–17; 18 (third pass) |
 | ING | backend/ingestion | 02, 05, 07, 09–11 | 01, 03, 04, 06, 08 | 12–22; 23 (second pass) |
 | CHAT | backend/chat | 01–05, 08–10 | 06, 07 | 11–19 |
 | MON | backend/monitoring | 02 | 01 | 03–06 |
-| LIFE | cross-cutting/document-lifecycle | 01–07 | — | 08–09 |
+| LIFE | cross-cutting/document-lifecycle | 01–07 | — | 08–09; 10 (third pass) |
 | FE-ARCH | frontend/architecture | 01–07 | — | 08–13 |
 | FE-AUTH | frontend/auth | 01–06 | — | 07–09; 10 (second pass) |
 | FE-CHAT | frontend/chat | 01–03, 05–09 | 04 | 10–13 |
 | FE-DOC | frontend/my-documents | 01–06 | — | 07–09 |
-| FE-ADM | frontend/admin-upload | 01–10 | — | 11–12 |
+| FE-ADM | frontend/admin-upload | 01–10 | — | 11–12; 13 (third pass) |
 | PROD, SEC, EVAL, STACK, INFRA, COST, WF, TEST, M0-EX, M0-AC, M1-AC, OPEN, DEF | new specs | — | — | all; second pass added SEC-17, INFRA-11, WF-16, M0-AC11, M1-AC01..10, OPEN-19, OPEN-20 |
 
 M0 task ids M0-01..07 and acceptance criteria M0-AC01..09 keep the source numbering. M0-EX1..6, M0-AC10 (outbox recovery) and M0-AC11 (same-site topology) were added during reconciliation and are confirmed at M0 plan approval (OPEN-20). No existing ID was renumbered in the second pass.

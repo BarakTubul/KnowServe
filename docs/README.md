@@ -25,7 +25,7 @@ Specs describe the **target** system, using the approved decisions in `knowserve
 | Admin UI | `frontend/admin-upload.md` | FE-ADM |
 | Agent workflow, milestones | `workflow/agent-workflow.md` | WF |
 | Testing strategy and traceability | `workflow/testing.md` | TEST |
-| M0 plan, repository transition and test plan | `milestones/M0/plan.md` | M0-EX, M0-, M0-AC |
+| M0 plan and repository transition; task board; test plan | `milestones/M0/plan.md`, `milestones/M0/tasks.md`, `milestones/M0/test-plan.md` | M0-EX; M0-; M0-AC |
 | M1 scope and acceptance criteria | `milestones/M1/plan.md` | M1-AC |
 | Resolved decisions (decision log), open decisions, tensions, deferrals | `open-decisions.md` | OPEN, DEF |
 | Reconciliation reports (2026-10-24, incl. the decisions update) | `reconciliation/requirements-coverage.md`, `reconciliation/legacy-conflicts.md`, `reconciliation/validation-report.md` | — |

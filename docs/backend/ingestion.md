@@ -32,7 +32,7 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 | ING-20 | Durable asynchronous cleanup eventually removes objects, chunks and vectors of soft-deleted documents and orphaned revisions. | M5 |
 | ING-21 | The job envelope is minimal and versioned: `{schema_version, job_id}`. All other data is read from the DB. | M0 |
 | ING-22 | Worker processing is independent of the HTTP request lifecycle, so it can move to Cloud Run Jobs if limits require it. The Cloud Run request timeout vs job size is measured in the M0 spike (INFRA-03). | M0/M3 |
-| ING-23 | **No extractable text** (OPEN-17): if PyMuPDF4LLM yields no usable text, the revision ends `failed` with reason `NO_EXTRACTABLE_TEXT`, since retrying cannot help. The document and its stored file are **retained** for Admin inspection (ADM-02), and are never published to the library, the regular viewer or retrieval (SEC-07). The Admin may replace the file and retry (ADM-15, ADM-16). There is no OCR in the MVP and no `view_only` status. | M3 |
+| ING-23 | **No extractable text** (OPEN-17): if PyMuPDF4LLM yields no usable text, the revision ends `failed` with reason `NO_EXTRACTABLE_TEXT`, since retrying cannot help. The document and its stored file are **retained** for Admin inspection (ADM-02), and are never published to the library, the regular viewer or retrieval (SEC-07). The Admin may replace the file from M3 (ADM-18) or retry (ADM-16). There is no OCR in the MVP and no `view_only` status. | M3 |
 
 ### Retired IDs (do not reuse)
 | ID | Was | Reason |

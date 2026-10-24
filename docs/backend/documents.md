@@ -8,7 +8,7 @@ User-facing read paths: the document library, metadata, and protected PDF bytes 
 ## Data model (target)
 - `documents`: id, title/filename, `owner_department_id` (ownership only, SEC-04), soft-delete marker, pointer to the current revision.
 - `document_revisions`: revision id, document id, storage key in private R2, status (`queued`/`processing`/`ready`/`failed` + phase), embedding model/index identity (ING-18).
-- The **current revision** is the promoted one that users are served. A first upload has no current revision until it becomes `ready`. A replacement is a *candidate* revision until it is atomically promoted (ADM-15).
+- The **current revision** is the promoted one that users are served. A first upload has no current revision until it becomes `ready`. A replacement of a ready document is a *candidate* revision until it is atomically promoted (ADM-15, M5). A failed document that never had a current revision gets its replacement file as a new revision of the same document (ADM-18, M3), which becomes current through the same first-ready path as an initial upload; no promotion swap is involved.
 - `document_department_access` (document_id, department_id): the **only** source of read access (SEC-05).
 
 Exact columns are fixed by the M2/M3 schema contract (ARCH-11).

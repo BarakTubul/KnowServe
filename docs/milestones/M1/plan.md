@@ -20,7 +20,7 @@
 | M1-AC02 | Password policy: 8-char minimum, no composition rules, blocklist rejection, Unicode/passphrases accepted | unit tests | AUTH-03, FE-AUTH-03 |
 | M1-AC03 | Email OTP login creates the same session type as password login | integration + e2e (Resend faked) | AUTH-06, AUTH-22, AUTH-24, FE-AUTH-10 |
 | M1-AC04 | OTP security: expiry, wrong code, replay, concurrent verification, 5-attempt cap, replacement invalidation, no plaintext storage | integration tests | AUTH-23, AUTH-24 |
-| M1-AC05 | OTP rate limits and cooldown (per email, per IP, global email budget) and enumeration resistance (verified vs unknown vs unverified email) | integration tests | AUTH-22, AUTH-25 |
+| M1-AC05 | OTP rate limits and cooldown (per email, per IP, global email budget) and enumeration resistance (verified vs unknown vs unverified vs Admin email); OTP request and verify rejected for the Admin, whose password login still works | integration tests | AUTH-22, AUTH-24, AUTH-25, FE-AUTH-10 |
 | M1-AC06 | No OTP codes, passwords, tokens or cookies in logs or audit records | log-capture tests | AUTH-21, AUTH-27, MON-05 |
 | M1-AC07 | CSRF token + Origin check enforced on every cookie-authenticated mutation; CORS limited to the app origin | integration + deploy smoke | AUTH-14, AUTH-19 |
 | M1-AC08 | Every user and visitor can select every department; switching isolates data; missing department returns 409 `ACTIVE_DEPARTMENT_REQUIRED` | integration + e2e | AUTH-17, PROD-04, SEC-10, FE-AUTH-09 |
@@ -29,7 +29,6 @@
 
 ## Open items affecting M1
 - OPEN-05: session and demo lifetimes, purge cadence and rate-limit values (beyond the approved OTP initial parameters).
-- OPEN-19: whether the Admin may log in with Email OTP (password-only until decided).
 
 ## Related docs
 `../../backend/auth.md`, `../../frontend/auth.md`, `../../cross-cutting/security-and-permissions.md`, `../../cross-cutting/product-and-ux.md`, `../M0/plan.md`, `../../open-decisions.md`

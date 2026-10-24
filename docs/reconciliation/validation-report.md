@@ -36,11 +36,11 @@ The first pass's results (0 broken links, 0 duplicate IDs, 319 active and 15 ret
 | Preserved architecture (§4 of the request) | Tech stack rows STACK-01..39 unchanged except STACK-13/14/39 wording; evaluation spec untouched; traceability rules unchanged. |
 
 ## 3. Interpretations and items for user review
-1. **ZIP default permissions (ADM-05).** The decision asks for "safe validation of any defaulting behavior" in ZIP import. The specs say: a manifest entry should list allowed departments; if the flow defaults to the owner department for an entry that omits them, the preview shows it as an explicit planned access row and only confirmation makes it binding; an explicit empty list is rejected. Confirm, or require explicit lists only.
-2. **Admin and Email OTP (OPEN-19).** The decision allows OTP for "existing, email-verified accounts" but the Admin is provisioned out-of-band. The specs treat the Admin as password-only until the user decides.
+1. **ZIP default permissions (ADM-05).** Superseded in the third pass: explicit, nonempty `allowed_departments` per entry, no default (see §6).
+2. **Admin and Email OTP (OPEN-19).** Resolved in the third pass: password-only (see §6).
 3. **Derived details** (consequences of the decisions, flagged for awareness):
    - `NO_EXTRACTABLE_TEXT` failures skip automatic retries, since retrying cannot help (ING-23).
-   - Replacing a failed first upload uses the ADM-15 replace flow, which stays M5; until then the Admin's options are Retry or delete and re-upload.
+   - Replacing a failed document's file is M3 (ADM-18, third pass); only ready-document replacement stays M5 (ADM-15).
    - SSE `error` events reuse the error envelope fields (ARCH-05).
    - The CSRF token delivery detail and the password blocklist / breach-check mechanism are left to M1 ADRs; the breach check must never send the plaintext password to a third party (AUTH-03).
    - OTP request responses for ineligible emails must be identical, including no meaningful timing difference (AUTH-22).
@@ -52,6 +52,32 @@ The first pass's results (0 broken links, 0 duplicate IDs, 319 active and 15 ret
 
 ## 4. Contradictions between approved decisions
 None found that cannot be resolved from the decisions themselves. One tension is recorded for visibility, not as a blocker: the OPEN-04 custom domain adds cost against the $0–5/month target, so OPEN-10 includes the domain cost and the M0 spike reports it.
+
+## 6. Third pass: targeted corrections (2026-10-24)
+Applied three user-approved decisions only:
+- **A. OPEN-19 resolved:** the Admin logs in with password only. AUTH-22, AUTH-24, FE-AUTH-10, PROD-02 and M1-AC05 updated, with negative and enumeration tests.
+- **B. ZIP manifest:** explicit, nonempty `allowed_departments` per entry, no owner default. ADM-05, ADM-11, ADM-12, FE-ADM-03, FE-ADM-11 and the lifecycle flow updated. Single-PDF upload keeps its owner preselection, and the difference is stated in each place.
+- **C. Failed-document file replacement in M3:** new ADM-18, LIFE-10 and FE-ADM-13. ADM-15, FE-ADM-12 and LIFE-08 are now explicitly ready-document replacement in M5. ING-23, the documents data-model note, PROD-09 and the OPEN-17 entry were updated to match.
+
+Checks executed in this pass (same throwaway script, extended to expect OPEN-19 resolved):
+
+| Check | Result |
+|---|---|
+| Links | 0 broken |
+| IDs | 0 duplicates, 0 undefined references; 337 active / 15 retired; no ID renumbered |
+| Test coverage | 0 untested; ADM-18, LIFE-10 and FE-ADM-13 have rows |
+| Decision status | OPEN-19 is under "Resolved decisions" and not under "Still open"; still open are OPEN-02, 03, 05, 06, 08, 09, 10, 20, each with owner, target and criteria. The decision-log diff touches only the OPEN-16, OPEN-17 and OPEN-19 rows. |
+| Contradiction searches | Searched for stale Admin-OTP wording ("until decided", "Admin eligibility") and for ZIP-default wording ("owner-department default", "planned access row", `allowed:`, "entry omitting"). One hit remains, and it is the correct statement that ZIP has *no* owner default. |
+| OTP for ordinary users | AUTH-22 still issues codes for verified non-Admin accounts |
+| Legacy terms | 17 hits, unchanged from the second pass and reviewed then |
+| `git diff --check` | exit 0 |
+| Diff scope | 13 Markdown files; no non-Markdown files |
+
+Not performed: no markdown linter (none installed).
+
+Design clarification (smallest necessary, not new scope): ADM-18 records the replacement file as a **new revision row** of the same document. The existing data model already stores status, storage key and chunks per revision (`../backend/documents.md`, ING-02), so this is the only way to guarantee the failed attempt's partial chunks can never become current. It needs no promotion swap, because no ready revision exists. Two details are deliberately left to the M3 API contract: the exact 409 error code for a non-failed document, and the final names of the ZIP validation error codes. The specs give example codes (`ALLOWED_DEPARTMENTS_MISSING`, `ALLOWED_DEPARTMENTS_EMPTY`, `UNKNOWN_DEPARTMENT`).
+
+No M3 or M5 plan file exists. M3 acceptance is expressed through the Required-tests rows of ADM-18, LIFE-10, FE-ADM-13, ADM-11 and ADM-12; no new plan file was created.
 
 ## 5. Current-code discrepancies
 Every target requirement remains **not implemented**. See `legacy-conflicts.md` §2; rows 25–29 of §1 list the conflicts added in this pass.
