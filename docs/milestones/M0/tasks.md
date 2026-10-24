@@ -1,24 +1,44 @@
 # M0 task board
 
-**Status:** Planned, **not started** (no task is in progress). The Owner keeps this board current at meaningful changes, not every commit (WF-10). Acceptance criteria are defined in `test-plan.md`; the context, approvals A1–A5 and contracts are in `plan.md`.
+**Status:** Local implementation done on branch `m0/integration`; cloud-dependent work BLOCKED. Nothing was pushed, merged or deployed. The Owner keeps this board current at meaningful changes, not every commit (WF-10). Acceptance criteria are defined in `test-plan.md`; the context, approvals A1–A5 and contracts are in `plan.md`.
 
 Verification commands below are the intended checks. Exact script names are fixed by M0-01 and recorded in `AGENTS.md`; `<health>` and similar placeholders come from the M0-01 contracts.
 
 ## Board
 | ID | Objective | Depends on | Workstream | Status |
 |---|---|---|---|---|
-| M0-01 | Repository skeleton, tooling and shared contracts | A1, A2 | Owner | planned |
-| M0-02 | Shared core (config, DB, logging, errors), initial migration, API service | M0-01 | Backend | planned |
-| M0-03 | Frontend shell and generated API client | M0-01 | Frontend | planned |
-| M0-04 | Worker: signed delivery, job claim, outbox publish and recovery dispatcher | M0-01; M0-02a for integration | Worker | planned |
-| M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC, budgets | M0-01; apply needs A3, A4 | Infrastructure | planned |
-| M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | planned |
-| M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | planned |
-| M0-08 | Same-site domain topology feasibility | M0-06; A5 | Infrastructure | planned |
-| M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | planned |
-| M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | planned |
+| M0-01 | Repository skeleton, tooling and shared contracts | A1, A2 | Owner | done locally (merged into `m0/integration`) |
+| M0-02 | Shared core (config, DB, logging, errors), initial migration, API service | M0-01 | Backend | done locally |
+| M0-03 | Frontend shell and generated API client | M0-01 | Frontend | done locally; deployed smoke BLOCKED |
+| M0-04 | Worker: signed delivery, job claim, outbox publish and recovery dispatcher | M0-01; M0-02a for integration | Worker | done locally; live QStash/OIDC BLOCKED |
+| M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC, budgets | M0-01; apply needs A3, A4 | Infrastructure | code authored + validated; plan/apply BLOCKED |
+| M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | workflows authored; **not run**; BLOCKED (A3/A4) |
+| M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | not started (needs M0-06/08/09) |
+| M0-08 | Same-site domain topology feasibility | M0-06; A5 | Infrastructure | API side done; deployed check BLOCKED (A3/A4/A5) |
+| M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | in progress (research agent) |
+| M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | workflows authored + actionlint clean; **not run on GitHub** |
 
 M0-01..07 keep their earlier numbering. M0-08..10 were split out of the earlier M0-05/M0-06 drafts, so the work that is genuinely parallel or blocked can run separately. They are part of the OPEN-20 approval.
+
+## Execution log (evidence, local only)
+Branch `m0/integration` was verified by the Owner after each merge (not just agent reports). Last full run: `uv run ruff format --check . && uv run ruff check . && uv run pyright && uv run pytest` -> 124 passed (48 core, 25 API, 51 Worker); `pnpm -r lint|format:check|typecheck|test|build` -> all pass (14 frontend tests); `check:api` pass; `actionlint` clean; Terraform `fmt -check`, `init -backend=false`, `validate` pass (container, no cloud contact); `check_no_secrets.py` OK. Local stack (`docker compose up migrate api worker`): migration exit 0, API `/v1/status` 200, unsigned Worker call 401, locally signed delivery completed a job with the API request's correlation id in the Worker logs, and the real (unmocked) Playwright spec passed against the local API and database.
+
+| Workstream | Branch | Parallel? | Notes |
+|---|---|---|---|
+| Owner (M0-01, core, API skeleton, integration) | `m0/integration` | n/a | contracts and ADRs first, then fan-out |
+| API hardening + Docker | `m0/02b-api` | yes | 25 tests, image runs as non-root |
+| Worker + outbox | `m0/04-worker` | yes | 51 service tests + 31 jobs/outbox/QStash core tests; QStash/OIDC logic unverified live |
+| Frontend | `m0/03-frontend` | yes | 14 tests, typed client, Playwright |
+| Terraform | `m0/05-terraform` | yes | validate only |
+| CI + deploy workflows | `m0/10-ci` | yes | not executed remotely |
+| Research (M0-09) | `m0/09-research` | yes | running |
+| Independent security review | read-only | yes | findings below |
+
+Real parallel agents were used (five workstreams plus a reviewer, each in its own git worktree under `C:/Users/barak/ks-worktrees/`).
+
+### Security review outcome (independent, read-only)
+No Critical findings. Fixed: **H1** (Workload Identity now restricted to `refs/heads/main` + `production` environment), **H2** (Worker could not start: `worker_public_url` and `dispatcher_oidc_audience` are now required Terraform variables), **M2** (automatic deploy on push disabled until approved; GitHub environment rules are mandatory), **L2** (Worker body-size cap, 413), **L5** (https required for Worker/QStash URLs in production).
+Open, for decision or later: **M1** the deployer cannot read `database-url` but `deploy.yml` reads it for migrations (decision needed: separate migration secret/role, or a Cloud Run migration job); **M3** pin third-party actions by SHA and pin wrangler (needs real SHAs); **M4** (before M3) lease heartbeat, max attempts and rowcount check on completion; **L1** certificate-fetch amplification on the dispatcher endpoint; **L3** `last_error` content; **L4** refuse non-production env on Cloud Run; **L6/L7** Cloud Run limits and the dead `WORKER_REQUIRES_IAM` branch.
 
 ## Dependency graph
 ```mermaid

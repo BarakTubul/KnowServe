@@ -32,6 +32,26 @@
 | M0-AC13 | The monorepo transition matches the approved plan:<br>- the target skeleton exists and builds<br>- an ADR records move vs rebuild per legacy part and the handling of committed binaries<br>- any legacy removal or move is a separate reviewed commit that preserves history<br>- `AGENTS.md` commands are updated | PR gate (review) | Review of the commits and ADR; `git log --follow` on any moved file | M0-01 | M0-EX1, OPEN-18, STACK-39, FE-ARCH-05 |
 | M0-AC14 | Service baseline for API and Worker:<br>- liveness/readiness (readiness checks the DB)<br>- typed config with `.env.example`<br>- structured JSON logs with a correlation id propagated API → outbox → job → Worker<br>- no secrets in logs<br>- the error envelope on 404/422/500 without stack traces<br>- both services run locally with `docker compose up` | PR gate | Integration tests; log-capture test; Compose health check in CI or locally | M0-02, M0-04 | ARCH-05, ARCH-09, ARCH-12, ARCH-13, MON-03, MON-05, INFRA-01 |
 
+## Evidence status (updated from actual runs; local only)
+Legend: **PASS-LOCAL** = verified by the Owner on the local stack; this is not cloud evidence. **BLOCKED** = requires approved cloud access/deployment. Nothing here was run on GitHub or any cloud.
+
+| AC | Status | Evidence / what is missing |
+|---|---|---|
+| M0-AC01 | PASS-LOCAL; CI run BLOCKED | `uv sync --frozen`, `pnpm install --frozen-lockfile` succeed locally. The workflow exists but has not run on GitHub. |
+| M0-AC02 | BLOCKED | Needs deployed frontend + API. Local real Playwright spec passed against the local stack and a mocked spec exists; neither is AC02 evidence. |
+| M0-AC03 | PASS-LOCAL; Neon BLOCKED | Migration + pgvector insert/distance tests on local pgvector/pg16. Not run on Neon. |
+| M0-AC04 | PASS-LOCAL (simulated); live BLOCKED | Locally signed deliveries: valid/next key accepted; missing, bad, expired, wrong body/sub/iss, alg=none rejected. Real QStash signatures unverified. |
+| M0-AC05 | PASS-LOCAL | 8 concurrent deliveries -> exactly one execution; redelivery is a no-op; expired lease reclaimed. |
+| M0-AC06 | PASS-LOCAL | OpenAPI export equals baseline; `check:api` and `tsc` pass; drift proven to fail. |
+| M0-AC07 | PARTIAL | Local gates fail on violations (lint/type/format/test; lint-failure proof). Required checks and branch protection are BLOCKED (user applies). |
+| M0-AC08 | BLOCKED | Workflow authored, never run; needs A3/A4. |
+| M0-AC09 | IN PROGRESS | Research agent (M0-09) writing sourced facts; measured values need the deployed spike. |
+| M0-AC10 | PASS-LOCAL; deployed BLOCKED | Lost-publish recovery and concurrent dispatchers (SKIP LOCKED) tested; real Cloud Scheduler run not done. |
+| M0-AC11 | BLOCKED | Spike endpoints implemented and tested in-process (exact cookie flags, off by default); domain/TLS/CORS in a browser needs A3/A4/A5. |
+| M0-AC12 | PARTIAL | gitleaks over full history: no findings; no secret versions in Terraform (`check_no_secrets.py`); OIDC/Secret Manager behavior BLOCKED. |
+| M0-AC13 | PASS-LOCAL (review) | Skeleton exists; ADR 0001 records rebuild-not-move; legacy folders untouched; history preserved. User confirmation pending on the committed legacy binaries. |
+| M0-AC14 | PASS-LOCAL | Health/readiness (incl. 503), typed config, JSON logs with correlation id across API -> job -> Worker, error envelope without stack traces, compose stack healthy. |
+
 ## Review of the earlier draft criteria (OPEN-20)
 | Item | Finding | Change |
 |---|---|---|
