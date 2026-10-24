@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version
 from typing import Any, Literal
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
@@ -42,6 +42,29 @@ router = APIRouter()
 _UNAVAILABLE: dict[int | str, dict[str, Any]] = {
     503: {"model": ErrorEnvelope, "description": "Database unavailable"}
 }
+
+
+spike_router = APIRouter(prefix="/v1/spike", tags=["spike"])
+SPIKE_COOKIE = "ks_spike"
+
+
+class SpikeEchoResponse(BaseModel):
+    cookie_present: bool
+
+
+@spike_router.post("/cookie", status_code=204)
+async def spike_cookie() -> Response:
+    """M0-08 only: host-only test cookie (no Domain attribute)."""
+    response = Response(status_code=204)
+    response.set_cookie(
+        SPIKE_COOKIE, "1", max_age=300, path="/", secure=True, httponly=True, samesite="lax"
+    )
+    return response
+
+
+@spike_router.get("/echo", response_model=SpikeEchoResponse)
+async def spike_echo(request: Request) -> SpikeEchoResponse:
+    return SpikeEchoResponse(cookie_present=SPIKE_COOKIE in request.cookies)
 
 
 def _engine(request: Request) -> AsyncEngine:
@@ -89,6 +112,8 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.state.settings = settings
     app.state.engine = engine
     app.include_router(router)
+    if settings.enable_spike_endpoints:
+        app.include_router(spike_router)
     install_web(app)
     app.add_middleware(
         CORSMiddleware,
