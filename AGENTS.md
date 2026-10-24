@@ -1,35 +1,60 @@
 # KnowServe
 
-Organizational knowledge assistant. Employees chat with a RAG agent over company PDFs; access is restricted by department. Admins ingest documents (Google Drive links) and control which departments can see them.
+A portfolio **demo** of a fictional organization's departmental knowledge assistant. Users browse permissioned PDFs and ask grounded, cited questions (RAG). Access is enforced per active department.
 
-- **Backend:** `backend/` — FastAPI, SQLAlchemy/Postgres, Redis (cache + pub/sub), Celery, ChromaDB, LlamaIndex (gpt-4o-mini agent).
-- **Frontend:** `frontend/` — React 19 + Vite, plain JS, react-router 7. Dev server proxies `/api` to `localhost:8000`.
+## Where the project is
+- **Target system** (approved): React+TypeScript on Cloudflare Pages; FastAPI API + Worker on Cloud Run; Neon Postgres+pgvector; R2; QStash with a transactional outbox; opaque DB sessions; LlamaIndex with OpenRouter (chat) and OpenAI embeddings. Full list in `docs/architecture/tech-stack.md`.
+- **Current code is LEGACY**: `backend/` (FastAPI with JWT, Celery/Redis, Chroma, gdown) and `frontend/` (React JS). It has **not** been migrated. Never describe a target requirement as implemented without test evidence.
+- **Phase:** documentation reconciliation. **Code work starts only once the user approves the docs-only PR and authorizes M0** (`docs/milestones/M0/plan.md`). After that, work proceeds milestone by milestone (M0–M6, WF-14).
+
+## How to work (summary of `docs/workflow/agent-workflow.md`)
+1. **Read only what the task needs.** Find the task area in the index below, then read those specs plus their linked SEC/OPEN items. Specs hold the approved contracts and requirements.
+2. **Owner-led parallel work.**
+   - The Planning & Integration Owner plans the milestone, fixes the shared contracts (OpenAPI/errors, DB schema/migrations, config, job envelope, logging ids), assigns modules and integrates.
+   - Each agent works in its own git worktree and branch.
+   - Do not change a shared contract without Owner coordination (WF-02, WF-03).
+3. **Act within scope without asking.** Implementation agents fix local defects and the edge cases implied by existing requirements on their own. There is **no approval gate per edit or commit**.
+4. **Escalate** changes to architecture, interfaces/contracts, the security model, scope, cost or anything cross-cutting to the Owner. The Owner takes new features or major scope expansion to the **user** (WF-04, WF-05).
+5. **Respect open decisions.** Never turn an item in `docs/open-decisions.md` into a binding choice. Reference its OPEN-id and escalate.
+6. **Test with traceability.** Write tests alongside the code, following the spec's "Required tests" table, and put requirement ids in test names (TEST-01, TEST-07). Security tests are hard gates from day one.
+7. **Review gates are limited** to integration points, an independent review of risky changes, and the final milestone PR. **The user approves the milestone PR**, and deploy follows automatically (WF-06, WF-13).
+8. **Hand off concisely.**
+   - Agent → Owner: branch/commit, contracts touched, tests + evidence, risks, gaps (WF-08).
+   - Milestone end: a handoff doc referencing the specs (WF-12).
+   - The Owner keeps `docs/milestones/Mx/tasks.md` current and writes short ADRs in `docs/adr/` (WF-10).
+9. **Keep specs true.** Update requirements, tests and "Current implementation / Known gaps" in the same change (WF-15). Handle debt by risk (WF-11).
+
+Hard limits unless the user explicitly authorizes otherwise:
+- no deployment
+- no infra apply
+- no secrets in the repo or Terraform state
+- no changes to cloud credentials
+- no merge to `main` without the user's approval of the milestone PR
 
 ## Commands
-- Backend (from `backend/`, needs `.env`, Postgres, Redis): `uvicorn app.main:app --reload`; worker: `celery -A app.core.celery_app.celery_app worker`
-- Backend tests: `cd backend && pytest` (no tests exist right now; see each spec's "Required tests")
-- Frontend (from `frontend/`): `npm run dev`, `npm run build`, `npm run lint` (no test tool yet)
-
-## Workflow (follow for every feature or fix)
-1. Find the task in the **Doc index** below and read only the docs listed for it. Don't read the others.
-2. Read the code the specs point to, then write a plan: what changes, which requirement IDs it satisfies, which tests will cover them.
-3. **Stop and wait for the user's approval** before editing code.
-4. Implement, with the tests listed in the spec's "Required tests" table. Reference requirement IDs in test names (e.g. `test_adm_03_...`).
-5. If behavior changes, update the spec in the same change (requirements, tests table, "Known gaps").
-
-Specs state intended behavior; a "Known gaps" section lists where the code currently differs. Don't assume code is correct just because a spec describes it.
+- **Target** (after M0): `uv`, `pnpm`, Docker Compose, pytest/Vitest/Playwright, Ruff/Pyright/ESLint/Prettier. They will be defined in M0-01.
+- **Legacy (current code):**
+  - backend from `backend/`: `uvicorn app.main:app --reload` and `celery -A app.core.celery_app.celery_app worker` (needs Postgres and Redis)
+  - frontend from `frontend/`: `npm run dev`, `npm run lint`
+  - There are no tests.
 
 ## Doc index
-Read `docs/README.md` only when adding or editing a spec.
+Start from `docs/README.md` for the spec template and rules.
 
 | Task area | Read |
 |---|---|
-| Any backend change | `docs/backend/architecture.md` |
-| Any frontend change | `docs/frontend/architecture.md` |
-| Login, register, roles, JWT, route guards | `docs/backend/auth.md`, `docs/frontend/auth.md` |
-| Chat, agent, tools, streaming | `docs/backend/chat.md`, `docs/frontend/chat.md` |
-| Listing/downloading documents as a user, department access | `docs/backend/documents.md`, `docs/frontend/my-documents.md` |
-| Admin: add/delete document, change access | `docs/backend/admin-docs.md`, `docs/frontend/admin-upload.md` |
-| Document submission / upload end to end | `docs/cross-cutting/document-lifecycle.md` (then `docs/backend/admin-docs.md`, `docs/backend/ingestion.md`, `docs/frontend/admin-upload.md`) |
-| Celery, Redis events, status updates, WebSocket | `docs/backend/ingestion.md` |
-| Monitoring | `docs/backend/monitoring.md` |
+| Any change (scope, IDs, open items) | `docs/README.md`, `docs/open-decisions.md` |
+| Backend change | `docs/backend/architecture.md`, `docs/cross-cutting/security-and-permissions.md` |
+| Frontend change | `docs/frontend/architecture.md` |
+| Stack / library choice | `docs/architecture/tech-stack.md` |
+| Auth, sessions, CSRF, Try Demo, department switch | `docs/backend/auth.md`, `docs/frontend/auth.md`, `docs/cross-cutting/security-and-permissions.md` |
+| Document library, PDF viewer, access rules | `docs/backend/documents.md`, `docs/frontend/my-documents.md`, `docs/cross-cutting/security-and-permissions.md` |
+| Document submission / upload / ZIP / replace / delete | `docs/cross-cutting/document-lifecycle.md`, then `docs/backend/admin-docs.md`, `docs/backend/ingestion.md`, `docs/frontend/admin-upload.md` |
+| Worker, outbox, QStash, job status | `docs/backend/ingestion.md` |
+| Chat, retrieval, citations, streaming | `docs/backend/chat.md`, `docs/frontend/chat.md`, `docs/cross-cutting/security-and-permissions.md` |
+| Evaluation / golden dataset | `docs/cross-cutting/evaluation.md` |
+| Logging, audit, usage | `docs/backend/monitoring.md` |
+| Deployment, Terraform, secrets, cost/quotas | `docs/architecture/infrastructure.md` |
+| Product scope, personas, Demo Mode | `docs/cross-cutting/product-and-ux.md` |
+| Process, milestones, tests | `docs/workflow/agent-workflow.md`, `docs/workflow/testing.md`, `docs/milestones/M0/plan.md` |
+| Why the docs look this way / legacy conflicts | `docs/reconciliation/` |

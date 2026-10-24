@@ -1,46 +1,50 @@
 # Frontend admin document management
 
-## Purpose
-`/admin/upload` page: an admin adds documents (title, Google Drive link, permitted departments), watches ingestion status, edits access, and deletes documents.
+**Status:** Target spec (M3 upload, ZIP and status; M5 replace/delete hardening). Not implemented: the legacy `/admin/upload` page posts Google Drive URLs and listens on a WebSocket.
 
-## Requirements
-| ID | Requirement |
-|---|---|
-| FE-ADM-01 | The page is reachable only by admins (nav link hidden for others; route guarded). |
-| FE-ADM-02 | On load it fetches `GET /admin/docs/` and lists documents with title, status and "Visible to" departments, with a title search. |
-| FE-ADM-03 | The form requires title, a URL, and at least one department; with none selected it shows "Please select at least one permitted department." and sends nothing. |
-| FE-ADM-04 | Submit calls `POST /admin/docs/` with `{title, source_url, allowed_department_ids}`; button shows "Processing..." and is disabled while in flight. |
-| FE-ADM-05 | On success it shows a "queued for ingestion" banner, resets the form, refreshes the list (new doc shown as `pending`), and opens a WebSocket to `/api/ws/documents/{id}`. |
-| FE-ADM-06 | On a WS message with status `ingested` it shows a success banner and refreshes the list; with `failed` it shows an error banner (with the error text if provided) and refreshes; the socket is closed in both cases. |
-| FE-ADM-07 | "Edit Access" opens a department checklist pre-filled from `allowed_department_ids`; saving needs at least one department, calls `PATCH /admin/docs/{id}/access`, closes the panel and refreshes. |
-| FE-ADM-08 | "Delete" asks for confirmation; on confirm calls `DELETE /admin/docs/{id}`, shows a success banner and refreshes; cancel does nothing. |
-| FE-ADM-09 | API errors show the server message in the banner/alert; the form stays filled on failure. |
-| FE-ADM-10 | The status badge distinguishes `pending`, `ingested` and `failed`. |
-
-## Files
-`src/pages/AdminUpload.jsx`, `src/pages/AdminUpload.css`, `src/services/api.js` (`fetchAdminDocsApi`, `adminUploadApi`, `updateAdminDocAccessApi`, `deleteAdminDocApi`), `src/components/Navbar.jsx`
+## Target requirements
+| ID | Requirement | Milestone |
+|---|---|---|
+| FE-ADM-01 | Admin pages are shown only to the Admin (UX only, SEC-15). A non-Admin hitting the route sees a "not available" view, and the API also returns 403. | M3 |
+| FE-ADM-02 | The admin list shows every document with status and phase, owner department, allowed departments and last failure reason, with a title search. | M3 |
+| FE-ADM-03 | The single-upload form (RHF+Zod) takes a PDF file, title, owner department and allowed departments (at least one, ADM-05). Departments come from the API. | M3 |
+| FE-ADM-04 | Submit sends multipart to the upload endpoint. The submit button is disabled while the upload is in flight. | M3 |
+| FE-ADM-05 | On success the form resets, the document appears as `queued`, and the page subscribes to its SSE status stream (ING-07). | M3 |
+| FE-ADM-06 | Status events update the stage display. `ready` shows success, and `failed` shows the server's reason with a Retry action (ADM-16). There are no invented progress percentages. Closing the page and reopening it recovers the state from the list (the DB is the truth). | M3 |
+| FE-ADM-07 | Edit access opens a department checklist pre-filled from the document. Saving requires at least one department and refreshes the list. The UI notes that no reprocessing happens. | M3 |
+| FE-ADM-08 | Delete asks for confirmation (an accessible dialog, not `window.confirm`), then soft-deletes and refreshes the list. Cancel does nothing. | M3/M5 |
+| FE-ADM-09 | API errors show the server message, and the form keeps its values on failure. | M3 |
+| FE-ADM-10 | The status badge distinguishes `queued`, `processing` (with its phase), `ready` and `failed`. | M3 |
+| FE-ADM-11 | **ZIP import**: upload a ZIP to get a read-only **preview** with per-file validation. **Confirm** is an explicit action (double-click safe). Per-file results follow, with retry for failed files (ADM-11 to ADM-14). | M3 |
+| FE-ADM-12 | **Replace version**: upload a new PDF for an existing document. The UI shows that the current version stays live until the new one is ready, and the outcome on failure (ADM-15). | M5 |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
 |---|---|---|---|
-| FE-ADM-01 | component | Render route as employee | blocked/redirected |
-| FE-ADM-02 | component | API returns 3 docs; search "fin" | 3 listed; filtered to matches |
-| FE-ADM-03 | component | Submit with no department | message shown, API not called |
-| FE-ADM-04 | component | Submit valid form | API body matches; button disabled during request |
-| FE-ADM-05 | component | Success response `{id: 7}` | banner, form cleared, list refetched, `WebSocket` constructed with `.../api/ws/documents/7` |
-| FE-ADM-06 | component | Fake WS emits ingested / failed | banners as specified, `ws.close()` called, list refetched |
-| FE-ADM-07 | component | Open edit on doc with ids [1,3]; save with none / with [1,2] | pre-checked 1,3; alert; PATCH `[1,2]` |
-| FE-ADM-08 | component | Delete with confirm true / false | DELETE called / not called |
-| FE-ADM-09 | component | POST returns 400 `{detail}` | detail shown; inputs unchanged |
-| FE-ADM-10 | component | Statuses pending/ingested/failed | three distinct classes |
+| FE-ADM-01 | component | Render as a registered user | not-available view |
+| FE-ADM-02 | component | Mocked list with 4 statuses; search | all rendered; the filter works |
+| FE-ADM-03 | component | No file / no departments / non-PDF file | inline errors; no API call |
+| FE-ADM-04 | component | Valid submit | multipart body correct; button disabled during the request |
+| FE-ADM-05 | component | Success response | form reset; row `queued`; SSE subscription opened |
+| FE-ADM-06 | component | Fake SSE emits phases, then failed | stage text updates; reason + Retry shown |
+| FE-ADM-07 | component | Edit [1,3] → [1,2] | PATCH body `[1,2]`; list refetched |
+| FE-ADM-08 | component | Confirm / cancel | DELETE called / not called |
+| FE-ADM-09 | component | 422 / 400 response | message shown; inputs kept |
+| FE-ADM-10 | component | Each status | distinct badge |
+| FE-ADM-11 | component + e2e | ZIP preview with 1 bad file; confirm; retry | preview lists the bad file; confirm creates the rest; retry creates 1 |
+| FE-ADM-12 | component | Replace upload | "current version stays live" notice; result shown |
+
+### Retired IDs (do not reuse)
+None. FE-ADM-01..10 are kept with updated meaning.
+
+## Current implementation (LEGACY, not migrated)
+- `src/pages/AdminUpload.jsx` has a form with title, a Google Drive URL and hard-coded departments 1–5.
+- After creation it opens `WebSocket /api/ws/documents/{id}`. The socket is not closed on unmount.
+- The status badge checks `'error'` while the backend writes `'failed'`, so failed documents look pending.
+- Dialogs use `window.confirm`/`alert`. There is no file upload, ZIP import, replace or retry.
 
 ## Known gaps
-- FE-ADM-01: route not role-guarded (see `architecture.md`).
-- FE-ADM-10: `doc.status === 'error'` is checked, but the backend writes `failed`, so failed documents show as pending.
-- FE-ADM-06: backend does not send the `error` text over WS (see `backend/ingestion.md` ING-07); if the page is closed or reloaded before the event, the status only updates on the next list fetch (no polling or reconnect); socket is not closed on unmount.
-- Departments are hard-coded (ids 1-5, fixed names); the form accepts any URL while the backend only supports Google Drive file links (ADM-06).
-- Page says "Upload files", but only a URL is supported.
-- Uses a lot of inline styles; `window.confirm`/`alert` for dialogs.
+Every FE-ADM requirement is unimplemented on the target stack.
 
 ## Related docs
 `architecture.md`, `../backend/admin-docs.md`, `../backend/ingestion.md`, `../cross-cutting/document-lifecycle.md`

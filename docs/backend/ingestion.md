@@ -1,58 +1,78 @@
 # Backend ingestion pipeline
 
+**Status:** Target spec. M0 proves only the signed Worker, one idempotency path and recovery feasibility. Full ingestion is M3 and lifecycle hardening is M5. Not implemented: the legacy pipeline is gdown → Celery → Chroma → Redis pub/sub → WebSocket.
+
 ## Purpose
-Turn a newly added document into searchable vectors in the background, then record the outcome and tell any waiting client. Pipeline: Celery task -> Redis pub/sub -> event listener (DB + cache) -> WebSocket.
+Turn an uploaded revision into page-aware, embedded chunks in pgvector and publish it atomically. Delivery is at-least-once through a transactional outbox and QStash, and the DB holds the status.
 
-## Requirements
-| ID | Requirement |
-|---|---|
-| ING-01 | The Celery task `run_ingestion_task(doc_id, source_url, department_ids)` downloads the PDF from Google Drive (gdown) to `static/docs/{doc_id}.pdf`. |
-| ING-02 | It splits the text (SentenceSplitter, 1024/100) and inserts nodes into the Chroma-backed LlamaIndex, each with `db_doc_id` metadata (int) and the document title so citations work. |
-| ING-03 | On success it publishes `ingestion_complete` with `{doc_id, status: "ingested", departments}`. |
-| ING-04 | On any exception it publishes `ingestion_failed` with `{doc_id, status: "failed", error, departments}`; the task does not raise. |
-| ING-05 | The event listener updates `documents.status` to the event's status, and does nothing harmful if the document no longer exists. |
-| ING-06 | After the DB update, the listener invalidates `docs:all` and `docs:access:{dept}` for each department in the event. |
-| ING-07 | The listener sends `{doc_id, status, message}` (plus `error` on failure) to the WebSocket client for that doc. |
-| ING-08 | `WS /ws/documents/{doc_id}` accepts a connection; if a status was sent before the client connected, it is delivered on connect. |
-| ING-09 | A failed download or unreadable/empty PDF ends as status `failed`, never stuck as `pending`. |
-| ING-10 | Re-running ingestion for the same doc must not duplicate vectors. |
-| ING-11 | Only an authorized admin may open a document's status socket (see gap). |
+## Flow
+1. The API transaction writes the document, revision, job and **outbox** row together (ING-12).
+2. After commit, the API attempts an immediate publish to **QStash**. A **Cloud Scheduler**-triggered Recovery Dispatcher publishes any outbox rows left pending (ING-13).
+3. QStash calls the **Worker** Cloud Run HTTPS service with `{schema_version, job_id}`. The Worker verifies the signature and job eligibility (ING-14) and atomically claims the job with a lease (ING-15).
+4. `ProcessDocument(job_id)` runs these stages: secure read from R2 → PyMuPDF4LLM per-page extraction → SentenceSplitter chunks bounded by page → OpenAI embeddings → pgvector write → atomic publish (ING-17).
+5. The DB status moves `queued` → `processing` (with a phase) → `ready` or `failed`, and an admin SSE stream reports it (ING-05, ING-07).
 
-## Behavior / API
-- Channels: `ingestion_complete`, `ingestion_failed` (Redis pub/sub, published with a sync client from the worker).
-- Status machine: `pending` -> `ingested` | `failed`.
-- WebSocket payload: `{"doc_id": int, "status": str, "message": str}`; the connection manager keeps one socket per doc and buffers undelivered messages.
-- The listener task starts in FastAPI `startup` and uses its own `SessionLocal`.
+## Target requirements
+| ID | Requirement | Milestone |
+|---|---|---|
+| ING-02 | Extraction uses PyMuPDF4LLM per page. Chunking uses LlamaIndex SentenceSplitter, initially **512 tokens with 64 overlap** (tunable, OPEN-03). Chunks **never span pages** in the MVP. Each chunk stores the document id, revision id and page number. | M3 |
+| ING-05 | The DB is the source of truth for status: `queued`, `processing` plus an explicit phase, `ready` or `failed`, with a failure reason. | M3 |
+| ING-07 | Admin status updates are delivered over **SSE**, derived from DB state. Meaningful stages are shown, with no invented progress percentages. | M3 |
+| ING-09 | Every job reaches `ready` or `failed` (with a human-readable reason), never stays stuck in `queued`/`processing`. This covers download/read errors, invalid or unreadable PDFs, and PDFs with no extractable text (OPEN-17). | M3 |
+| ING-10 | Retries and duplicate deliveries never publish a partial index or create duplicate final chunks for a revision. | M0 (minimal) / M3 |
+| ING-11 | The status SSE stream is Admin-only (SEC-03) and scoped to the requested document. | M3 |
+| ING-12 | **Transactional outbox**: the document, revision, job and outbox rows are committed in a single PostgreSQL transaction. | M0 (feasibility) / M3 |
+| ING-13 | After commit the API attempts an immediate QStash publish. A Cloud Scheduler-triggered **Recovery Dispatcher** publishes pending outbox rows. Both paths coordinate through DB claims and leases. No single-process fire-and-forget delivery is relied on. | M0 (feasibility) / M3 |
+| ING-14 | The Worker verifies the QStash signature, then checks that the job exists and is eligible, before doing any work (SEC-14). | M0 |
+| ING-15 | Delivery is **at-least-once**. An atomic DB claim, leases, idempotency and checkpoints make duplicates safe. Docs and code must not claim exactly-once. | M0 (minimal) / M3 |
+| ING-16 | Retries use bounded backoff with a cap. Once exhausted, the job is `failed` and can be retried manually (ADM-16). | M3 |
+| ING-17 | A single `ProcessDocument(job_id)` orchestrates the stages (secure R2 read, extraction, chunking, embedding, vector write, atomic publish). It is split into more jobs only for demonstrated necessity. | M3 |
+| ING-18 | Embeddings use OpenAI `text-embedding-3-small` directly. The embedding model/version and the index identity are recorded per revision. Changing the model requires rebuilding and revalidating the index, and vector spaces are never mixed. | M3 |
+| ING-19 | After a Worker crash, an expired lease lets the job be reclaimed and resumed or retried from a checkpoint. | M3 |
+| ING-20 | Durable asynchronous cleanup eventually removes objects, chunks and vectors of soft-deleted documents and orphaned revisions. | M5 |
+| ING-21 | The job envelope is minimal and versioned: `{schema_version, job_id}`. All other data is read from the DB. | M0 |
+| ING-22 | Worker processing is independent of the HTTP request lifecycle, so it can move to Cloud Run Jobs if limits require it. The Cloud Run request timeout vs job size is measured in the M0 spike (INFRA-03). | M0/M3 |
 
-## Files
-`tasks/ingestion_task.py`, `services/ingestion_service.py`, `core/celery_app.py`, `core/redis_client.py` (`publish_sync`, `invalidate_caches`), `core/event_listener.py`, `core/websocket_manager.py`, `routers/ws.py`, `controllers/ws_controller.py`, `core/vector_store.py`
+### Retired IDs (do not reuse)
+| ID | Was | Reason |
+|---|---|---|
+| ING-01 | Download the PDF from Google Drive with gdown | Drive/gdown removed; the source is an R2 object (ADM-03). |
+| ING-03 | Publish `ingestion_complete` on Redis | Redis pub/sub is not the status truth (STACK-X); replaced by ING-05. |
+| ING-04 | Publish `ingestion_failed` on Redis | Same as ING-03; replaced by ING-05 and ING-09. |
+| ING-06 | Listener invalidates Redis caches | No Redis; SEC-10 and DOC-10. |
+| ING-08 | WebSocket `/ws/documents/{id}` with buffering | WebSocket is not in the target; replaced by ING-07 (SSE). |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
 |---|---|---|---|
-| ING-01 | unit | `_extract_drive_file_id` with valid `/file/d/<id>/view`, non-Drive, Drive without `/file/d/` | id, None, None |
-| ING-01 | unit | `_download_file` with gdown mocked to write bytes / write nothing | path returned / RuntimeError |
-| ING-02 | unit | `ingest_from_url_sync` with reader and index mocked | nodes inserted, each with int `db_doc_id` and title metadata |
-| ING-03 | unit | Task with service mocked OK; `publish_sync` mocked | published once on `ingestion_complete` with correct payload |
-| ING-04 | unit | Service raises | published on `ingestion_failed` with error text; task returns without raising |
-| ING-05 | integration | Feed an event for existing doc / missing doc into the listener handler | status updated / no exception |
-| ING-06 | integration | Event with departments [1,2] | `invalidate_caches` called with `docs:all`, `docs:access:1`, `docs:access:2` |
-| ING-07 | integration | Listener with manager mocked | `send_status` gets status and message; failed includes error |
-| ING-08 | integration | `send_status` before connect, then connect with TestClient WebSocket | buffered message received first |
-| ING-09 | unit | Empty file / bad PDF in ingest | exception -> ING-04 path |
-| ING-10 | unit | Ingest same doc id twice | vectors for that doc replaced, count unchanged |
-| ING-11 | integration | WS connect as anonymous / non-admin | rejected (once implemented) |
-| ING-* | system | Real worker + Redis + Postgres, small Drive-like fixture | document ends `ingested`; chat search finds its text |
+| ING-02 | unit | Two-page PDF fixture | no chunk spans pages; metadata has doc, revision and page |
+| ING-05 | integration | Run a job through success and failure (providers faked) | DB status transitions and the reason are recorded |
+| ING-07 | integration | Subscribe to SSE during a job | stage events match the DB phases; terminal event; no percentages |
+| ING-09 | integration | Corrupt PDF, text-less PDF, embedding provider error | `failed` + reason; never left `processing` |
+| ING-10 | integration | The same job delivered twice concurrently | one claim executes; final chunk count = single run |
+| ING-11 | integration | SSE as a non-admin / anonymous | 403 / 401 |
+| ING-12 | integration | Fault injected after the outbox insert but before commit | no document, job or outbox row |
+| ING-13 | integration | Immediate publish "crashes" after commit; run the recovery dispatcher | job published exactly once by recovery (M0-AC10) |
+| ING-14 | integration | Missing signature / bad signature / valid signature + unknown or ineligible job | 401/403 / 401/403 / no-op response; no processing (M0-AC04) |
+| ING-15 | integration | Redelivery after success | no re-execution; 2xx ack (M0-AC05) |
+| ING-16 | integration | The provider fails N times | backoff respected; `failed` after the cap; manual retry works |
+| ING-17 | integration | Happy path with faked R2/embeddings on a two-page fixture | stages run in order; phase recorded per stage; revision `ready` with the expected chunks |
+| ING-18 | unit | Revision metadata | model and index identity stored; a query across a mismatched index identity is refused |
+| ING-19 | integration | Worker killed mid-job; lease expires | another delivery reclaims it and completes without duplicates |
+| ING-20 | integration | Soft-delete, then run cleanup | object, chunks and vectors removed; user paths were already blocked |
+| ING-22 | spike report | Measure Cloud Run request timeout vs the processing time of the largest allowed PDF | documented limit and decision (M0-AC09) |
+| ING-21 | unit | Envelope schema validation | extra or missing fields rejected; unknown version rejected |
+
+## Current implementation (LEGACY, not migrated)
+- `services/docs_service.add_document` calls `tasks/ingestion_task.run_ingestion_task.delay(...)` (**Celery**/**Redis** broker) after commit. There is no outbox.
+- `services/ingestion_service.py` downloads with **gdown** from a Google Drive link to `app/static/docs/{id}.pdf`. It reads with PyMuPDFReader, uses `SentenceSplitter(1024, 100)` with no page boundary, and inserts into **Chroma** with `db_doc_id` only (no title, revision or page).
+- The task publishes `ingestion_complete`/`ingestion_failed` on **Redis pub/sub**.
+- `core/event_listener.py` updates `documents.status` and invalidates the wrong cache keys (`docs:department:*`).
+- `core/websocket_manager.py` pushes to an **unauthenticated WebSocket** that keeps one socket per document and leaks buffered messages.
+- There is no retry, lease, idempotency or duplicate-chunk protection, and no revision model.
 
 ## Known gaps
-- ING-02: title is never put in node metadata (`search_documents_tool` reads `metadata['title']`, so citations show "Unknown Document").
-- ING-06: listener invalidates `docs:department:{id}` but the cache keys are `docs:access:{id}`, so department lists stay stale up to 15 minutes. Fix the key name.
-- ING-07: `send_status` only forwards `status` and `message`; the `error` field the frontend reads is dropped.
-- ING-10: no deletion of existing vectors before insert; Celery retries/re-runs duplicate chunks.
-- ING-11: the WS endpoint has no auth; any client can subscribe to any doc id. One socket per doc (a second connection replaces the first); `pending_messages` for docs nobody connects to are never cleared (leak).
-- Listener and ws manager are in-process: with more than one API instance, a socket may be on a different instance than the one receiving the Redis event.
-- No Celery retry/timeouts, so a hung gdown call blocks the worker.
-- `ingest_from_url_sync` downloads to `static/docs` even on failure, leaving partial files.
+Every ING requirement is unimplemented. The legacy pipeline contradicts ING-05 (Redis holds the status), ING-07/ING-11 (WebSocket, no auth), ING-10 (duplicates possible) and ING-12/ING-13 (fire-and-forget).
 
 ## Related docs
-`admin-docs.md`, `../cross-cutting/document-lifecycle.md`, `../frontend/admin-upload.md`
+`admin-docs.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../architecture/infrastructure.md`, `../milestones/M0/plan.md`, `../frontend/admin-upload.md`
