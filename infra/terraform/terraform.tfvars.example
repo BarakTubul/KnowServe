@@ -1,0 +1,22 @@
+# Placeholders only. Copy to terraform.tfvars (git-ignored). Never put secret values here.
+project_id  = "REPLACE_PROJECT_ID"
+region      = "REPLACE_REGION"
+
+api_allowed_origins = ["https://REPLACE_APP_HOST"]
+qstash_url          = "https://REPLACE_QSTASH_BASE_URL"
+scheduler_cron      = "REPLACE_CRON"
+
+github_repository = "REPLACE_OWNER/REPLACE_REPO"
+
+billing_account_id        = "REPLACE-BILLING-ID"
+budget_amount_units       = 0 # REPLACE: whole currency units
+budget_currency_code      = "REPLACE_CURRENCY"
+budget_threshold_percents = [0.5, 0.9, 1.0] # REPLACE: example fractions only
+
+cloudflare_account_id   = "REPLACE_CLOUDFLARE_ACCOUNT_ID"
+pages_project_name      = "REPLACE_PAGES_PROJECT"
+pages_production_branch = "REPLACE_BRANCH"
+
+# Leave empty to disable custom domains (INFRA-11 is verified in M0-08).
+api_custom_domain = ""
+app_custom_domain = ""
