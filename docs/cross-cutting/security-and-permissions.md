@@ -16,7 +16,7 @@ This is the single normative source for access-control rules, HTTP status semant
 | SEC-06 | Every route that returns PDF bytes, document metadata, previews, citations, RAG chunks or chat history enforces identity, session, active department and document state on the server on every request. Frontend checks are never relied on. | M2 |
 | SEC-07 | A document is user-visible only if it is not soft-deleted, has a **current (promoted) revision** that is `ready`, and has an access row for the caller's active department. Unpromoted candidate revisions are never user-visible (definitions in `../backend/documents.md`). | M2 |
 | SEC-08 | Retrieval applies the SEC-07 constraints in SQL **before** similarity ordering and Top-K. It never retrieves globally and filters afterwards. | M4 |
-| SEC-09 | Revocation or soft delete takes effect immediately for the direct PDF, library, retrieval, citation links and historical chat display (hidden or redacted). An in-flight stream revalidates and stops. Text already delivered to a client cannot be recalled (see OPEN-11). | M2 (docs) / M4 (chat) / M5 (hardening) |
+| SEC-09 | Revocation or soft delete takes effect immediately for the direct PDF/viewer, the library, retrieval and RAG generation, and citation links/content (OPEN-11). An in-flight stream revalidates and stops sending further content derived from the revoked document. **Previously saved answer text stays visible in history** (see "Historical answers after revocation" below), but its citations to the revoked document lose their link and content, and that text is never reused as trusted model context. | M2 (docs) / M4 (chat) / M5 (hardening) |
 | SEC-10 | Data is isolated per identity and active department. A department switch resets frontend data and bounds multi-turn context to the new department. Cached data is partitioned by identity and department, and is invalidated on logout, switch and revocation. | M1 / M2 / M4 |
 | SEC-11 | Uploaded PDFs and ZIPs are untrusted. The system validates signatures and types, filenames and paths, archive traversal, symlinks, zip bombs and count/size limits, and processes them with bounded resources and time. There is no OCR and no separate antivirus in the MVP. | M3 |
 | SEC-12 | Documents and user prompts rank below system and developer instructions. The model has no administrative tool access. Prompt-injection content is treated as adversarial test input. | M4 |
@@ -24,20 +24,31 @@ This is the single normative source for access-control rules, HTTP status semant
 | SEC-14 | The Worker endpoint accepts only deliveries with a valid QStash signature that reference an eligible DB job. URL secrecy is not authentication. | M0 (spike) / M3 |
 | SEC-15 | Frontend route hiding and admin-control hiding are UX only. All authorization is enforced by the backend. | M1 |
 | SEC-16 | Try Demo visitors are isolated from registered users, from each other, and per department. | M1 |
+| SEC-17 | The Admin's elevated permissions apply **only** to dedicated Admin endpoints and UI (ADM-*). In the regular library, PDF viewer and RAG chat the Admin follows exactly the same active-department rules (SEC-07) as any user; there is **no global Admin bypass** (OPEN-13). | M1/M2/M4 |
+
+### Demo authorization model (OPEN-12)
+Any user or visitor may choose any fictional department, so department membership is self-selected. This is a demonstration model, clearly labeled Demo Mode (PROD-01), and not a claim that it suits a real enterprise. The guarantees that **are** enforced: per-request authorization by the active department, and no leakage of another department's conversations or documents across a switch (SEC-10).
+
+### Historical answers after revocation (OPEN-11, approved tradeoff)
+For this fictional demo the user approved a less strict historical-disclosure policy. Answer text generated while a user had access stays readable in that user's saved conversation after access is revoked, so information derived from the revoked document may remain visible there. Everything else is restricted immediately: the viewer, citation links/content, new retrieval and generation, and active streams. Historical answer text is not trusted context for new generation. This must not be reinterpreted as hiding or deleting old answers, nor presented as suitable for real confidential data.
 
 Related normative rules live elsewhere:
-- Session, CSRF, password hashing and rate limits: `../backend/auth.md` (AUTH-06, AUTH-10, AUTH-14, AUTH-15).
+- Session, CSRF + Origin check, password policy/hashing, Email OTP (password alternative, not MFA) and rate limits: `../backend/auth.md` (AUTH-03, AUTH-06, AUTH-10, AUTH-14, AUTH-15, AUTH-22..28).
 - Secrets and IAM: `../architecture/infrastructure.md` (INFRA-07).
 - Logging and audit: `../backend/monitoring.md` (MON-03 to MON-05).
 - Quotas and budget: `../architecture/infrastructure.md` (COST-02 to COST-04).
 
 ## Status code summary
+All errors use the envelope `{"error": {"code", "message", "request_id"}}` defined in ARCH-05 (OPEN-14).
+
 | Situation | Code |
 |---|---|
 | No valid session | 401 |
 | Valid session, non-Admin on an Admin API | 403 |
-| Valid session, document forbidden / unknown / not ready / deleted | 404 (identical body) |
-| Validation error | 422 (FastAPI default; exact error body defined in the API contract, OPEN-14) |
+| Valid session, document forbidden / unknown / not ready / deleted | 404 (identical body, e.g. `DOCUMENT_NOT_FOUND`) |
+| Operation needs an active department and none is selected | 409 `ACTIVE_DEPARTMENT_REQUIRED` |
+| Validation error | 422 |
+| Required dependency/service unavailable (where applicable; never a 200 with data, SEC-13) | 503 |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
@@ -51,8 +62,10 @@ Related normative rules live elsewhere:
 | SEC-07 | integration | Ready current revision with a replacement candidate still `processing` | the current revision is served; candidate chunks are never retrieved (ADM-15) |
 | SEC-07 | integration | Document with no ready current revision (first upload still processing) | 404 / not listed |
 | SEC-08 | integration (real pgvector) | Forbidden chunks are the nearest neighbours of the query | none returned; Top-K is filled from permitted chunks only |
-| SEC-09 | integration | Revoke access, then hit PDF, library, search, citation link and conversation history | 404 / absent / redacted immediately |
-| SEC-09 | integration | Revoke during an active stream | stream ends with an `error` or `done`; no further tokens drawn from the revoked document |
+| SEC-09 | integration | Revoke access, then hit PDF, library, search and citation link | 404 / absent / absent / citation without link or content |
+| SEC-09 | integration | Revoke, then open the conversation history containing an answer based on the document | answer text still shown; its citation to the revoked doc has no link or content |
+| SEC-09 | integration | Revoke, then ask a follow-up in that conversation | the old answer text is not passed as trusted context; retrieval excludes the doc |
+| SEC-09 | integration | Revoke during an active stream | stream ends with an `error` or `done`; no further content drawn from the revoked document |
 | SEC-10 | e2e | Switch department A→B; check library, chats and multi-turn follow-up | nothing from A visible; a follow-up does not reuse A context |
 | SEC-11 | integration | Bad PDF signature, path traversal in a ZIP, a symlink, a zip bomb, over-count/over-size | rejected with a per-file reason; nothing stored |
 | SEC-12 | eval | Prompt-injection cases in the golden set (EVAL-01) | hard-fail if any instruction is followed or data leaks |
@@ -60,6 +73,7 @@ Related normative rules live elsewhere:
 | SEC-14 | integration | Worker called with no signature, a bad signature, a valid signature + unknown job | rejected; no processing |
 | SEC-15 | e2e | Non-admin navigates to an admin URL | UI blocks it and the API returns 403 |
 | SEC-16 | integration | Two demo visitors; one visitor in two departments | no cross-visitor or cross-department history or data |
+| SEC-17 | integration | Admin with active department A requests the library, bytes and chat retrieval for a doc shared only with B | not listed / 404 / not retrieved; the same doc is visible via the Admin list endpoint |
 
 ## Current implementation (LEGACY, not migrated)
 - `backend/app/utils/auth.py`: a JWT is read from a cookie or `Authorization: Bearer`. The department comes from the token, not from a server-side active department.

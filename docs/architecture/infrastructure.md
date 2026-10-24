@@ -15,6 +15,7 @@
 | INFRA-08 | Backups are basic provider backups only. The docs must not promise an independent or complete backup solution on free tiers; R2 durability is not a versioned recovery backup (OPEN-09). | M0 (doc) |
 | INFRA-09 | Logs and basic metrics follow MON-03 to MON-06. There is no full distributed tracing or Sentry initially. | M0 |
 | INFRA-10 | A DB or auth outage fails closed (SEC-13). An LLM outage degrades chat but never prevents reading permitted documents. | M1/M4 |
+| INFRA-11 | **Same-site domain topology** (OPEN-04): production serves the frontend and API from subdomains of one registrable domain (e.g. `app.<domain>` on Pages, `api.<domain>` mapped to the Cloud Run API). The default `*.pages.dev` / `*.run.app` hosts are not assumed same-site. The M0 spike verifies custom-domain mapping for both, TLS, the cookie and CORS behavior (AUTH-06, AUTH-19), and the domain's cost against COST-01. If this is infeasible or over budget, the Owner reports the blocker and alternatives to the user; insecure cross-site cookies are not adopted silently. | M0 spike |
 | COST-01 | The aspirational target is a working public demo at **$0–5/month** including limited AI usage. This is a goal to verify (INFRA-03), not a guarantee (OPEN-10). | M0 |
 | COST-02 | Application-level limits: separate anonymous and registered AI quotas, per-request token caps, and parallel/concurrency caps. Values are OPEN-05. | M4 |
 | COST-03 | An atomic global token/dollar budget reservation happens before each LLM call. | M4 |
@@ -32,6 +33,7 @@
 | INFRA-08 | review | Spike report backup section | provider backup capabilities stated without guarantees (OPEN-09) |
 | INFRA-09 | integration | See MON-03 to MON-06 | JSON logs with correlation ids; alerts defined |
 | INFRA-10 | integration | LLM provider mocked down | chat returns an `error` event; library and viewer still 200 |
+| INFRA-11 | spike report + deploy smoke | Pages app host and Cloud Run API host on one custom domain; login from `app.` | cookie set host-only on `api.` with `SameSite=Lax`; credentialed call works from `app.`, fails from another origin; domain cost recorded (M0-AC11) |
 | COST-01 | spike report | Measured and estimated monthly cost per service at demo traffic | documented with assumptions (M0-AC09); no guarantee claimed |
 | COST-02 | integration | Exceed a visitor quota | request refused with a clear message; registered quota unaffected |
 | COST-03 | integration | Concurrent requests near the budget limit | total reserved never exceeds the budget |

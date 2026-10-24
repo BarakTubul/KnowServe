@@ -1,40 +1,51 @@
 # Open decisions, review-required tensions and deferrals
 
-Agents must not turn any item here into a binding choice. Each one is resolved by the user, or, where noted, by a measured decision recorded in an ADR during the milestone that needs it. When an item is resolved, update this file and the specs that reference it.
+Agents must not turn any **open** item here into a binding choice. Each one is resolved by the user, or, where noted, by a measured decision recorded in an ADR during the milestone that needs it. When an item is resolved, move it to "Resolved decisions" and update the specs that reference it.
 
-## Open (from the approved source package)
-| ID | Question | Needed by | Notes |
-|---|---|---|---|
-| OPEN-01 | Shared Domain Core ownership: Owner-owned vs a dedicated Core Agent vs distributed authorship | M0 start | The user chose a *focused* shared core but has **not** chosen its ownership. Owner-owned is a recommendation only. |
-| OPEN-02 | Final OpenAI-family chat model via OpenRouter | M4 | Chosen by a quality/cost benchmark. |
-| OPEN-03 | Retrieval threshold, final `top_k`, chunk size/overlap | M4/M6 | 5 / 512 / 64 are initial baselines, not benchmarked values. |
-| OPEN-04 | CSRF implementation; exact cookie site/domain topology (Pages ↔ Cloud Run) | M0 spike / M1 | Determines `SameSite` and CORS settings (AUTH-06, AUTH-19). |
-| OPEN-05 | Quotas, concurrency, token caps, file size/count limits, demo session lifetime and purge cadence | M1/M3/M4 | COST-02, SEC-11, AUTH-16. |
-| OPEN-06 | Terraform backend, provider/resource feasibility, actual costs/quotas, GCP regions, Secret Manager limits | M0 | INFRA-03. |
-| OPEN-07 | Detailed M0 concurrency/integration sequencing; developer onboarding scripts | M0 | |
-| OPEN-08 | Evaluation thresholds, sample counts, AI judge selection | M6 | Does not reopen the evaluation strategy. |
-| OPEN-09 | Whether provider-native Postgres backup/restore is acceptable on the selected free tiers | M0 spike | INFRA-08. |
+## Resolved decisions (approved by the user, 2026-10-24)
+These are binding. Specs reference the OPEN-id for provenance; the normative text lives in the listed requirements.
 
-## Review-required tensions (from the source package)
+| ID | Decision (summary) | Normative home |
+|---|---|---|
+| OPEN-01 | The Planning & Integration Owner approves and coordinates changes to shared contracts and Shared Domain Core interfaces. Implementation may be delegated. Agents change internal code of their own modules freely when shared interfaces and other workstreams are unaffected. Shared-contract changes are coordinated with dependent agents before implementation. There is **no permanent dedicated Shared Core Agent** by default. | WF-03, WF-16, ARCH-10, `milestones/M0/plan.md` |
+| OPEN-04 | Same-site topology: frontend and API on separate subdomains of one registrable domain (e.g. `app.<domain>`, `api.<domain>`). Session cookie `Secure`, `HttpOnly`, `SameSite=Lax`, host-only to the API. State-changing requests need a session-bound CSRF token **and** Origin validation; CORS is narrow (explicit frontend origins) and is **not** a CSRF defense. Default Pages/Cloud Run domains are not assumed to be same-site. Domain and its cost are validated in M0; if infeasible, the blocker and alternatives go to the user, never a silent switch to cross-site cookies. | AUTH-06, AUTH-14, AUTH-19, INFRA-11, FE-ARCH-02, M0-AC11 |
+| OPEN-07 | Dynamic agent allocation from the dependency graph per milestone (tasks, dependencies, critical path, contracts, ownership, integration points). Parallelize only genuinely independent work; no fixed agent count. Isolated worktrees/branches, incremental integration into a stable milestone branch, Owner keeps coordination and quality gates, Review Agents used selectively for security-critical and cross-cutting changes. Large milestones, few PRs, short handoffs, bounded escalation and human approval of every milestone PR are kept. | WF-16, WF-06, WF-07, `milestones/M0/plan.md` |
+| OPEN-11 | Previously generated, saved answers stay visible in history after revocation. The viewer blocks the revoked document; citations to it lose link and content; new retrieval/generation excludes it; historical answer text is never reused as trusted model context; an active stream stops sending content derived from it. This is an intentional, less strict historical-disclosure policy for a fictional demo. | SEC-09, CHAT-02, CHAT-13, CHAT-15, FE-CHAT-11, PROD-08 |
+| OPEN-12 | Every registered user and Try Demo visitor may select and switch among **all** fictional departments, clearly labeled Demo Mode. Authorization follows the active department; a switch never exposes another department's conversation context or documents. This is a demonstration model, not a claim that self-selected departments suit a real enterprise. | PROD-04, AUTH-17, FE-AUTH-09, SEC-10 |
+| OPEN-13 | The Admin has elevated permissions only in dedicated Admin interfaces/endpoints. In the regular library, PDF viewer and RAG chat the Admin follows exactly the same active-department rules as any user; there is no global bypass. | SEC-17, PROD-05, ADM-01, ADM-02 |
+| OPEN-14 | One JSON error envelope `{"error": {"code", "message", "request_id"}}` in the OpenAPI contract. 401 unauthenticated; 403 non-Admin on Admin functionality; 404 unknown or unauthorized document (no existence leak); 422 invalid data; 503 unavailable dependency; **409 `ACTIVE_DEPARTMENT_REQUIRED`** when an operation needs an active department and none is selected. Registration never reveals whether an email exists (generic response, no duplicate account). | ARCH-05, SEC status summary, AUTH-02, DOC-03, CHAT-05, FE-ARCH-03 |
+| OPEN-15 | Demo password policy: minimum 8 characters, no composition rules, reject common/weak/predictable/known-compromised passwords, support long passphrases and Unicode, pwdlib Argon2id, rate limiting and brute-force protection. The 8-character minimum is a **demo-focused choice** and is not represented as meeting the stricter NIST single-factor length recommendation. | AUTH-03, AUTH-15, FE-AUTH-03 |
+| OPEN-16 | The upload form preselects the chosen owner department as an authorized reader; the Admin may remove or replace it before confirming. At least one authorized department is mandatory. Ownership **never** grants read access; only explicit `document_department_access` rows do. The default is UI behavior, not a backend permission. Applies to single PDF and ZIP/manifest import. | ADM-05, FE-ADM-03, FE-ADM-11, SEC-04, SEC-05 |
+| OPEN-17 | A PDF with no usable extractable text ends ingestion `failed` with reason `NO_EXTRACTABLE_TEXT`; it is retained for Admin inspection, never published to the library, viewer or retrieval; the Admin can replace and retry. No OCR in the MVP; no `view_only` status. | ING-09, ING-23, ADM-02, ADM-15, ADM-16, FE-ADM-06 |
+| OPEN-18 | Target is one modular monorepo (frontend, FastAPI API, Worker, focused shared Python domain code where needed, Terraform, tests, docs). This phase only **documents** the target structure and migration plan; files are not moved. The actual migration is the start of M0. | `milestones/M0/plan.md` ("Repository structure"), STACK-39, FE-ARCH-05 |
+| New (auth) | MVP has two independent login methods: email + password, and **Email OTP** (one-time email code) for existing, email-verified accounts. Both create the same opaque PostgreSQL session. OTP is a password alternative, **not** MFA or phishing-resistant. Initial, configurable parameters: 6-digit CSPRNG code, 5-minute expiry, single use, 5 attempts per challenge, 60 s resend cooldown. Not implemented in M0. | AUTH-22..28, FE-AUTH-10, PROD-02, `milestones/M1/plan.md` |
+
+## Still open
+Classification: **B** = blocking before M0, **D** = resolve during M0, **L** = resolve in a later milestone, **X** = intentionally deferred. "Owner" is who prepares the evidence/proposal; the user approves anything that changes scope, cost or security posture.
+
+| ID | Question | Class | Owner | Target | Decision criteria |
+|---|---|---|---|---|---|
+| OPEN-02 | Final OpenAI-family chat model via OpenRouter | L | Owner (benchmark); user approves | M4 | Golden-set quality (EVAL-01..04), citation validity, latency and cost per answer within COST-01; recorded in an ADR. |
+| OPEN-03 | Retrieval threshold, final `top_k`, chunk size/overlap | L | Owner | M4 (initial) / M6 (final) | Retrieval metrics on the golden set (EVAL-02) vs the 5 / 512 / 64 baseline; no security regression (EVAL-05). |
+| OPEN-05 | Quotas, concurrency, token caps, file size/count limits, session and demo lifetime, purge cadence, retention, usage budgets | L | Owner; user approves values | M1 (auth/session), M3 (upload), M4 (AI) | Measured provider limits and cost from the M0 spike; stays within COST-01; abuse cases covered by tests. |
+| OPEN-06 | Terraform backend, provider/resource feasibility, actual quotas, GCP regions, Secret Manager limits | D | Owner (infra agent delivers spike) | M0 | M0 spike report (INFRA-03, M0-AC09) shows each resource deployable/managed or documents the manual gap. |
+| OPEN-08 | Evaluation thresholds, sample counts, AI judge selection and configuration | L | Owner; user approves thresholds | M6 (baselines from M4) | Approved baseline report (EVAL-07); does not reopen the evaluation strategy. |
+| OPEN-09 | Actual provider backup/restore capability and limitations on the selected tiers | D | Owner | M0 spike | Documented provider capabilities and a restore attempt or stated limitation (INFRA-08); no guarantees claimed. |
+| OPEN-10 | Evidence that deployment can approach $0–5/month with modest AI usage (includes the custom-domain cost from OPEN-04) | D | Owner; user decides if over budget | M0 spike, re-checked M4 | Measured/estimated monthly cost per service at demo traffic (COST-01, M0-AC09); if over target, options go to the user. |
+| OPEN-19 | Is the private **Admin** identity eligible for Email OTP login, or password-only? The OTP decision covers "existing, email-verified accounts" but the Admin is provisioned out-of-band (AUTH-04). | L | Owner; user decides | M1 planning | Security posture of the single privileged account; specs treat the Admin as **password-only until decided**. |
+| OPEN-20 | Confirm the reconciliation-added IDs M0-EX1..6 and M0-AC10/AC11 | D | Owner; user confirms at M0 plan approval | M0 start | They map to source exit criteria and approved decisions (`milestones/M0/plan.md`). |
+| — | M0 operational details: ephemeral CI DB, environment split, scheduler cadence, recovery-test shape, Cloud Run timeout vs job size | D | Owner | M0 | Recorded in M0 tasks/ADRs (WF-10); not user-level. |
+
+No item is classified **B**: the only prerequisites before M0 are the user's approval of the docs-only PR and explicit authorization to start M0.
+
+## Review-required tensions (kept for visibility)
 | ID | Tension | Current documented position |
 |---|---|---|
-| OPEN-10 | $0–5/month including modest AI may not be achievable with independent managed services and real traffic | Verify in the M0 spike (COST-01); not guaranteed. |
-| OPEN-11 | "Restricted immediately after revocation" vs text already streamed or persisted | The server stops in-flight streams and hides or redacts persisted history (SEC-09, CHAT-13, CHAT-15). Content already delivered to a client cannot be recalled. The exact redaction UX needs review. |
-| — | Fast-path publish plus scheduled recovery is at-least-once | Documented as at-least-once with idempotency (ING-15); never claimed as exactly-once. Not open, kept here for visibility. |
-| — | Docs-only reconciliation vs legacy code | Every spec has "Current implementation (LEGACY)" and "Known gaps" sections. Not open. |
+| — | Fast-path publish plus scheduled recovery is at-least-once | Documented as at-least-once with idempotency (ING-15); never claimed as exactly-once. |
+| — | OPEN-11 vs source package 02 ("restricted immediately after revocation") | The user-approved OPEN-11 policy supersedes it for **historical answer text** only. Viewer, citations, retrieval and active streams are still restricted immediately (SEC-09). |
+| — | Docs-only reconciliation vs legacy code | Every spec has "Current implementation (LEGACY)" and "Known gaps" sections. |
 
-## Ambiguities found during reconciliation (need user confirmation)
-| ID | Question | Interim wording in specs |
-|---|---|---|
-| OPEN-12 | Can every user (registered or demo) select **any** seeded department, or is selection restricted per user? | The source says users "select/switch among seeded departments". Specs describe selection without per-user restriction, and authorization is always evaluated against the *active* department. |
-| OPEN-13 | Does the Admin have an active department and/or read access to all documents in **user-facing** paths (library, viewer, chat)? | Specs give the Admin full access only to Admin APIs (ADM-*). In user-facing paths the Admin follows SEC-07 like any user until this is decided. Legacy DOC-02 ("admin sees all") is retired. |
-| OPEN-14 | Exact API error contract beyond the 401/403/404 rules: the error body format, the code for a missing active department, and the duplicate-email response and enumeration posture | Fixed in the M1/M2 API contract. |
-| OPEN-15 | Password policy (≥8 chars, a digit, an uppercase letter) carried over from the legacy spec | Kept as AUTH-03 pending confirmation; the source package doesn't specify one. |
-| OPEN-16 | "At least one allowed department" on upload, carried over from the legacy spec (ADM-05) | Kept pending confirmation; it doesn't conflict with the source. |
-| OPEN-17 | Handling of PDFs with no extractable text (no OCR in the MVP) | Treated as an ingestion failure with a reason (ING-09) until decided. |
-| OPEN-18 | When and how to migrate `backend/` and `frontend/` to the proposed `apps/` and `packages/` layout | Future migration proposal for M0 planning; nothing is moved in this phase. |
-
-## Deferred by explicit user instruction
+## Deferred by explicit user instruction (class X)
 | ID | Item |
 |---|---|
 | DEF-01 | Design of a varied, realistic fictional KnowServe document corpus. Do not expand it in this phase. |

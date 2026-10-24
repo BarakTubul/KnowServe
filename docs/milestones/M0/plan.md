@@ -1,6 +1,6 @@
 # M0 — Foundation and deployment spike (provisional plan)
 
-**Status:** Provisional and **not started**. Documentation only until the user approves the docs-only PR and authorizes M0. Repository organization: monorepo + worktrees with a narrowly shared domain core. The core's ownership is **OPEN-01**.
+**Status:** Provisional and **not started**. Documentation only until the user approves the docs-only PR and authorizes M0. Repository organization: a single modular monorepo + worktrees with a narrowly shared domain core whose interfaces the Owner coordinates (OPEN-01, OPEN-18). Nothing below has been implemented or migrated yet.
 
 ## Goal / exit criteria
 | ID | Exit criterion |
@@ -12,28 +12,41 @@
 | M0-EX5 | Terraform, IAM, Secrets and CI are connected with no committed secrets. GitHub Actions has protected merge and a post-deploy smoke test. |
 | M0-EX6 | Budget, free-tier, timeout and quota checks are documented, along with risks, blocked assumptions and requirement-to-test mapping. Reviewer and human approval come before merge. |
 
-## Repository shape
-The proposed target layout is below. The existing `backend/` and `frontend/` folders are legacy, and moving them is a **future migration proposal** (OPEN-18). Nothing is moved in the docs phase.
+## Repository structure (OPEN-18)
+### Current structure (legacy, unchanged in the docs phase)
+```text
+backend/app/            # legacy FastAPI + Celery + Chroma code, committed chroma_data/ and static PDFs
+backend/scripts/, backend/requirements.txt, backend/pytest.ini
+frontend/               # legacy React JS + npm (package-lock.json)
+docs/                   # specs (this documentation)
+AGENTS.md, CLAUDE.md
+```
 
+### Target structure (single modular monorepo)
 ```text
 apps/frontend/src/{app,features,components,lib}/
 apps/api/src/knowserve_api/
 apps/worker/src/knowserve_worker/
-packages/backend_core/src/knowserve_core/   # only code with >1 real consumer
+packages/backend_core/src/knowserve_core/   # focused shared domain code, only with >1 real consumer
 infra/terraform/
-docs/{architecture,contracts,adr,milestones/M0}/
+docs/{architecture,contracts,adr,milestones}/
 tests/{integration,e2e}/
 .github/workflows/
 compose.yaml, pyproject.toml, uv.lock, pnpm-workspace.yaml
 ```
+Exact names may be adjusted by the Owner in M0-01 with an ADR; the shape (frontend, API, Worker, focused shared core, Terraform, tests, docs) is approved.
 
-## Ownership and contracts
-- Owner: plan, contracts, integration. Shared core ownership is OPEN-01; the recommendation is Owner-owned, but this is **not decided**.
-- Agent A: FastAPI + DB + Alembic foundation.
-- Agent B: React shell, router, generated API types and client.
-- Agent C: signed Worker endpoint and minimal queue spike.
-- Agent D: Terraform, IAM and hosting.
-- Independent Review Agent: high-risk and final integration review.
+### Planned M0 transition tasks (part of M0-01; nothing is moved before M0 is authorized)
+1. Create the target skeleton and workspace/lockfiles (`uv`, `pnpm`) alongside the legacy folders.
+2. For each legacy part, the Owner decides in an M0-01 ADR whether it is moved into the target layout (with `git mv`, preserving history) or rebuilt from the specs. Legacy behavior that conflicts with STACK-X (JWT, Celery/Redis, Chroma, gdown, WebSocket) is never carried into the target.
+3. Until that ADR is executed, `backend/` and `frontend/` remain as LEGACY; their removal is an explicit, reviewed commit inside the M0 milestone branch.
+4. Do not carry over committed binaries (`backend/app/chroma_data/`, `backend/app/static/docs/*.pdf`); their removal from the tree is an explicit, reviewed M0 change that preserves history.
+5. Update `AGENTS.md` commands and the doc index when the new layout lands.
+
+## Ownership, allocation and contracts
+- **Owner**: plan, dependency graph, shared contracts and Shared Domain Core interfaces (approval and coordination), integration and quality gates. Implementation of shared code may be delegated (OPEN-01). No permanent Shared Core Agent.
+- **Agent allocation is dynamic** (WF-16, OPEN-07): at M0 start the Owner derives the allocation from the task graph below. The four workstreams it suggests (backend/DB, frontend shell, Worker/queue spike, infrastructure) are an **indicative** split, not a fixed headcount; workstreams may be merged or split according to real independence and conflict risk.
+- **Independent Review Agents**: selectively for security-critical (Worker signature, IAM/secrets, session/CSRF topology) and cross-cutting changes, plus the final integration review.
 
 Contracts must be fixed before parallel work starts:
 - API/OpenAPI + error format
@@ -49,11 +62,11 @@ The OpenAPI schema is generated from FastAPI and diffed against the approved con
 ## Task graph (draft)
 | ID | Deliverable | Depends on | Ownership |
 |---|---|---|---|
-| M0-01 | Repo, dev tooling, core contracts | — | Owner |
-| M0-02 | API, database, Alembic, health | M0-01 | Backend Agent (A) |
-| M0-03 | Frontend, router, API client | M0-01 | Frontend Agent (B) |
-| M0-04 | Worker, QStash auth, minimal job | M0-01 | Worker Agent (C) |
-| M0-05 | Terraform, Cloud Run, Pages, Secrets | M0-01 | Infrastructure Agent (D) |
+| M0-01 | Repo transition skeleton (see above), dev tooling, onboarding commands, core contracts | — | Owner |
+| M0-02 | API, database, Alembic, health, error envelope (ARCH-05) | M0-01 | backend workstream |
+| M0-03 | Frontend, router, API client | M0-01 | frontend workstream |
+| M0-04 | Worker, QStash auth, minimal job | M0-01 | Worker workstream |
+| M0-05 | Terraform, Cloud Run, Pages, Secrets, same-site domain feasibility (INFRA-11) | M0-01 | infrastructure workstream |
 | M0-06 | Integration CI and deployment | M0-02..05 | Owner |
 | M0-07 | Smoke, security, cost, PR review package | M0-06 | Owner + Reviewer |
 
@@ -70,17 +83,20 @@ The OpenAPI schema is generated from FastAPI and diffed against the approved con
 | M0-AC08 | Deployment smoke works after an approved merge | deploy logs + checks | INFRA-04 |
 | M0-AC09 | Prices, free tiers and limits are documented | deployment spike report | INFRA-03, COST-01 |
 | M0-AC10 | Outbox recovery: a pending row whose immediate publish "crashed" is later published by the recovery dispatcher | Worker/API integration test | M0-EX4, ING-13 |
+| M0-AC11 | Same-site topology feasibility: custom `app.`/`api.` hosts for Pages and Cloud Run, host-only `SameSite=Lax` cookie and CORS behavior verified, domain cost recorded; or a documented blocker with alternatives for the user | spike report + deploy smoke | M0-EX2, M0-EX6, INFRA-11, AUTH-19 |
 
-M0-AC10 is added here to make M0-EX4's "recovery feasibility proven" testable. It derives from the source exit criterion and the ING-13 required test, and should be confirmed in M0 planning.
+M0-AC10 makes M0-EX4's "recovery feasibility proven" testable. M0-AC11 makes the approved OPEN-04 topology verifiable in the spike; it does not assume the domain is feasible. Both were added during reconciliation and are confirmed at M0 plan approval (OPEN-20).
+
+Not in M0: login, sessions, CSRF enforcement and **Email OTP** are M1 (`../M1/plan.md`). M0 only proves the hosting topology they depend on.
 
 ## Open for M0 planning
-- OPEN-01: shared core ownership.
 - OPEN-06: Terraform backend, regions, provider feasibility.
-- OPEN-07: sequencing and onboarding scripts.
-- Also open: the ephemeral CI DB, the environment split, the scheduler cadence, and the shape of the proof-of-recovery test.
+- OPEN-09: provider backup/restore capability.
+- OPEN-10: cost evidence, including the custom domain.
+- Operational details decided by the Owner during M0: the ephemeral CI DB, the environment split, the scheduler cadence, and the shape of the proof-of-recovery test.
 - Be explicit about the Cloud Run Worker request timeout vs processing-job size. Record compatibility uncertainties rather than guaranteeing them.
 
 The Task Board `docs/milestones/M0/tasks.md` (WF-10) is created by the Owner when M0 starts.
 
 ## Related docs
-`../../architecture/infrastructure.md`, `../../architecture/tech-stack.md`, `../../workflow/agent-workflow.md`, `../../workflow/testing.md`, `../../open-decisions.md`
+`../../architecture/infrastructure.md`, `../../architecture/tech-stack.md`, `../../workflow/agent-workflow.md`, `../../workflow/testing.md`, `../../open-decisions.md`, `../M1/plan.md`

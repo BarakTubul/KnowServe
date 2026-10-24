@@ -1,6 +1,6 @@
 # KnowServe specs
 
-Specs describe the **target** system, using the approved decisions in `knowserve_requirements_handoff/`. Each spec also records how the **legacy** code differs. The code in `backend/` and `frontend/` is legacy until migrated milestone by milestone. A requirement being in a spec does **not** mean it is implemented.
+Specs describe the **target** system, using the approved decisions in `knowserve_requirements_handoff/` as amended by the later user-approved decisions in `open-decisions.md` ("Resolved decisions"), which take precedence where they differ (for example OPEN-11 on historical chat answers). Each spec also records how the **legacy** code differs. The code in `backend/` and `frontend/` is legacy until migrated milestone by milestone. A requirement being in a spec does **not** mean it is implemented.
 
 ## Index
 | Area | Spec | ID prefix |
@@ -25,9 +25,10 @@ Specs describe the **target** system, using the approved decisions in `knowserve
 | Admin UI | `frontend/admin-upload.md` | FE-ADM |
 | Agent workflow, milestones | `workflow/agent-workflow.md` | WF |
 | Testing strategy and traceability | `workflow/testing.md` | TEST |
-| M0 plan and test plan | `milestones/M0/plan.md` | M0-EX, M0-, M0-AC |
-| Open decisions, tensions, deferrals | `open-decisions.md` | OPEN, DEF |
-| Reconciliation reports (2026-10-24) | `reconciliation/requirements-coverage.md`, `reconciliation/legacy-conflicts.md`, `reconciliation/validation-report.md` | — |
+| M0 plan, repository transition and test plan | `milestones/M0/plan.md` | M0-EX, M0-, M0-AC |
+| M1 scope and acceptance criteria | `milestones/M1/plan.md` | M1-AC |
+| Resolved decisions (decision log), open decisions, tensions, deferrals | `open-decisions.md` | OPEN, DEF |
+| Reconciliation reports (2026-10-24, incl. the decisions update) | `reconciliation/requirements-coverage.md`, `reconciliation/legacy-conflicts.md`, `reconciliation/validation-report.md` | — |
 | Approved source package (read-only input) | `knowserve_requirements_handoff/knowserve_requirements_handoff/00_README.md` | — |
 
 ## Spec template
@@ -53,5 +54,5 @@ Specs describe the **target** system, using the approved decisions in `knowserve
 - **One normative home per rule.** Cross-cutting rules (SEC, COST, MON) are defined once; feature specs reference those IDs rather than restating them.
 - **Target vs legacy.** "Target requirements" describe the desired behavior. "Current implementation (LEGACY)" and "Known gaps" describe today's code. Never mark a requirement as implemented without test evidence (TEST-03).
 - **Tests.** Every testable requirement has at least one row in "Required tests", including negative/error cases where applicable (TEST-08). Test levels are defined in `workflow/testing.md`. Test names include the ID (TEST-07).
-- **Open items.** Do not decide anything listed in `open-decisions.md` inside a spec. Reference its OPEN-id instead.
+- **Open items.** Do not decide anything listed under "Still open" in `open-decisions.md` inside a spec; reference its OPEN-id instead. Items under "Resolved decisions" are binding and their OPEN-id is kept for provenance.
 - Update the spec in the same change as the behavior (WF-15), and add new specs to this index and to the AGENTS.md doc index.

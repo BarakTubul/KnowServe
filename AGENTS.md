@@ -10,12 +10,12 @@ A portfolio **demo** of a fictional organization's departmental knowledge assist
 ## How to work (summary of `docs/workflow/agent-workflow.md`)
 1. **Read only what the task needs.** Find the task area in the index below, then read those specs plus their linked SEC/OPEN items. Specs hold the approved contracts and requirements.
 2. **Owner-led parallel work.**
-   - The Planning & Integration Owner plans the milestone, fixes the shared contracts (OpenAPI/errors, DB schema/migrations, config, job envelope, logging ids), assigns modules and integrates.
-   - Each agent works in its own git worktree and branch.
-   - Do not change a shared contract without Owner coordination (WF-02, WF-03).
+   - The Planning & Integration Owner plans the milestone, fixes the shared contracts (OpenAPI/errors, DB schema/migrations, config, job envelope, logging ids, Shared Domain Core interfaces), allocates agents dynamically from the dependency graph (no fixed count) and integrates (WF-02, WF-16).
+   - Each agent works in its own git worktree and branch, and freely changes the internals of its own modules.
+   - Shared-contract changes need Owner approval and coordination with dependent agents before implementation (WF-03).
 3. **Act within scope without asking.** Implementation agents fix local defects and the edge cases implied by existing requirements on their own. There is **no approval gate per edit or commit**.
 4. **Escalate** changes to architecture, interfaces/contracts, the security model, scope, cost or anything cross-cutting to the Owner. The Owner takes new features or major scope expansion to the **user** (WF-04, WF-05).
-5. **Respect open decisions.** Never turn an item in `docs/open-decisions.md` into a binding choice. Reference its OPEN-id and escalate.
+5. **Respect decisions.** "Resolved decisions" in `docs/open-decisions.md` are binding. Never turn an item under "Still open" into a binding choice; reference its OPEN-id and escalate.
 6. **Test with traceability.** Write tests alongside the code, following the spec's "Required tests" table, and put requirement ids in test names (TEST-01, TEST-07). Security tests are hard gates from day one.
 7. **Review gates are limited** to integration points, an independent review of risky changes, and the final milestone PR. **The user approves the milestone PR**, and deploy follows automatically (WF-06, WF-13).
 8. **Hand off concisely.**
@@ -47,7 +47,7 @@ Start from `docs/README.md` for the spec template and rules.
 | Backend change | `docs/backend/architecture.md`, `docs/cross-cutting/security-and-permissions.md` |
 | Frontend change | `docs/frontend/architecture.md` |
 | Stack / library choice | `docs/architecture/tech-stack.md` |
-| Auth, sessions, CSRF, Try Demo, department switch | `docs/backend/auth.md`, `docs/frontend/auth.md`, `docs/cross-cutting/security-and-permissions.md` |
+| Auth, sessions, CSRF, Email OTP, Try Demo, department switch | `docs/backend/auth.md`, `docs/frontend/auth.md`, `docs/cross-cutting/security-and-permissions.md`, `docs/milestones/M1/plan.md` |
 | Document library, PDF viewer, access rules | `docs/backend/documents.md`, `docs/frontend/my-documents.md`, `docs/cross-cutting/security-and-permissions.md` |
 | Document submission / upload / ZIP / replace / delete | `docs/cross-cutting/document-lifecycle.md`, then `docs/backend/admin-docs.md`, `docs/backend/ingestion.md`, `docs/frontend/admin-upload.md` |
 | Worker, outbox, QStash, job status | `docs/backend/ingestion.md` |
@@ -56,5 +56,6 @@ Start from `docs/README.md` for the spec template and rules.
 | Logging, audit, usage | `docs/backend/monitoring.md` |
 | Deployment, Terraform, secrets, cost/quotas | `docs/architecture/infrastructure.md` |
 | Product scope, personas, Demo Mode | `docs/cross-cutting/product-and-ux.md` |
-| Process, milestones, tests | `docs/workflow/agent-workflow.md`, `docs/workflow/testing.md`, `docs/milestones/M0/plan.md` |
+| Process, milestones, tests | `docs/workflow/agent-workflow.md`, `docs/workflow/testing.md`, `docs/milestones/M0/plan.md`, `docs/milestones/M1/plan.md` |
+| Repository layout / monorepo migration | `docs/milestones/M0/plan.md` ("Repository structure") |
 | Why the docs look this way / legacy conflicts | `docs/reconciliation/` |

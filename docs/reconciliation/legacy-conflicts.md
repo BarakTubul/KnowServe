@@ -8,8 +8,8 @@ The first section is the discrepancy matrix between the previous repo docs and t
 | 1 | AGENTS.md: "Stop and wait for the user's approval before editing code" for every task | Owner-led parallel work; approval at milestone PR and for material scope/contract changes only (07) | Rule removed; workflow summary + WF-04..06, WF-13 | `AGENTS.md`, `CLAUDE.md`, `docs/workflow/agent-workflow.md` |
 | 2 | Auth via JWT in a cookie or Bearer header (AUTH-06, AUTH-10) | Opaque random token, hash in PG, Secure/HttpOnly/SameSite cookie, rotation, CSRF; no JWT (02) | AUTH-06/10 reworded; AUTH-14, AUTH-18 added | `docs/backend/auth.md`; `backend/app/utils/{auth,jwt}.py`, `services/auth_service.py` |
 | 3 | Roles employee/manager/admin; one manager per department (AUTH-05) | Registered user, Try Demo visitor, single private Admin; no user CRUD (01) | AUTH-05 retired; AUTH-04 rewritten; AUTH-16 added | `docs/backend/auth.md`; `models/user.py`, `pydantic_schemas/auth_schema.py` |
-| 4 | User has a fixed `department_id` from the JWT | Active department selected and switched in the session; isolation on switch (01, 02) | AUTH-17, SEC-10, FE-AUTH-09; selection rights **OPEN-12** | `docs/backend/auth.md`, `docs/frontend/auth.md`; `utils/auth.py`, `context/AuthContext.jsx` |
-| 5 | Admins see all docs in the user library (DOC-02) | Not stated; admin-only APIs return 403 to others (02) | DOC-02 retired; **OPEN-13** | `docs/backend/documents.md` |
+| 4 | User has a fixed `department_id` from the JWT | Active department selected and switched in the session; isolation on switch (01, 02) | AUTH-17, SEC-10, FE-AUTH-09; all departments selectable (OPEN-12, resolved) | `docs/backend/auth.md`, `docs/frontend/auth.md`; `utils/auth.py`, `context/AuthContext.jsx` |
+| 5 | Admins see all docs in the user library (DOC-02) | Not stated; admin-only APIs return 403 to others (02) | DOC-02 retired; no Admin bypass in user paths, SEC-17 (OPEN-13, resolved) | `docs/backend/documents.md` |
 | 6 | Forbidden download returns 403 (DOC-05) | Forbidden or unknown document returns an indistinguishable 404 (02) | DOC-05, SEC-02 | `docs/backend/documents.md`; `routers/docs.py`, `services/docs_service.py` |
 | 7 | "Owned" docs endpoint via `owner_department_id` (DOC-07), unclear relation to access | `owner_department_id` never implies access; explicit join rows (02) | DOC-07, SEC-04, SEC-05 | `docs/backend/documents.md`; `repositories/document_repository.py`, `models/document.py` |
 | 8 | Redis caches `docs:access:*` with TTL (ARCH-08, DOC-06, ING-06) | No Redis in target; caches partitioned by identity/department and invalidated on logout, switch, revocation (02, 05) | Retired; SEC-10, DOC-10 | `docs/backend/{architecture,documents,ingestion}.md`; `core/redis_client.py` |
@@ -23,16 +23,22 @@ The first section is the discrepancy matrix between the previous repo docs and t
 | 16 | Chroma `IN` filter, `similarity_top_k=6` (CHAT-04) | SQL+pgvector filter before Top-K; initial k=5 plus threshold (04) | CHAT-04, SEC-08 | `docs/backend/chat.md`; `agent/llama_tools.py` |
 | 17 | `gpt-4o-mini` direct via OpenAI | OpenRouter → OpenAI-family model chosen by benchmark (04) | CHAT-16; **OPEN-02** | `docs/backend/chat.md`; `agent/llama_agent.py` |
 | 18 | SSE events `token`/`tool`; client sends the last 10/20 messages (CHAT-02/03, FE-CHAT-04) | `searching`/`generating`/delta/`done`/`error`; server-persisted conversations; per-turn retrieval (04) | CHAT-02/03 reworded; FE-CHAT-04 retired; CHAT-14 | `docs/backend/chat.md`, `docs/frontend/chat.md`; `services/chat_service.py`, `pages/Chat.jsx` |
-| 19 | No Stop, no citation validation, no history | AbortController Stop, validated citations, history with revocation redaction (04) | CHAT-11..15, FE-CHAT-10..11 | chat specs |
+| 19 | No Stop, no citation validation, no history | AbortController Stop, validated citations, history whose citations lose link/content after revocation while answer text stays (04 as amended by OPEN-11) | CHAT-11..15, FE-CHAT-10..11 | chat specs |
 | 20 | Monitor route placeholder (MON-01) | Structured JSON logs, correlation ids, audit, basic metrics; no Sentry (06) | MON-01 retired; MON-03..06 | `docs/backend/monitoring.md`; `routers/monitor.py` |
 | 21 | Frontend React JS + npm + `api.js` + Context (FE-ARCH-01..05) | React TS strict, pnpm, generated OpenAPI client, TanStack Query, Tailwind/shadcn, RHF/Zod (05) | FE-ARCH-01..05 reworded, 08..13 added | `docs/frontend/architecture.md`; `frontend/` |
 | 22 | Test methodology: TestClient with Redis/Celery/Chroma fakes; frontend tool "recommended" | pytest-asyncio + HTTPX on real PG+pgvector; Vitest+RTL; Playwright; tiered gates; traceability (05, 07) | `docs/README.md` rules, TEST-01..09 | `docs/README.md`, `docs/workflow/testing.md` |
 | 23 | Commands: uvicorn/celery/npm only | uv/pnpm/Compose (target); legacy commands kept as labeled LEGACY | AGENTS.md "Commands" | `AGENTS.md` |
 | 24 | My Documents filters by *allowed* departments; "View PDF" opens a raw download | Filter by **owner** department; protected React-PDF viewer with `?page=N` (01) | FE-DOC-03, FE-DOC-07..09 | `docs/frontend/my-documents.md`; `pages/MyDocuments.jsx` |
 
+| 25 | Password needs ≥8 chars, an uppercase letter and a digit (old AUTH-03; `auth_schema.py`, `Register.jsx`) | 8-char minimum, no composition rules, blocklist, Unicode (OPEN-15) | AUTH-03, FE-AUTH-03 rewritten | `docs/backend/auth.md`, `docs/frontend/auth.md`; `pydantic_schemas/auth_schema.py`, `pages/Register.jsx` |
+| 26 | Login only by email + password | Password **or** Email OTP, same session type (new auth decision) | AUTH-22..28, FE-AUTH-10 added | auth specs, `docs/milestones/M1/plan.md` |
+| 27 | Source 01/02/04: persisted history must not expose revoked documents; "redact/hide" historical text | OPEN-11: saved answer text stays visible; citations, viewer, retrieval and streams are restricted | Source package superseded for historical text only; tradeoff documented in the security spec | `docs/cross-cutting/security-and-permissions.md`, `docs/backend/chat.md`, `docs/frontend/chat.md`, `docs/cross-cutting/product-and-ux.md` |
+| 28 | Source 02: "appropriately scoped SameSite"; CSRF mechanism open | `SameSite=Lax`, host-only API cookie, session-bound CSRF token + Origin check, `app.`/`api.` same-site subdomains (OPEN-04) | AUTH-06, AUTH-14, AUTH-19, INFRA-11 | auth and infrastructure specs; `backend/app/main.py` CORS (Vercel origin) |
+| 29 | Text-less PDF handling undecided | `failed` + `NO_EXTRACTABLE_TEXT`, retained for Admin, never published, replace + retry; no OCR (OPEN-17) | ING-23 added | `docs/backend/ingestion.md`, `docs/backend/admin-docs.md`, `docs/frontend/admin-upload.md` |
+
 **Duplicates reconciled:** rules about access, status codes and caching were previously repeated in several specs. They now live once in SEC-* and are referenced elsewhere. Logging and quota rules moved to MON-* and COST-*.
 
-**Ambiguities reported, not decided:** OPEN-12 to OPEN-18 (see `../open-decisions.md`).
+**Ambiguities:** OPEN-12 to OPEN-18 were reported in the first pass and have since been resolved by the user. New ambiguities found in the second pass are OPEN-19 (Admin and Email OTP) and OPEN-20 (confirm reconciliation-added M0 IDs) (see `../open-decisions.md`).
 
 ## 2. Current-code gaps (legacy, not migrated)
 Every target requirement is **not implemented**. Of these, the following legacy behaviors are actively unsafe or contradict the target, and should not be "fixed in place" on the legacy stack without a decision:
@@ -48,9 +54,9 @@ Every target requirement is **not implemented**. Of these, the following legacy 
 10. `requirements.txt` is unpinned and incomplete. There are no tests.
 
 ## 3. Recommended implementation order (for user decision; nothing started)
-1. **Approve this docs-only PR.** Then decide **OPEN-01** (shared core ownership) and **OPEN-18** (build in a new `apps/` layout vs migrate in place) before M0 starts.
-2. **M0** in task-graph order: M0-01 contracts and tooling, then M0-02/03/04/05 in parallel, then M0-06 integration CI/deploy, then M0-07 review package. This covers the INFRA-03 spike and OPEN-04, OPEN-06 and OPEN-09.
-3. **M1 Auth & Demo.** This removes JWT, the self-registered Admin and the shared-memory risks at the root (items 1, 2 and 7 above). Security tests for SEC-01, SEC-03, SEC-13 and SEC-16 run from the start.
+1. **Approve this docs-only PR and explicitly authorize M0.** OPEN-01 and OPEN-18 are now resolved, so nothing else blocks M0.
+2. **M0** in task-graph order: M0-01 repository transition skeleton, contracts and tooling; then M0-02/03/04/05 as dynamically allocated parallel workstreams (WF-16); then M0-06 integration CI/deploy; then M0-07 review package. This covers the INFRA-03 spike, the same-site domain feasibility (INFRA-11, M0-AC11), OPEN-06, OPEN-09 and OPEN-10.
+3. **M1 Auth & Demo**, including Email OTP (`../milestones/M1/plan.md`). This removes JWT, the self-registered Admin and the shared-memory risks at the root (items 1, 2 and 7 above). Security tests for SEC-01, SEC-03, SEC-13, SEC-16 and SEC-17 run from the start. Decide OPEN-19 during M1 planning.
 4. **M2 Library & Access.** Owner/access schema, R2 bytes endpoint, viewer, 404 semantics (items 4, 5, 9).
 5. **M3 Upload & Ingestion.** Outbox, QStash, Worker, ZIP, SSE status (item 3 is retired along with the WebSocket).
 6. **M4 RAG Chat & Citations** (first usable MVP). Authorized Retriever, citations, history, quotas and kill switch, plus the seed of the eval suite.

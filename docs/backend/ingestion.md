@@ -18,7 +18,7 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 | ING-02 | Extraction uses PyMuPDF4LLM per page. Chunking uses LlamaIndex SentenceSplitter, initially **512 tokens with 64 overlap** (tunable, OPEN-03). Chunks **never span pages** in the MVP. Each chunk stores the document id, revision id and page number. | M3 |
 | ING-05 | The DB is the source of truth for status: `queued`, `processing` plus an explicit phase, `ready` or `failed`, with a failure reason. | M3 |
 | ING-07 | Admin status updates are delivered over **SSE**, derived from DB state. Meaningful stages are shown, with no invented progress percentages. | M3 |
-| ING-09 | Every job reaches `ready` or `failed` (with a human-readable reason), never stays stuck in `queued`/`processing`. This covers download/read errors, invalid or unreadable PDFs, and PDFs with no extractable text (OPEN-17). | M3 |
+| ING-09 | Every job reaches `ready` or `failed` (with a human-readable reason), never stays stuck in `queued`/`processing`. This covers download/read errors, invalid or unreadable PDFs, and PDFs with no extractable text (ING-23). The failure is recorded as a stable reason code plus a message. | M3 |
 | ING-10 | Retries and duplicate deliveries never publish a partial index or create duplicate final chunks for a revision. | M0 (minimal) / M3 |
 | ING-11 | The status SSE stream is Admin-only (SEC-03) and scoped to the requested document. | M3 |
 | ING-12 | **Transactional outbox**: the document, revision, job and outbox rows are committed in a single PostgreSQL transaction. | M0 (feasibility) / M3 |
@@ -32,6 +32,7 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 | ING-20 | Durable asynchronous cleanup eventually removes objects, chunks and vectors of soft-deleted documents and orphaned revisions. | M5 |
 | ING-21 | The job envelope is minimal and versioned: `{schema_version, job_id}`. All other data is read from the DB. | M0 |
 | ING-22 | Worker processing is independent of the HTTP request lifecycle, so it can move to Cloud Run Jobs if limits require it. The Cloud Run request timeout vs job size is measured in the M0 spike (INFRA-03). | M0/M3 |
+| ING-23 | **No extractable text** (OPEN-17): if PyMuPDF4LLM yields no usable text, the revision ends `failed` with reason `NO_EXTRACTABLE_TEXT`, since retrying cannot help. The document and its stored file are **retained** for Admin inspection (ADM-02), and are never published to the library, the regular viewer or retrieval (SEC-07). The Admin may replace the file and retry (ADM-15, ADM-16). There is no OCR in the MVP and no `view_only` status. | M3 |
 
 ### Retired IDs (do not reuse)
 | ID | Was | Reason |
@@ -60,6 +61,7 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 | ING-18 | unit | Revision metadata | model and index identity stored; a query across a mismatched index identity is refused |
 | ING-19 | integration | Worker killed mid-job; lease expires | another delivery reclaims it and completes without duplicates |
 | ING-20 | integration | Soft-delete, then run cleanup | object, chunks and vectors removed; user paths were already blocked |
+| ING-23 | integration | Image-only PDF fixture | `failed` + `NO_EXTRACTABLE_TEXT` with no backoff retries; R2 object and document kept; no chunks; absent from library/retrieval, viewer 404; listed in the Admin list |
 | ING-22 | spike report | Measure Cloud Run request timeout vs the processing time of the largest allowed PDF | documented limit and decision (M0-AC09) |
 | ING-21 | unit | Envelope schema validation | extra or missing fields rejected; unknown version rejected |
 

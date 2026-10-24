@@ -17,7 +17,7 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 | ID | Requirement | Milestone |
 |---|---|---|
 | DOC-01 | The library endpoint returns only documents visible to the caller's **active department** per SEC-07. Each item has id, title/filename, owner department and the fields the UI needs. | M2 |
-| DOC-03 | A request without an active department returns no documents and an error; the code is part of the contract (OPEN-14). The API never falls back to "all documents". | M2 |
+| DOC-03 | A request without an active department returns **409 `ACTIVE_DEPARTMENT_REQUIRED`** and no documents (OPEN-14). The API never falls back to "all documents", including for the Admin (SEC-17). | M2 |
 | DOC-04 | A PDF bytes endpoint streams the current ready revision from private R2 **through the API** after a per-request access check (SEC-06). No R2 or public URL is ever returned. Responses are not publicly cacheable. | M2 |
 | DOC-05 | Status codes: no session → 401 (SEC-01); forbidden, unknown, not ready or deleted → identical 404 (SEC-02). | M2 |
 | DOC-07 | The owner department is returned and filterable, but never grants access (SEC-04). | M2 |
@@ -28,14 +28,14 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 ### Retired IDs (do not reuse)
 | ID | Was | Reason |
 |---|---|---|
-| DOC-02 | Admins see all documents in `/documents/my/access` | Not in the source package. Admin access in user-facing paths is OPEN-13. |
+| DOC-02 | Admins see all documents in `/documents/my/access` | Rejected by OPEN-13: no Admin bypass in user-facing paths (SEC-17). The Admin sees all documents only via the Admin list (ADM-02). |
 | DOC-06 | Redis cache `docs:access:{dept}` / `docs:all` with TTLs | Redis is not in the target; superseded by SEC-10 and DOC-10. |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
 |---|---|---|---|
-| DOC-01 | integration | Docs shared with A, with B, with A not ready, with A soft-deleted; caller active in A | only the ready, non-deleted A doc listed |
-| DOC-03 | integration | Session without an active department | error, empty data |
+| DOC-01 | integration | Docs shared with A, with B, with A not ready, with A `failed` (`NO_EXTRACTABLE_TEXT`), with A soft-deleted; caller active in A | only the ready, non-deleted A doc listed |
+| DOC-03 | integration | Session (user and Admin) without an active department | 409 `ACTIVE_DEPARTMENT_REQUIRED` envelope; no document data |
 | DOC-04 | integration | Allowed caller fetches bytes (R2 faked) | 200, `application/pdf`, no-store/private caching; the body never contains a storage URL |
 | DOC-05 | integration | No session / forbidden / unknown id / deleted | 401 / 404 / 404 / 404 with identical bodies |
 | DOC-07 | integration | Owner = A, access = B only; caller in A | not listed; 404 on bytes |
