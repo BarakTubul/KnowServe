@@ -1,0 +1,214 @@
+name: deploy
+
+# =============================================================================
+# AUTHORED, NOT RUNNABLE until the user provisions the cloud accounts (A3/A4),
+# creates the GitHub "production" environment, and sets the repository
+# variables and secrets listed in docs/contracts/ci-and-branch-protection.md.
+#
+# Gating (INFRA-04, WF-06, WF-13):
+#   * Production deploys on merge to main, and merging to main requires the
+#     human-approved milestone PR with the passing "ci-required" check
+#     (branch protection, see docs/contracts/ci-and-branch-protection.md).
+#   * The "gate" job additionally verifies that the "ci-required" check run for
+#     THIS commit finished with conclusion "success" before anything is deployed.
+#   * The deploy job runs in the GitHub "production" environment so the user can
+#     require reviewers there.
+#
+# A3 spike exception: until the user explicitly approves the spike deployment,
+# this workflow is intended to run ONLY through manual workflow_dispatch with
+# confirm_spike_deploy = "yes". Do not enable or rely on the push trigger
+# before that approval; if the cloud setup does not exist the run fails at the
+# authentication step and deploys nothing. No cloud action is performed by
+# committing this file.
+#
+# Authentication is Workload Identity Federation only (no JSON keys). Provider
+# and service account come from repository VARIABLES, never from committed values.
+# Third-party actions are pinned by major tag; SHA pinning is recommended later.
+# =============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      confirm_spike_deploy:
+        description: 'Type "yes" to confirm a manual spike deployment (A3)'
+        required: true
+        type: string
+
+# Never run two production deploys at once; never cancel one mid-flight.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate (ci-required for this commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Require explicit confirmation for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRM: ${{ inputs.confirm_spike_deploy }}
+        run: |
+          if [ "$CONFIRM" != "yes" ]; then
+            echo "::error::confirm_spike_deploy must be exactly 'yes'."
+            exit 1
+          fi
+      - name: Require ref main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Deploys run only from main (got $GITHUB_REF)."
+            exit 1
+          fi
+      - name: Wait for the ci-required check of this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          for i in $(seq 1 70); do
+            result=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=ci-required&filter=latest" \
+              --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.started_at) | last | (.status + ":" + (.conclusion // "none"))' 2>/dev/null || true)
+            echo "attempt $i: ci-required => ${result:-not found}"
+            case "$result" in
+              completed:success) exit 0 ;;
+              completed:*) echo "::error::ci-required did not succeed for $SHA."; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::Timed out waiting for ci-required on $SHA."
+          exit 1
+
+  deploy:
+    name: deploy
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      DATABASE_URL_SECRET: ${{ vars.GCP_DATABASE_URL_SECRET_NAME }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Artifact Registry credentials
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push api and worker images
+        run: |
+          registry="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}"
+          for svc in api worker; do
+            docker build -f "apps/${svc}/Dockerfile" -t "${registry}/knowserve-${svc}:${IMAGE_TAG}" .
+            docker push "${registry}/knowserve-${svc}:${IMAGE_TAG}"
+          done
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Database migration (alembic upgrade head)
+        run: |
+          uv sync --frozen
+          db_url="$(gcloud secrets versions access latest --secret="${DATABASE_URL_SECRET}" --project="${GCP_PROJECT_ID}")"
+          echo "::add-mask::${db_url}"
+          KS_DATABASE_URL="${db_url}" uv run alembic -c packages/backend_core/alembic.ini upgrade head > /dev/null
+          echo "Migration completed."
+
+      - name: Deploy Cloud Run revisions (image roll only, independent of terraform apply)
+        run: |
+          registry="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}"
+          for svc in api worker; do
+            gcloud run deploy "knowserve-${svc}" \
+              --image "${registry}/knowserve-${svc}:${IMAGE_TAG}" \
+              --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --quiet
+          done
+
+      - name: Resolve service URLs
+        id: urls
+        run: |
+          api_url="$(gcloud run services describe knowserve-api --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(status.url)')"
+          worker_url="$(gcloud run services describe knowserve-worker --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(status.url)')"
+          echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
+          echo "worker_url=${worker_url}" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        # version is taken from the "packageManager" field in the root package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL != '' && vars.VITE_API_BASE_URL || steps.urls.outputs.api_url }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter ./apps/frontend build
+
+      - name: Deploy frontend to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          pnpm dlx wrangler@3 pages deploy apps/frontend/dist \
+            --project-name "${PAGES_PROJECT}" --branch main --commit-hash "${GITHUB_SHA}"
+
+      - name: Smoke check API status
+        env:
+          API_URL: ${{ steps.urls.outputs.api_url }}
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${API_URL}/v1/status"
+
+      - name: Identity token for a private worker (only when WORKER_REQUIRES_IAM is true)
+        if: vars.WORKER_REQUIRES_IAM == 'true'
+        id: worker_token
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ steps.urls.outputs.worker_url }}
+          id_token_include_email: true
+
+      - name: Smoke check worker readiness
+        env:
+          WORKER_URL: ${{ steps.urls.outputs.worker_url }}
+          WORKER_ID_TOKEN: ${{ steps.worker_token.outputs.id_token }}
+        run: |
+          if [ -n "${WORKER_ID_TOKEN}" ]; then
+            echo "::add-mask::${WORKER_ID_TOKEN}"
+            curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors \
+              -H "Authorization: Bearer ${WORKER_ID_TOKEN}" "${WORKER_URL}/health/ready"
+          else
+            curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${WORKER_URL}/health/ready"
+          fi
+
+      - name: Deployed Playwright smoke (tests/e2e/smoke.spec.ts)
+        env:
+          E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test tests/e2e/smoke.spec.ts
