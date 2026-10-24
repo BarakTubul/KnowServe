@@ -30,3 +30,19 @@ backend/app/external_api/google_drive/knowserve-*.json
 # Design Artifacts
 backend/designs/
 *.plantuml
+
+# --- Monorepo (M0) ---
+.venv/
+.env.*
+!.env.example
+.ruff_cache/
+.pyright/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+test-results/
+playwright-report/
+.pnpm-store/

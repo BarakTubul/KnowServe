@@ -1,0 +1,44 @@
+# Configuration and deployment interface (M0)
+
+Requirements: ARCH-12, INFRA-01, INFRA-04..07, STACK-35, STACK-36.
+
+## Configuration keys
+All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, and appear in `.env.example` with placeholders. `.env` is git-ignored. Local test secrets contain `local-only` and `not-a-secret` so they cannot be mistaken for real ones.
+
+| Key | Used by | Notes |
+|---|---|---|
+| `KS_ENV` | all | `local`, `ci` or `production` |
+| `KS_LOG_LEVEL` | all | default `INFO` |
+| `KS_DATABASE_URL` | API, Worker, migrations | `postgresql+asyncpg://…`. A plain `postgresql://…?sslmode=require` URL (Neon style) is normalized automatically. |
+| `KS_TEST_DATABASE_URL` | tests only | disposable database whose schema is dropped and recreated |
+| `KS_API_ALLOWED_ORIGINS` | API | comma-separated explicit origins |
+| `KS_ENABLE_SPIKE_ENDPOINTS` | API | default `false` (M0-08 only) |
+| `KS_QSTASH_URL`, `KS_QSTASH_TOKEN` | API, Worker (publish) | token is a secret |
+| `KS_QSTASH_CURRENT_SIGNING_KEY`, `KS_QSTASH_NEXT_SIGNING_KEY` | Worker (verify) | secrets |
+| `KS_WORKER_PUBLIC_URL` | publisher | destination QStash calls, path `/internal/jobs/run` is appended |
+| `KS_DISPATCHER_OIDC_AUDIENCE`, `KS_DISPATCHER_OIDC_SERVICE_ACCOUNT` | Worker | production dispatcher authentication |
+| `KS_DISPATCHER_LOCAL_TOKEN` | Worker | local/ci only; the settings validator rejects it when `KS_ENV=production` |
+| `KS_OUTBOX_LEASE_SECONDS`, `KS_OUTBOX_BATCH_SIZE`, `KS_JOB_LEASE_SECONDS` | Worker/core | defaults 60 / 20 / 120 |
+| `VITE_API_BASE_URL` | Frontend | build-time API base URL; no secrets in `VITE_*` |
+
+Production values come from Google Secret Manager through per-service service accounts. Terraform creates secret *containers* and access bindings only; values are entered by the user and never enter Terraform state.
+
+## Local conventions
+- Python: `uv sync --frozen`, `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest`.
+- Frontend: `pnpm install --frozen-lockfile`, then `pnpm -r lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build`.
+- Database for tests and local runs: `docker compose up -d db` (host port 5433, local-only credentials). The full stack: `docker compose up --build`.
+- Ports: frontend 5173, API 8000, Worker 8001, database 5433.
+- Lockfiles `uv.lock` and `pnpm-lock.yaml` are committed. Dependency additions are announced to the Owner, who re-locks at integration.
+
+## Deployment interface
+| Item | Value |
+|---|---|
+| Images | `api` built from `apps/api/Dockerfile`, `worker` from `apps/worker/Dockerfile`; build context is the repository root; both run as non-root and listen on `$PORT` (default 8000 / 8001) |
+| Cloud Run services | `knowserve-api`, `knowserve-worker` (one region, chosen in M0-09/M0-05) |
+| Migrations | run by the deploy workflow with `alembic -c packages/backend_core/alembic.ini upgrade head` before traffic shifts; never at service start |
+| Health | liveness `/health/live`, readiness `/health/ready` on both services |
+| Smoke entry points | `GET <api>/v1/status`, `GET <worker>/health/ready`, and the Playwright deployed smoke in `tests/e2e/` |
+| Secrets | mounted from Secret Manager as env vars named exactly as the keys above |
+| Frontend | static build of `apps/frontend` to Cloudflare Pages with `VITE_API_BASE_URL` set at build time |
+
+No cloud resource is created or changed by any file in this repository until the user authorizes it (M0 plan, approvals A3/A4).

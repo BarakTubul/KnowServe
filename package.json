@@ -1,0 +1,12 @@
+{
+  "name": "knowserve-root",
+  "private": true,
+  "packageManager": "pnpm@12.15.0",
+  "scripts": {
+    "lint": "pnpm -r --if-present lint",
+    "format:check": "pnpm -r --if-present format:check",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build"
+  }
+}
