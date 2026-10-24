@@ -73,7 +73,9 @@ JSON
 
 If the user is the only maintainer, GitHub does not allow approving one's own PR; either set `required_approving_review_count` to `0` (the PR plus `ci-required` still gates the merge) or add a second reviewer. Decide this explicitly, it is the user's approval point for WF-13.
 
-Optionally also restrict the `production` environment to `main`:
+**Required before any deployment (security review H1/M2):** the `production` environment must have required reviewers and be restricted to `main`, and `main` must be protected. The Workload Identity condition in Terraform only trusts runs on `refs/heads/main` that declare `environment: production`, so these GitHub settings are part of the security boundary, not optional hardening. The automatic `push: main` deploy trigger stays disabled in `deploy.yml` until the user approves enabling it.
+
+Restrict the `production` environment to `main`:
 
 ```bash
 gh api -X PUT repos/OWNER/REPO/environments/production \

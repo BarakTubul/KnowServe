@@ -14,14 +14,17 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   display_name                       = "GitHub OIDC"
 
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.repository" = "assertion.repository"
-    "attribute.ref"        = "assertion.ref"
+    "google.subject"        = "assertion.sub"
+    "attribute.repository"  = "assertion.repository"
+    "attribute.ref"         = "assertion.ref"
+    "attribute.environment" = "assertion.environment"
   }
 
-  # Only this repository can obtain tokens. Branch/environment restriction is a possible
-  # tightening to decide with the Owner (see README, unverified assumptions).
-  attribute_condition = "assertion.repository == \"${var.github_repository}\""
+  # Security review H1: trust the repository AND only runs on main that use the `production`
+  # GitHub environment (which the user protects with required reviewers). A workflow on any
+  # other branch, or one that omits the environment, cannot obtain deployer tokens.
+  # Claim names are GitHub's documented OIDC claims; unverified until a real run (README).
+  attribute_condition = "assertion.repository == \"${var.github_repository}\" && assertion.ref == \"refs/heads/main\" && assertion.environment == \"production\""
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

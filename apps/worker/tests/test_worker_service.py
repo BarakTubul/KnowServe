@@ -575,3 +575,26 @@ async def test_sec14_production_starts_with_all_settings() -> None:
 def test_sec14_production_rejects_local_dispatcher_token_in_settings() -> None:
     with pytest.raises(ValueError, match="DISPATCHER_LOCAL_TOKEN"):
         prod_settings("postgresql+asyncpg://x:y@127.0.0.1:1/none", dispatcher_local_token="x")
+
+
+@pytest.mark.parametrize("field", ["worker_public_url", "qstash_url"])
+def test_sec14_production_requires_https_urls(field: str) -> None:
+    settings = prod_settings(
+        "postgresql+asyncpg://x:y@127.0.0.1:1/none", **{field: "http://insecure.test"}
+    )
+    with pytest.raises(RuntimeError, match="https required"):
+        create_app(settings=settings, publisher=FakePublisher())
+
+
+@integration
+async def test_sec14_oversized_body_is_rejected_before_any_work(h: Harness) -> None:
+    job_id = await h.enqueue()
+    big = b"x" * 10_000
+    async with h.client() as client:
+        response = await client.post(
+            "/internal/jobs/run", content=big, headers={"Upstash-Signature": sign(big)}
+        )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+    assert h.handler.calls == []
+    assert (await h.job(job_id)).status == "queued"

@@ -46,7 +46,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "KS_WORKER_PUBLIC_URL"
-        value = google_cloud_run_v2_service.worker.uri
+        value = var.worker_public_url
       }
 
       dynamic "env" {
@@ -107,6 +107,10 @@ resource "google_cloud_run_v2_service" "worker" {
       env {
         name  = "KS_QSTASH_URL"
         value = var.qstash_url
+      }
+      env {
+        name  = "KS_WORKER_PUBLIC_URL"
+        value = var.worker_public_url
       }
       env {
         name  = "KS_DISPATCHER_OIDC_AUDIENCE"
@@ -201,7 +205,7 @@ resource "google_cloud_scheduler_job" "outbox_dispatch" {
 
     oidc_token {
       service_account_email = google_service_account.scheduler.email
-      audience              = var.dispatcher_oidc_audience != "" ? var.dispatcher_oidc_audience : google_cloud_run_v2_service.worker.uri
+      audience              = var.dispatcher_oidc_audience
     }
   }
 

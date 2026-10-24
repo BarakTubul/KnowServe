@@ -80,6 +80,33 @@ def _missing_production_settings(settings: Settings) -> list[str]:
     return [name for name, value in required.items() if not value]
 
 
+def _insecure_production_urls(settings: Settings) -> list[str]:
+    """Production must use https for the destination and the QStash API (review L5)."""
+    urls = {
+        "KS_WORKER_PUBLIC_URL": settings.worker_public_url,
+        "KS_QSTASH_URL": settings.qstash_url,
+    }
+    return [name for name, value in urls.items() if value and not value.startswith("https://")]
+
+
+MAX_DELIVERY_BODY_BYTES = 4096
+
+
+async def _read_capped_body(request: Request) -> bytes | None:
+    """Read the body but give up above the cap, before authentication (review L2)."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_DELIVERY_BODY_BYTES:
+        return None
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_DELIVERY_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _build_publisher(settings: Settings) -> Publisher:
     if settings.qstash_token and settings.worker_public_url:
         return HttpPublisher(
@@ -168,7 +195,9 @@ def _parse_envelope(body: bytes) -> uuid.UUID:
 async def run_job(request: Request) -> JSONResponse:
     state = request.app.state
     settings: Settings = state.settings
-    body = await request.body()
+    body = await _read_capped_body(request)
+    if body is None:
+        raise AppError(413, "PAYLOAD_TOO_LARGE", "Request body too large")
     # Signature first: nothing else (parsing, DB) happens before this passes.
     try:
         verify_signature(
@@ -303,6 +332,11 @@ def create_app(
         if missing:
             raise RuntimeError(
                 "Worker refuses to start in production; missing: " + ", ".join(missing)
+            )
+        insecure = _insecure_production_urls(settings)
+        if insecure:
+            raise RuntimeError(
+                "Worker refuses to start in production; https required for: " + ", ".join(insecure)
             )
     configure_logging("worker", settings.log_level)
     engine = engine or create_engine(settings.database_url)

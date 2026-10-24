@@ -40,8 +40,22 @@ variable "qstash_url" {
 
 variable "dispatcher_oidc_audience" {
   type        = string
-  description = "Audience of the Scheduler OIDC token and KS_DISPATCHER_OIDC_AUDIENCE. Empty means: scheduler uses the worker URL, and the worker env var is left empty until set in a second apply (a service cannot reference its own URL)."
-  default     = ""
+  description = "Audience of the Scheduler OIDC token and of KS_DISPATCHER_OIDC_AUDIENCE. Required: the Worker refuses to start in production without it. Use the Worker's public https URL (a service cannot reference its own URL, so this is supplied explicitly)."
+
+  validation {
+    condition     = startswith(var.dispatcher_oidc_audience, "https://")
+    error_message = "dispatcher_oidc_audience must be an https:// URL (the Worker's public URL)."
+  }
+}
+
+variable "worker_public_url" {
+  type        = string
+  description = "The Worker's public https URL (KS_WORKER_PUBLIC_URL). Required: QStash deliveries are verified against it. Supplied explicitly because a Cloud Run service cannot reference its own URL; after the first apply, read the real URL from the console or the 'worker_url' output and set this."
+
+  validation {
+    condition     = startswith(var.worker_public_url, "https://")
+    error_message = "worker_public_url must be an https:// URL."
+  }
 }
 
 variable "scheduler_cron" {

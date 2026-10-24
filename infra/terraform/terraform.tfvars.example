@@ -20,3 +20,7 @@ pages_production_branch = "REPLACE_BRANCH"
 # Leave empty to disable custom domains (INFRA-11 is verified in M0-08).
 api_custom_domain = ""
 app_custom_domain = ""
+
+# Required: the Worker's public https URL (QStash destination) and the Scheduler token audience.
+worker_public_url        = "https://worker.example.invalid"
+dispatcher_oidc_audience = "https://worker.example.invalid"
