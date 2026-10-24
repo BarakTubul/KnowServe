@@ -4,8 +4,8 @@ A portfolio **demo** of a fictional organization's departmental knowledge assist
 
 ## Where the project is
 - **Target system** (approved): React+TypeScript on Cloudflare Pages; FastAPI API + Worker on Cloud Run; Neon Postgres+pgvector; R2; QStash with a transactional outbox; opaque DB sessions; LlamaIndex with OpenRouter (chat) and OpenAI embeddings. Full list in `docs/architecture/tech-stack.md`.
-- **Current code is LEGACY**: `backend/` (FastAPI with JWT, Celery/Redis, Chroma, gdown) and `frontend/` (React JS). It has **not** been migrated. Never describe a target requirement as implemented without test evidence.
-- **Phase:** documentation reconciliation. **Code work starts only once the user approves the docs-only PR and authorizes M0** (`docs/milestones/M0/plan.md`). After that, work proceeds milestone by milestone (M0–M6, WF-14).
+- **Two code trees:** the new monorepo (`apps/`, `packages/`, `infra/`) is the target and is built milestone by milestone. `backend/` (FastAPI with JWT, Celery/Redis, Chroma, gdown) and `frontend/` (React JS) are **LEGACY** reference code, not migrated and not deployable. Never describe a target requirement as implemented without test evidence.
+- **Phase:** **M0 local implementation** is authorized (`docs/milestones/M0/tasks.md` is the live status). Cloud actions (Terraform apply, deploys, accounts, domain, spend), `git push` and merges still need the user's separate explicit approval. Work proceeds milestone by milestone (M0–M6, WF-14).
 
 ## How to work (summary of `docs/workflow/agent-workflow.md`)
 1. **Read only what the task needs.** Find the task area in the index below, then read those specs plus their linked SEC/OPEN items. Specs hold the approved contracts and requirements.
@@ -32,11 +32,16 @@ Hard limits unless the user explicitly authorizes otherwise:
 - no merge to `main` without the user's approval of the milestone PR
 
 ## Commands
-- **Target** (after M0): `uv`, `pnpm`, Docker Compose, pytest/Vitest/Playwright, Ruff/Pyright/ESLint/Prettier. They will be defined in M0-01.
+- **Target** (monorepo: `apps/`, `packages/`, `infra/`, `tests/`; contracts in `docs/contracts/`, decisions in `docs/adr/`):
+  - local database: `docker compose up -d db` (pgvector, host port 5433; local-only credentials); copy `.env.example` to `.env`
+  - Python (repo root): `uv sync`, `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest` (integration tests need the database and fail, not skip, without it)
+  - frontend (repo root): `pnpm install`, `pnpm -r lint|format:check|typecheck|test|build`
+  - migrations: `uv run alembic -c packages/backend_core/alembic.ini upgrade head` with `KS_DATABASE_URL` set
+  - **never run cloud-affecting commands** (`terraform apply`, deploys) without the user's explicit authorization
 - **Legacy (current code):**
   - backend from `backend/`: `uvicorn app.main:app --reload` and `celery -A app.core.celery_app.celery_app worker` (needs Postgres and Redis)
   - frontend from `frontend/`: `npm run dev`, `npm run lint`
-  - There are no tests.
+  - There are no tests. The legacy folders are excluded from the new workspaces, lint and CI (`docs/adr/0001-repo-layout-and-legacy.md`).
 
 ## Doc index
 Start from `docs/README.md` for the spec template and rules.
