@@ -39,6 +39,7 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173"]
     )
     enable_spike_endpoints: bool = False
+    proxy_shared_secret: SecretStr | None = None
 
     qstash_url: str = "https://qstash.upstash.io"
     qstash_token: SecretStr | None = None
