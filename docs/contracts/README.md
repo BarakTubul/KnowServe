@@ -8,6 +8,7 @@ These are the interfaces that more than one workstream depends on. The Planning 
 | Config keys, local conventions, deployment interface | `config-and-deploy.md` | all services, Infrastructure, CI |
 | Job envelope, jobs/outbox schema, Worker and dispatcher endpoints | `jobs-outbox.md` | API, Worker, Infrastructure |
 | Log fields and correlation ids | `logging.md` | API, Worker |
+| Same-origin API proxy (Pages Function), direct-access guard | `proxy.md` | Frontend, API, Infrastructure |
 | OpenAPI baseline (generated, approved) | `openapi.json` | CI drift check, Frontend client |
 
 Code that implements the shared parts lives in `packages/backend_core/src/knowserve_core/`:

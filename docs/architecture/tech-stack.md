@@ -28,7 +28,7 @@
 | STACK-21 | Object storage | Cloudflare R2, private S3 API | thin storage interface | ARCH-14 |
 | STACK-22 | Queue | Upstash QStash | signed Worker delivery | ING-14 |
 | STACK-23 | Recovery scheduler | Google Cloud Scheduler | immediate publish + periodic outbox recovery | ING-13 |
-| STACK-24 | Frontend hosting | Cloudflare Pages | static site | INFRA-02 |
+| STACK-24 | Frontend hosting | Cloudflare Pages | static site plus a Pages Function that forwards `/api/*` to the API (OPEN-21, provisional) | INFRA-02, INFRA-11 |
 | STACK-25 | API + Worker hosting | Google Cloud Run | two services | INFRA-02 |
 | STACK-26 | IaC | Terraform | remote protected state, no secret values | INFRA-06 |
 | STACK-27 | Containers / local | separate API and Worker Dockerfiles + Docker Compose | local frontend Vite optional | INFRA-01 |

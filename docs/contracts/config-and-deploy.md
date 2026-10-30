@@ -11,7 +11,8 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_LOG_LEVEL` | all | default `INFO` |
 | `KS_DATABASE_URL` | API, Worker, migrations | `postgresql+asyncpg://…`. A plain `postgresql://…?sslmode=require` URL (Neon style) is normalized automatically. |
 | `KS_TEST_DATABASE_URL` | tests only | disposable database whose schema is dropped and recreated |
-| `KS_API_ALLOWED_ORIGINS` | API | comma-separated explicit origins |
+| `KS_API_ALLOWED_ORIGINS` | API | comma-separated explicit origins; in production the single `pages.dev` app origin (used by the Origin check) |
+| `KS_PROXY_SHARED_SECRET` | API | secret shared with the Pages Function; required when `KS_ENV=production`; when set the API rejects requests without `X-KS-Proxy-Secret` except `/health/*` (`proxy.md`) |
 | `KS_ENABLE_SPIKE_ENDPOINTS` | API | default `false` (M0-08 only) |
 | `KS_QSTASH_URL`, `KS_QSTASH_TOKEN` | API, Worker (publish) | token is a secret |
 | `KS_QSTASH_CURRENT_SIGNING_KEY`, `KS_QSTASH_NEXT_SIGNING_KEY` | Worker (verify) | secrets |
@@ -19,7 +20,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_DISPATCHER_OIDC_AUDIENCE`, `KS_DISPATCHER_OIDC_SERVICE_ACCOUNT` | Worker | production dispatcher authentication |
 | `KS_DISPATCHER_LOCAL_TOKEN` | Worker | local/ci only; the settings validator rejects it when `KS_ENV=production` |
 | `KS_OUTBOX_LEASE_SECONDS`, `KS_OUTBOX_BATCH_SIZE`, `KS_JOB_LEASE_SECONDS` | Worker/core | defaults 60 / 20 / 120 |
-| `VITE_API_BASE_URL` | Frontend | build-time API base URL; no secrets in `VITE_*` |
+| `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |
 
 Production values come from Google Secret Manager through per-service service accounts. Terraform creates secret *containers* and access bindings only; values are entered by the user and never enter Terraform state.
 
@@ -37,8 +38,8 @@ Production values come from Google Secret Manager through per-service service ac
 | Cloud Run services | `knowserve-api`, `knowserve-worker` (one region, chosen in M0-09/M0-05) |
 | Migrations | run by the deploy workflow with `alembic -c packages/backend_core/alembic.ini upgrade head` before traffic shifts; never at service start |
 | Health | liveness `/health/live`, readiness `/health/ready` on both services |
-| Smoke entry points | `GET <api>/v1/status`, `GET <worker>/health/ready`, and the Playwright deployed smoke in `tests/e2e/` |
+| Smoke entry points | `GET <pages-url>/api/v1/status` (through the proxy), a direct `GET <api>/v1/status` that must return 403, `GET <worker>/health/ready`, and the Playwright deployed specs in `tests/e2e/` |
 | Secrets | mounted from Secret Manager as env vars named exactly as the keys above |
-| Frontend | static build of `apps/frontend` to Cloudflare Pages with `VITE_API_BASE_URL` set at build time |
+| Frontend | static build of `apps/frontend` plus its Pages Function (`functions/`, `_routes.json`) deployed with wrangler to Cloudflare Pages; Pages variable `API_ORIGIN` and Pages secret `PROXY_SHARED_SECRET` (`proxy.md`) |
 
 No cloud resource is created or changed by any file in this repository until the user authorizes it (M0 plan, approvals A3/A4).

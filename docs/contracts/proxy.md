@@ -16,6 +16,7 @@ browser --/api/v1/...--> Pages Function --(+ X-KS-Proxy-Secret, X-KS-Client-IP)-
 - **Request body:** streamed to the upstream, not buffered. The client's abort signal is passed to the upstream fetch, so closing the page cancels the upstream request.
 - **Redirects:** never followed (`redirect: "manual"`); a redirect response is returned as is.
 - **Response:** status and body are passed through **unbuffered** (SSE must arrive incrementally). All `Set-Cookie` headers are preserved with their attributes. Hop-by-hop headers and `access-control-*` are dropped. `Cache-Control: no-store` is added when the upstream sets none, and `X-Content-Type-Options: nosniff` is always added (`_headers` does not apply to Function responses).
+- **Check order:** configuration is checked first (500 `PROXY_MISCONFIGURED`), then method (405), then path (404). Paths containing `..` (encoded or not), a backslash or `//` return 404, including an encoded `%2F` inside a segment. A client `x-request-id` is forwarded only if it matches `^[A-Za-z0-9_.-]{8,64}$`; the Function adds one to its own error responses.
 - **Upstream failure:** a network error returns 502 with the error envelope, code `UPSTREAM_UNAVAILABLE`, and a `request_id`.
 - **Configuration:** `API_ORIGIN` (plain variable, https) and `PROXY_SHARED_SECRET` (Pages secret). If either is missing the Function returns 500 `PROXY_MISCONFIGURED` and forwards nothing.
 
