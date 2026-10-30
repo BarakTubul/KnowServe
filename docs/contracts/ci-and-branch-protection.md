@@ -19,7 +19,7 @@ Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fa
 Triggers: pull requests, pushes to `main`, pushes to `m0/**`. Permissions: `contents: read`. Superseded runs are cancelled.
 
 ## Deploy gating (INFRA-04)
-`deploy.yml` runs on push to `main` and on manual `workflow_dispatch` (input `confirm_spike_deploy` must equal `yes`). Its `gate` job requires the `ci-required` check run of the same commit to be `success` and the ref to be `main`; the `deploy` job `needs` the gate and runs in the `production` environment. Under the A3 spike exception, use manual dispatch only until the user approves the push trigger. Merging to `main` requires the human-approved milestone PR (branch protection below).
+`deploy.yml` currently runs only on manual `workflow_dispatch` (input `confirm_spike_deploy` must equal `yes`); the `push: main` trigger is deliberately disabled until the user approves it. Its `gate` job requires the `ci-required` check run of the same commit to be `success` and the ref to be `main`; the `deploy` job `needs` the gate and runs in the `production` environment. Under the A3 spike exception, use manual dispatch only until the user approves the push trigger. Merging to `main` requires the human-approved milestone PR (branch protection below).
 
 ## `production` environment (user configures)
 Settings, Environments, `production`:
@@ -39,14 +39,23 @@ Settings, Environments, `production`:
 | `GCP_DATABASE_URL_SECRET_NAME` | Secret Manager secret id holding the migration database URL |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account id |
 | `CLOUDFLARE_PAGES_PROJECT` | Pages project name |
-| `VITE_API_BASE_URL` | optional; build-time API base URL (defaults to the deployed API URL) |
-| `E2E_BASE_URL` | URL the Playwright smoke targets (the deployed frontend) |
+| `E2E_BASE_URL` | the app's `https://<project>.pages.dev` URL; the Playwright smoke and the proxy smoke target it (default: `https://<CLOUDFLARE_PAGES_PROJECT>.pages.dev`) |
 | `WORKER_REQUIRES_IAM` | `true` if the worker service is private and the smoke must send an identity token |
 
 ## Repository secrets (names only)
 | Name | Meaning |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token limited to Pages edit on the one project |
+
+`VITE_API_BASE_URL` is no longer a repository variable: the workflow builds with `/api` (same-origin proxy, `docs/contracts/proxy.md`). The proxy secret is never stored in GitHub and CI never needs it.
+
+## Secrets the user sets outside GitHub (names only)
+| Name | Where | Meaning |
+|---|---|---|
+| `PROXY_SHARED_SECRET` | Cloudflare Pages secret, set manually with `wrangler pages secret put PROXY_SHARED_SECRET --project-name <name>` | value sent by the Pages Function as `X-KS-Proxy-Secret` |
+| `proxy-shared-secret` | Google Secret Manager (container created by Terraform, value added by the user) | same value; exposed to the API as `KS_PROXY_SHARED_SECRET` |
+
+The post-deploy smoke calls `<pages-url>/api/v1/status` and asserts that the direct Cloud Run API URL without the secret returns 403. No custom domain is required.
 
 No Google key file and no database URL is stored in GitHub; the database URL is read from Secret Manager at deploy time and masked.
 
