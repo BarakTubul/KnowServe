@@ -32,3 +32,8 @@ output "pages_project_subdomain" {
   description = "Default pages.dev subdomain of the Pages project."
   value       = cloudflare_pages_project.app.subdomain
 }
+
+output "app_url" {
+  description = "The single app origin (pages.dev). api_allowed_origins must equal this value."
+  value       = "https://${cloudflare_pages_project.app.subdomain}"
+}

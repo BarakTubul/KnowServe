@@ -30,7 +30,12 @@ variable "log_level" {
 
 variable "api_allowed_origins" {
   type        = list(string)
-  description = "Explicit browser origins for KS_API_ALLOWED_ORIGINS (e.g. the Pages and custom app origins)."
+  description = "Browser origins for KS_API_ALLOWED_ORIGINS. Must be exactly the single https://<project>.pages.dev app origin (docs/contracts/proxy.md): the API sees that Origin because the Pages Function forwards it. Wildcards and non-https origins are rejected."
+
+  validation {
+    condition     = length(var.api_allowed_origins) == 1 && alltrue([for o in var.api_allowed_origins : startswith(o, "https://") && !strcontains(o, "*")])
+    error_message = "api_allowed_origins must contain exactly one https:// origin and no wildcard."
+  }
 }
 
 variable "qstash_url" {
@@ -67,12 +72,6 @@ variable "scheduler_time_zone" {
   type        = string
   description = "Time zone for the Scheduler cron."
   default     = "Etc/UTC"
-}
-
-variable "api_custom_domain" {
-  type        = string
-  description = "Host to map to the API Cloud Run service (e.g. api.example.com). Empty disables the mapping."
-  default     = ""
 }
 
 variable "github_repository" {
@@ -124,8 +123,12 @@ variable "pages_production_branch" {
   description = "Production branch name recorded on the Pages project."
 }
 
-variable "app_custom_domain" {
+variable "api_origin" {
   type        = string
-  description = "Host for the frontend on Pages (e.g. app.example.com). Empty disables the custom domain."
-  default     = ""
+  description = "Cloud Run API URL (https, no trailing slash) injected as the plain Pages variable API_ORIGIN for the production deployment. Known only after the first apply (see output api_url): apply once, then set it and apply again."
+
+  validation {
+    condition     = startswith(var.api_origin, "https://") && !endswith(var.api_origin, "/")
+    error_message = "api_origin must be an https:// URL without a trailing slash."
+  }
 }

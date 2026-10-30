@@ -2,7 +2,8 @@
 project_id  = "REPLACE_PROJECT_ID"
 region      = "REPLACE_REGION"
 
-api_allowed_origins = ["https://REPLACE_APP_HOST"]
+# Exactly one origin: https://<pages_project_name>.pages.dev (no wildcard).
+api_allowed_origins = ["https://REPLACE_PAGES_PROJECT.pages.dev"]
 qstash_url          = "https://REPLACE_QSTASH_BASE_URL"
 scheduler_cron      = "REPLACE_CRON"
 
@@ -17,9 +18,8 @@ cloudflare_account_id   = "REPLACE_CLOUDFLARE_ACCOUNT_ID"
 pages_project_name      = "REPLACE_PAGES_PROJECT"
 pages_production_branch = "REPLACE_BRANCH"
 
-# Leave empty to disable custom domains (INFRA-11 is verified in M0-08).
-api_custom_domain = ""
-app_custom_domain = ""
+# Cloud Run API URL (plain Pages variable API_ORIGIN). Placeholder until the first apply shows output api_url.
+api_origin = "https://api.example.invalid"
 
 # Required: the Worker's public https URL (QStash destination) and the Scheduler token audience.
 worker_public_url        = "https://worker.example.invalid"
