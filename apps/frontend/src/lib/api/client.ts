@@ -2,7 +2,7 @@ import createClient from 'openapi-fetch';
 import { ApiError, parseApiError } from './errors';
 import type { components, paths } from './schema';
 
-const DEFAULT_BASE_URL = 'http://localhost:8000';
+const DEFAULT_BASE_URL = '/api';
 
 export type StatusResponse = components['schemas']['StatusResponse'];
 
@@ -12,8 +12,10 @@ export function resolveBaseUrl(): string {
 
 /** The one typed API client (FE-ARCH-01). Components must use it, never fetch directly. */
 export function createApiClient(baseUrl: string = resolveBaseUrl()) {
+  // Request() needs an absolute URL; a path base such as /api is resolved against the page origin.
+  const absolute = baseUrl.startsWith('/') ? `${globalThis.location.origin}${baseUrl}` : baseUrl;
   return createClient<paths>({
-    baseUrl,
+    baseUrl: absolute,
     credentials: 'include', // session cookie (FE-ARCH-02); CSRF is added in M1
     // Resolve fetch at call time so it can be stubbed in tests.
     fetch: (request) => globalThis.fetch(request),
