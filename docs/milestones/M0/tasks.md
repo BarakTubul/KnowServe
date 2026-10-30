@@ -14,7 +14,7 @@ Verification commands below are the intended checks. Exact script names are fixe
 | M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC, budgets | M0-01; apply needs A3, A4 | Infrastructure | code authored + validated; plan/apply BLOCKED |
 | M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | workflows authored; **not run**; BLOCKED (A3/A4) |
 | M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | not started (needs M0-06/08/09) |
-| M0-08 | Same-site domain topology feasibility | M0-06; A5 | Infrastructure | API side done; deployed check BLOCKED (A3/A4/A5) |
+| M0-08 | Hosting route feasibility: same-site subdomains, or the same-origin `/api` proxy if OPEN-21 is approved | M0-06; A5 | Infrastructure | API side done; deployed check BLOCKED (A3/A4/A5) |
 | M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | done (sourced documented values; nothing measured) |
 | M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | workflows authored + actionlint clean; **not run on GitHub** |
 
@@ -280,3 +280,6 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 - **F5:** immediate publish after the response may stall under request-based CPU billing; the recovery dispatcher covers it, latency unmeasured.
 - **F6/F7:** Cloud Run timeout is not set in Terraform (default applies) and `deletion_protection` defaults to true in current docs; Terraform provider pins lag the latest releases.
 - **F8:** Neon Free has a 6-hour point-in-time window, no scheduled backups (OPEN-09 input). A GCP budget with alerts does not cap spend.
+
+### Hosting decision (2026-10-30)
+User approved a temporary, isolated cloud spike (option b). The Firebase Hosting vs Cloudflare Pages comparison is in `hosting-comparison.md`; the Owner recommendation (Pages Function proxy on `pages.dev`, OPEN-21) awaits the user's approval and is not applied anywhere. Local preparation done: the spike-only SSE endpoint `GET /v1/spike/stream` (126 tests pass). Not done, by instruction: no cloud resource provisioned, no architecture or approved spec changed.
