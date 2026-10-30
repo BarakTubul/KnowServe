@@ -1,2 +1,7 @@
 packages:
   - "apps/frontend"
+
+# wrangler pulls esbuild and workerd; their install scripts are optional (platform binaries ship as optional deps).
+allowBuilds:
+  esbuild: false
+  workerd: false

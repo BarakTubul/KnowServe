@@ -33,6 +33,14 @@ describe('fe_arch_01 / fe_arch_02 api client', () => {
     expect(req.method).toBe('GET');
   });
 
+  it('open21_default_base_url_is_same_origin_api_path', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(200, OK));
+    await getStatus(createApiClient());
+    const req = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(new URL(req.url).pathname).toBe('/api/v1/status');
+    expect(new URL(req.url).origin).toBe(globalThis.location.origin);
+  });
+
   it.each([
     [404, 'NOT_FOUND'],
     [422, 'VALIDATION_ERROR'],
