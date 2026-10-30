@@ -23,6 +23,7 @@ browser --/api/v1/...--> Pages Function --(+ X-KS-Proxy-Secret, X-KS-Client-IP)-
 - Setting `KS_PROXY_SHARED_SECRET`. When set, **every route except `/health/*`** requires header `X-KS-Proxy-Secret` with that value, compared in constant time. A missing or wrong value returns `403` with the error envelope, code `DIRECT_ACCESS_DENIED`, and the request is not processed. `/health/*` stays open for Cloud Run probes.
 - In `KS_ENV=production` the API refuses to start without `KS_PROXY_SHARED_SECRET`. Outside production the guard is off when the setting is unset, so local development and CI work without it.
 - `X-KS-Client-IP` is trusted only after the secret check passed, and only if it parses as an IP address; otherwise it is ignored. Without the secret check it is never read. Rate limits and audit logs (M1) key on this value.
+- With the guard on, the CORS middleware is **not installed** (the same-origin route needs none), so even a preflight is rejected with 403. CORS stays enabled only when the guard is off (local development).
 - The secret is never logged (MON-05).
 
 ## Secrets and rotation

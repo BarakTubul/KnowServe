@@ -21,6 +21,8 @@ from knowserve_core.logging import configure_logging
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, ErrorEnvelope, install_web
 
+from .proxy_guard import install_proxy_guard
+
 
 class LiveResponse(BaseModel):
     status: Literal["ok"]
@@ -122,6 +124,11 @@ async def get_status(request: Request) -> StatusResponse:
 
 def create_app(settings: Settings | None = None, engine: AsyncEngine | None = None) -> FastAPI:
     settings = settings or get_settings()
+    proxy_secret = (
+        settings.proxy_shared_secret.get_secret_value() if settings.proxy_shared_secret else ""
+    )
+    if settings.env == "production" and not proxy_secret:
+        raise RuntimeError("API refuses to start in production without KS_PROXY_SHARED_SECRET")
     configure_logging("api", settings.log_level)
     engine = engine or create_engine(settings.database_url)
 
@@ -141,13 +148,18 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(router)
     if settings.enable_spike_endpoints:
         app.include_router(spike_router)
+    if proxy_secret:
+        install_proxy_guard(app, proxy_secret)  # before install_web: errors keep a request id
     install_web(app)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.api_allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
-    )
+    if not proxy_secret:
+        # Same-origin proxy route (docs/contracts/proxy.md) needs no CORS. With the guard on,
+        # CORS is not installed, so preflights reach the guard and are rejected too.
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.api_allowed_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "X-Request-ID"],
+            expose_headers=["X-Request-ID"],
+        )
     return app
