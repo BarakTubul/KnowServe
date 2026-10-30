@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 from typing import Any, Literal
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -65,6 +68,30 @@ async def spike_cookie() -> Response:
 @spike_router.get("/echo", response_model=SpikeEchoResponse)
 async def spike_echo(request: Request) -> SpikeEchoResponse:
     return SpikeEchoResponse(cookie_present=SPIKE_COOKIE in request.cookies)
+
+
+@spike_router.get("/stream")
+async def spike_stream(
+    seconds: int = Query(10, ge=1, le=600), interval: float = Query(1.0, ge=0.1, le=10.0)
+) -> StreamingResponse:
+    """M0 spike only: a timed SSE stream to measure proxy buffering and timeouts.
+
+    Emits one ``data`` event every ``interval`` seconds for ``seconds`` seconds, then a final
+    ``done`` event.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        total = int(seconds / interval)
+        for i in range(1, total + 1):
+            await asyncio.sleep(interval)
+            yield f"data: {json.dumps({'n': i, 'of': total})}\n\n"
+        yield 'event: done\ndata: {"complete": true}\n\n'
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 def _engine(request: Request) -> AsyncEngine:

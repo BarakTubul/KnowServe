@@ -339,3 +339,28 @@ def test_m0_ac06_export_is_deterministic_and_has_no_spike_paths() -> None:
     second = json.dumps(build_schema(), sort_keys=True)
     assert first == second
     assert not [p for p in build_schema()["paths"] if "spike" in p]
+
+
+async def test_m0_08_spike_stream_emits_timed_sse_events_and_done() -> None:
+    engine = create_engine(DEAD_URL, null_pool=True)
+    app = create_app(_settings(DEAD_URL, enable_spike_endpoints=True), engine)
+    async with _client(app) as client:
+        response = await client.get("/v1/spike/stream", params={"seconds": 1, "interval": 0.25})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "no-cache" in response.headers["cache-control"]
+    assert response.text.count('data: {"n"') == 4
+    assert "event: done" in response.text
+
+
+async def test_m0_08_spike_stream_validates_parameters_and_is_off_by_default(
+    dead_app: FastAPI,
+) -> None:
+    engine = create_engine(DEAD_URL, null_pool=True)
+    app = create_app(_settings(DEAD_URL, enable_spike_endpoints=True), engine)
+    async with _client(app) as client:
+        too_long = await client.get("/v1/spike/stream", params={"seconds": 100000})
+    assert too_long.status_code == 422
+    async with _client(dead_app) as client:
+        disabled = await client.get("/v1/spike/stream")
+    assert disabled.status_code == 404

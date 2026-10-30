@@ -15,6 +15,7 @@ Product routes are all under `/v1`. M0 adds no others. There is **no public enqu
 Registered **only** when `KS_ENABLE_SPIKE_ENDPOINTS=true`; otherwise they return the normal 404 envelope and are absent from the OpenAPI baseline.
 - `POST /v1/spike/cookie` sets a non-sensitive test cookie `ks_spike=1` with `Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=300` and **no `Domain` attribute** (host-only). Returns `204`.
 - `GET /v1/spike/echo` returns `200 {"cookie_present": true|false}`.
+- `GET /v1/spike/stream?seconds=<1..600>&interval=<0.1..10>` returns `text/event-stream` (`Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`): one `data: {"n": i, "of": total}` event per interval, then a final `event: done`. It exists only to measure proxy buffering, header forwarding and request timeouts in the deployed spike (hosting comparison); it is not the chat stream.
 These carry no session semantics and are removed or left disabled before M1.
 
 ## Error envelope (OPEN-14, ARCH-05)
