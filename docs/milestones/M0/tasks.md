@@ -276,7 +276,7 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 
 ### Findings from the provider research that need a decision (`spike-report.md`)
 - **F1 (blocks M0-AC11 design):** Cloud Run domain mapping, used by `infra/terraform/gcp_cloud_run.tf` for `api.<domain>`, is documented as preview and "not production-ready". The alternatives (load balancer, Firebase Hosting) change cost and topology. Decision for the user, with OPEN-04/OPEN-10.
-- **F3:** QStash retries (default 3, backoff up to 6 h) count against the free daily message limit, and the Worker's retryable 409 is retried; the behavior after retries are exhausted is undefined in `jobs-outbox.md`.
+- **F3:** QStash retries (default 3, backoff up to 6 h) count against the free daily message limit, and the Worker's retryable 409 is retried; the behavior after retries are exhausted is undefined in `../../contracts/jobs-outbox.md`.
 - **F5:** immediate publish after the response may stall under request-based CPU billing; the recovery dispatcher covers it, latency unmeasured.
 - **F6/F7:** Cloud Run timeout is not set in Terraform (default applies) and `deletion_protection` defaults to true in current docs; Terraform provider pins lag the latest releases.
 - **F8:** Neon Free has a 6-hour point-in-time window, no scheduled backups (OPEN-09 input). A GCP budget with alerts does not cap spend.
