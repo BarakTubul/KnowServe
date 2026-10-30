@@ -1,5 +1,5 @@
 locals {
-  api_secret_env    = ["database-url", "qstash-token"]
+  api_secret_env    = ["database-url", "qstash-token", "proxy-shared-secret"]
   worker_secret_env = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key"]
 
   # Secret id -> environment variable name (names fixed by docs/contracts/config-and-deploy.md).
@@ -8,6 +8,7 @@ locals {
     "qstash-token"               = "KS_QSTASH_TOKEN"
     "qstash-current-signing-key" = "KS_QSTASH_CURRENT_SIGNING_KEY"
     "qstash-next-signing-key"    = "KS_QSTASH_NEXT_SIGNING_KEY"
+    "proxy-shared-secret"        = "KS_PROXY_SHARED_SECRET"
   }
 }
 
@@ -174,21 +175,6 @@ resource "google_cloud_run_v2_service_iam_member" "worker_public" {
   name     = google_cloud_run_v2_service.worker.name
   role     = "roles/run.invoker"
   member   = "allUsers"
-}
-
-# Optional custom-domain mapping for the API host (INFRA-11). Disabled when the variable is empty.
-resource "google_cloud_run_domain_mapping" "api" {
-  count    = var.api_custom_domain == "" ? 0 : 1
-  location = var.region
-  name     = var.api_custom_domain
-
-  metadata {
-    namespace = var.project_id
-  }
-
-  spec {
-    route_name = google_cloud_run_v2_service.api.name
-  }
 }
 
 # Outbox recovery: Scheduler calls the Worker with a Google OIDC token.

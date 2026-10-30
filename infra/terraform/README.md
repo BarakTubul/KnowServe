@@ -6,18 +6,21 @@ One root module. Authored and validated **without cloud access**. Nothing here h
 |---|---|
 | `versions.tf`, `backend.tf` | providers; `backend "gcs" {}` (partial config at init) |
 | `variables.tf`, `terraform.tfvars.example` | typed, described inputs; placeholders only |
-| `gcp_foundation.tf` | APIs, Artifact Registry, 4 service accounts, secret containers and per-secret accessor bindings |
-| `gcp_cloud_run.tf` | `knowserve-api`, `knowserve-worker`, public invoker, optional API domain mapping, Scheduler job |
+| `gcp_foundation.tf` | APIs, Artifact Registry, 4 service accounts, 5 secret containers (incl. `proxy-shared-secret`) and per-secret accessor bindings |
+| `gcp_cloud_run.tf` | `knowserve-api`, `knowserve-worker`, public invoker, Scheduler job |
 | `gcp_github_wif.tf` | Workload Identity pool/provider (repo-restricted), deployer roles |
 | `gcp_budget.tf` | billing budget with threshold alerts |
-| `cloudflare.tf` | Pages project, optional app custom domain |
+| `cloudflare.tf` | Pages project with the plain production variable `API_ORIGIN` (no custom domain) |
 | `check_no_secrets.py` | heuristic guard: no secret versions or secret-looking values in `.tf`/`*.example` |
 
+## Topology (docs/contracts/proxy.md, OPEN-21)
+The browser only talks to `https://<pages_project_name>.pages.dev`. Static files come from Cloudflare Pages; `/api/*` is handled by the Pages Function (`apps/frontend/functions`), which forwards to the Cloud Run API at `API_ORIGIN` adding header `X-KS-Proxy-Secret`. The API (`KS_PROXY_SHARED_SECRET`, from Secret Manager `proxy-shared-secret`) rejects any non-health request without the correct header (403 `DIRECT_ACCESS_DENIED`). `KS_API_ALLOWED_ORIGINS` is the single pages.dev origin (variable `api_allowed_origins`, validated: exactly one https origin, no `*`). The Worker is not behind the proxy (QStash calls it directly, signature-authenticated). Terraform sets only the plain Pages variable `API_ORIGIN` (variable `api_origin`); it never touches the proxy secret value.
+
 ## Design notes
-- **Secrets:** Terraform creates only the four secret *containers* (`database-url`, `qstash-token`, `qstash-current-signing-key`, `qstash-next-signing-key`) and `secretAccessor` bindings (API: database-url, qstash-token; Worker: all four). No `google_secret_manager_secret_version`, no values, no `KS_DISPATCHER_LOCAL_TOKEN`. Cloud Run references secrets with `secret_key_ref` at version `latest`, so values never enter state.
+- **Secrets:** Terraform creates only the five secret *containers* (`database-url`, `qstash-token`, `qstash-current-signing-key`, `qstash-next-signing-key`, `proxy-shared-secret`) and `secretAccessor` bindings (API: database-url, qstash-token, proxy-shared-secret; Worker: the four QStash/database ones, never the proxy secret). No `google_secret_manager_secret_version`, no values, no `KS_DISPATCHER_LOCAL_TOKEN`. Cloud Run references secrets with `secret_key_ref` at version `latest`, so values never enter state.
 - **Images:** variables default to a public placeholder image. `lifecycle.ignore_changes` on the image means the deploy workflow rolls revisions without Terraform drift.
 - **Public invoker (`allUsers`) is required on both services**: browsers and QStash cannot present Google credentials. This is network reachability only. The API authenticates with its own session/CSRF rules; the Worker authenticates `/internal/jobs/run` (QStash signature) and `/internal/outbox/dispatch` (Scheduler Google OIDC: audience + service account email) itself. URL secrecy is not authentication (SEC-14). Health routes are intentionally open.
-- **Worker URL and audience:** a Cloud Run service cannot reference its own URL, so `worker_public_url` (`KS_WORKER_PUBLIC_URL`) and `dispatcher_oidc_audience` (Scheduler token audience and `KS_DISPATCHER_OIDC_AUDIENCE`) are **required variables** (https, validated). The Worker refuses to start in production without them. Apply once with the planned Worker URL (a custom domain, or the URL shown by the console after a first deploy), then set the real value if it differed. Cadence (`scheduler_cron`) has no default and no recommendation.
+- **Worker URL and audience:** a Cloud Run service cannot reference its own URL, so `worker_public_url` (`KS_WORKER_PUBLIC_URL`) and `dispatcher_oidc_audience` (Scheduler token audience and `KS_DISPATCHER_OIDC_AUDIENCE`) are **required variables** (https, validated). The Worker refuses to start in production without them. Apply once with the planned Worker URL (the URL shown by the console after a first deploy), then set the real value if it differed. Cadence (`scheduler_cron`) has no default and no recommendation.
 - **Deployer minimal roles:** `run.developer` on each service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts only, impersonable only by the repository-restricted WIF principal.
 
 ## Bootstrap (the USER does this once, outside Terraform)
@@ -25,9 +28,20 @@ One root module. Authored and validated **without cloud access**. Nothing here h
 2. Create a GCS bucket for state (versioning on, uniform access, restricted IAM) and note its name.
 3. Enable the APIs Terraform itself needs: `serviceusage.googleapis.com`, `cloudresourcemanager.googleapis.com`, `iam.googleapis.com` (Terraform enables the rest).
 4. Provide an identity for the first apply with enough rights to create the above resources (user account via `gcloud auth application-default login`, or a short-lived impersonated account). Do not create JSON keys.
-5. Create a Cloudflare API token scoped to Pages (and DNS only if custom domains are used); export it as `CLOUDFLARE_API_TOKEN` in the shell, never in files.
+5. Create a Cloudflare API token scoped to Pages; export it as `CLOUDFLARE_API_TOKEN` in the shell, never in files.
 6. Manual third-party setup (see below): Neon, Upstash QStash, Cloudflare R2, Resend.
 7. WIF trust is created by this module (`gcp_github_wif.tf`); the first apply must run with the user's own credentials since CI cannot yet authenticate.
+
+## Manual steps in order (the USER; nothing here has been run)
+1. Create the GCS state bucket; create the GCP project and link billing; enable `serviceusage`, `cloudresourcemanager`, `iam` (Bootstrap above).
+2. Fill `backend.hcl` and `terraform.tfvars`. `api_allowed_origins` is `["https://<pages_project_name>.pages.dev"]`. `api_origin` is unknown before the first apply: use a placeholder https URL.
+3. `terraform apply -target=google_project_service.apis -target=google_secret_manager_secret.secrets`.
+4. Generate a long random value and enter it as the first version of Secret Manager secret `proxy-shared-secret` (stdin or protected file, e.g. `gcloud secrets versions add proxy-shared-secret --data-file=-`); enter the other secret values too.
+5. Full `terraform apply`. Read output `api_url`; set `api_origin` to it and apply again so the Pages variable `API_ORIGIN` is correct. Check that output `app_url` equals `api_allowed_origins[0]`.
+6. Set the Pages secret with the SAME value: `wrangler pages secret put PROXY_SHARED_SECRET --project-name <pages_project_name>` (interactive prompt; not in CI, not in Terraform).
+7. Set the GitHub variables and the `production` environment (`docs/contracts/ci-and-branch-protection.md`), then run the deploy workflow (it deploys the Function with the static files and smoke-tests through the proxy).
+
+Secret rotation (contract): add a new version of `proxy-shared-secret`, roll a new API revision (Cloud Run reads `latest` at start), then update the Pages secret with `wrangler pages secret put` and redeploy. Requests get 403 between the two steps; rotate in a quiet window.
 
 ## Future authorized plan/apply (documented only; do not run without approval A3/A4)
 ```
@@ -50,16 +64,24 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 - **Upstash QStash** (token, signing keys, region URL): no provider resource authored; manual. `qstash_url` variable is copied from the console.
 - **Cloudflare R2** bucket and credentials: not authored here (no M0 requirement in this task); manual until a later milestone.
 - **Resend**: manual, later milestone.
-- **Custom domains** (`api_custom_domain`, `app_custom_domain`): authored but disabled by default; behavior unverified (M0-08).
+- **Custom domains:** none. The Cloud Run domain mapping, `api_custom_domain`, the Pages domain resource and `app_custom_domain` were removed (OPEN-21 route: pages.dev + Pages Function). No domain is required.
+- **Pages secret `PROXY_SHARED_SECRET`:** set manually with wrangler, never in Terraform (see below).
 - **GitHub** repository settings / secrets: outside this module.
+
+## UNVERIFIED (proxy route)
+- Pages Function streaming: SSE arriving incrementally through the deployed Function.
+- `Set-Cookie` pass-through with attributes on the deployed edge.
+- Whether injecting the Pages production variable `API_ORIGIN` through the Cloudflare Terraform provider v5 (`deployment_configs.production.env_vars`) works as expected (schema-validated only; possible drift, and a later apply might replace settings or drop a secret set with wrangler).
+- Client IP forwarding (`CF-Connecting-IP` to `X-KS-Client-IP`).
+- That `wrangler pages deploy` from `apps/frontend` bundles `functions/` and uses `dist/_routes.json` as expected (the workflow checks both files exist; the run itself is untested).
 
 ## UNVERIFIED ASSUMPTIONS
 `terraform validate` (run with providers google 6.50.0 and cloudflare 5.28.1 per the lock file) proves syntax and provider schema only. Not verified against any real cloud:
 1. That `plan`/`apply` succeed, IAM propagation, and API enablement ordering.
-2. Provider major versions `~> 6.0` (google) and `~> 5.0` (cloudflare): Cloudflare v5 attribute names for `cloudflare_pages_project`/`cloudflare_pages_domain` were only schema-validated; behavior (build config, drift, import needs) unknown.
+2. Provider major versions `~> 6.0` (google) and `~> 5.0` (cloudflare): Cloudflare v5 attribute names for `cloudflare_pages_project` were only schema-validated; behavior (build config, drift, import needs) unknown.
 3. Region choice: `region` has no default; Cloud Run, Artifact Registry and Scheduler locations must be supported and are decided in M0-09.
 4. Free-tier eligibility and costs of every resource, including Secret Manager, Scheduler, Artifact Registry and budgets: not asserted; see M0-09 research with dated sources.
-5. `google_cloud_run_domain_mapping` availability in the chosen region and its TLS/cookie behavior (INFRA-11); Pages custom-domain support and DNS setup for a domain not on Cloudflare.
+5. (Removed: custom domains are no longer part of the design.)
 6. The budget only alerts, it does not cap spend; the notification path (default billing-admin email vs `budget_notification_channel_ids`) is unverified.
 7. Startup probe `/health/live` assumes the apps' health routes exist in the deployed image (the placeholder bootstrap image will not serve them, so the first revision may fail its probe; may need the probe removed or a real first image).
 8. The WIF condition restricts by repository only, not branch/environment; the deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.

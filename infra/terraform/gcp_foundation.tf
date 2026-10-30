@@ -68,7 +68,7 @@ resource "google_service_account" "scheduler" {
 # ---- Secret containers (NO versions: values are entered by the user, never by Terraform) ----
 
 locals {
-  secret_ids = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key"]
+  secret_ids = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret"]
 
   # Which runtime account may read which secret.
   secret_readers = {
@@ -76,6 +76,7 @@ locals {
     "qstash-token"               = { api = true, worker = true }
     "qstash-current-signing-key" = { api = false, worker = true }
     "qstash-next-signing-key"    = { api = false, worker = true }
+    "proxy-shared-secret"        = { api = true, worker = false } # docs/contracts/proxy.md
   }
 }
 

@@ -21,6 +21,10 @@ PATTERNS = {
     "openai/openrouter style key": re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}"),
     "github token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
     "bearer/jwt": re.compile(r"eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{10,}\."),
+    # Any secret version is already rejected above; these also catch proxy-secret values by name.
+    "proxy secret version": re.compile(r"secret_version.*proxy|proxy.*secret_version", re.I),
+    "PROXY_SHARED_SECRET value": re.compile(r"\bPROXY_SHARED_SECRET\b\s*[=:]\s*\"?(?!REPLACE)[^\s\"#]"),
+    "proxy secret value assignment": re.compile(r"(?i)\bproxy[_-]?(shared[_-]?)?secret\b\s*=\s*\"(?!REPLACE)[^\"]+\""),
     "local dispatcher token": re.compile(r"KS_DISPATCHER_LOCAL_TOKEN"),
     "inline credentials url": re.compile(r"postgres(?:ql)?(?:\+\w+)?://[^\s\"':@]+:[^\s\"'@]+@"),
     "quoted secret assignment": re.compile(
