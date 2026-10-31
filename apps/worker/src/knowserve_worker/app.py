@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from knowserve_core import request_context
 from knowserve_core.db import check_database, create_engine, create_session_factory
+from knowserve_core.jobs import MANUAL_RETRY_MARKER
 from knowserve_core.logging import configure_logging
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.outbox import dispatch_pending
@@ -48,6 +49,7 @@ class JobContext:
     job_type: str
     correlation_id: str
     attempts: int
+    previous_error: str | None = None
 
 
 Handler = Callable[[JobContext], Awaitable[None]]
@@ -57,6 +59,16 @@ RUN_PATH = "/internal/jobs/run"
 async def always_fail_handler(ctx: JobContext) -> None:
     """Spike failure hook (KS_ENABLE_SPIKE_FAILURE_HOOKS): drives retries and terminal failure."""
     raise RuntimeError("always_fail test job")
+
+
+async def fail_then_ok_handler(ctx: JobContext) -> None:
+    """Spike failure hook: fails until an operator has manually retried the job, then succeeds.
+
+    Shows the full recovery cycle (automatic attempts exhausted, `failed`, manual retry, `done`).
+    Registered only with KS_ENABLE_SPIKE_FAILURE_HOOKS; real job types never use it.
+    """
+    if not (ctx.previous_error or "").startswith(MANUAL_RETRY_MARKER):
+        raise RuntimeError("fail_then_ok test job: not retried manually yet")
 
 
 async def noop_handler(ctx: JobContext) -> None:
@@ -151,7 +163,7 @@ _CLAIM = text(
     WHERE id = :id AND (status = 'queued'
                         OR (status = 'processing'
                             AND (lease_expires_at IS NULL OR lease_expires_at < now())))
-    RETURNING job_type, correlation_id, attempts
+    RETURNING job_type, correlation_id, attempts, last_error
     """
 )
 _COMPLETE = text(
@@ -241,7 +253,9 @@ async def run_job(request: Request) -> JSONResponse:
             return JSONResponse({"result": "failed"})
         raise AppError(409, "JOB_IN_PROGRESS", "Job is being processed by another worker")
 
-    ctx = JobContext(job_id, claimed.job_type, claimed.correlation_id, claimed.attempts)
+    ctx = JobContext(
+        job_id, claimed.job_type, claimed.correlation_id, claimed.attempts, claimed.last_error
+    )
     handler: Handler | None = state.handlers.get(ctx.job_type)
     if handler is None:
         await _finish(factory, _RELEASE, job_id, me, status="failed", error="no handler")
@@ -369,6 +383,7 @@ def create_app(
     default_handlers: dict[str, Handler] = {"noop": noop_handler}
     if settings.enable_spike_failure_hooks:
         default_handlers["always_fail"] = always_fail_handler
+        default_handlers["fail_then_ok"] = fail_then_ok_handler
     app.state.handlers = handlers if handlers is not None else default_handlers
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.state.instance_id = f"worker-{uuid.uuid4().hex[:8]}"

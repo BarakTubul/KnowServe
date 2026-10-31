@@ -733,10 +733,13 @@ def test_m0_ac10_production_requires_dispatcher_settings_only_when_enabled() -> 
 
 
 @integration
-async def test_m0_ac17_always_fail_handler_exists_only_with_failure_hooks(h: Harness) -> None:
+@pytest.mark.parametrize("job_type", ["always_fail", "fail_then_ok"])
+async def test_m0_ac17_failure_hook_handlers_exist_only_with_failure_hooks(
+    h: Harness, job_type: str
+) -> None:
     for hooks, expected in ((True, "queued"), (False, "failed")):
         async with h.factory() as s, s.begin():
-            job_id = (await enqueue_job(s, "always_fail", correlation_id="req_hook_001")).id
+            job_id = (await enqueue_job(s, job_type, correlation_id="req_hook_001")).id
         app = create_app(
             settings=make_settings(
                 h.url,

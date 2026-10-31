@@ -29,6 +29,7 @@ from knowserve_core.settings import Settings
 from knowserve_worker.app import (
     JobContext,
     always_fail_handler,
+    fail_then_ok_handler,
     noop_handler,
 )
 from knowserve_worker.app import create_app as create_worker
@@ -106,7 +107,11 @@ class Stack:
                 spike_oidc_audience=AUDIENCE,
             ),
             engine=engine,
-            handlers={"noop": self.noop, "always_fail": self.always_fail},
+            handlers={
+                "noop": self.noop,
+                "always_fail": self.always_fail,
+                "fail_then_ok": self.fail_then_ok,
+            },
         )
         self.worker = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.worker_app, raise_app_exceptions=False),
@@ -124,6 +129,10 @@ class Stack:
     async def always_fail(self, ctx: JobContext) -> None:
         self.calls.append(ctx)
         await always_fail_handler(ctx)
+
+    async def fail_then_ok(self, ctx: JobContext) -> None:
+        self.calls.append(ctx)
+        await fail_then_ok_handler(ctx)
 
     def api(self) -> httpx.AsyncClient:
         app = create_api(
@@ -246,3 +255,28 @@ async def test_ing15_duplicate_and_concurrent_deliveries_run_the_job_once(stack:
         body = json.dumps({"schema_version": 1, "job_id": created["id"]}).encode()
         duplicates = await asyncio.gather(*[stack.sim.deliver(body) for _ in range(5)])
     assert all(code == 200 for code in duplicates) and len(stack.calls) == 1
+
+
+async def test_m0_ac16_fail_then_ok_exhausts_attempts_then_succeeds_after_manual_retry(
+    stack: Stack,
+) -> None:
+    """B4 (spike only): 4 failed attempts -> `failed` -> manual retry -> `done`."""
+    async with stack.api() as api:
+        created = (
+            await api.post("/internal/spike/jobs", headers=GOOD, json={"job_type": "fail_then_ok"})
+        ).json()
+        job_id = created["id"]
+        failed = await stack.state(api, job_id)
+        assert stack.sim.deliveries == [500, 500, 500, 500]
+        assert failed["delivery_state"] == "failed" and failed["attempts"] == 4
+        retried = await api.post(f"/internal/spike/jobs/{job_id}/retry", headers=GOOD)
+        final = await stack.state(api, job_id)
+        listed = (await api.get("/internal/spike/jobs", headers=GOOD)).json()
+    assert retried.status_code == 200 and retried.json()["action"] == "requeue"
+    assert stack.sim.deliveries == [500, 500, 500, 500, 200]  # one clean delivery after the retry
+    assert final["delivery_state"] == "done" and final["last_error"] is None
+    assert listed == []  # nothing left needing attention
+    again = None
+    async with stack.api() as api:
+        again = await api.post(f"/internal/spike/jobs/{job_id}/retry", headers=GOOD)
+    assert again.status_code == 409  # a completed job cannot be retried

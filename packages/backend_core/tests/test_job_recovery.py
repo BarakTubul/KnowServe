@@ -343,3 +343,15 @@ async def test_adm16_requeue_rolls_back_when_outbox_is_not_published(
         await retry_job(f, FakePublisher(), job_id, **KW)
     async with f() as s:
         assert (await s.execute(text("SELECT status FROM jobs"))).scalar_one() == "failed"
+
+
+async def test_adm16_manual_requeue_records_a_marker_and_keeps_the_previous_error(
+    session_factory: Factory,
+) -> None:
+    f = session_factory
+    job_id = await create_job(f, FakePublisher(), "noop")
+    await sql(f, "UPDATE jobs SET status = 'failed', last_error = 'boom' WHERE id = :id", id=job_id)
+    await retry_job(f, FakePublisher(), job_id, **KW)
+    async with f() as s:
+        error = (await s.execute(text("SELECT last_error FROM jobs"))).scalar_one()
+    assert error == "manual retry requested; previous: boom"

@@ -44,14 +44,14 @@ from knowserve_core.settings import Settings
 from knowserve_core.web import AppError
 
 MAX_OPEN_JOBS = 50
-TEST_JOB_TYPES = ("noop", "always_fail")
-HOOK_JOB_TYPES = frozenset({"always_fail"})
+TEST_JOB_TYPES = ("noop", "always_fail", "fail_then_ok")
+HOOK_JOB_TYPES = frozenset({"always_fail", "fail_then_ok"})
 
 router = APIRouter(prefix="/internal/spike/jobs", include_in_schema=False)
 
 
 class JobCreate(BaseModel):
-    job_type: Literal["noop", "always_fail"] = "noop"
+    job_type: Literal["noop", "always_fail", "fail_then_ok"] = "noop"
     skip_publish: bool = False
 
 

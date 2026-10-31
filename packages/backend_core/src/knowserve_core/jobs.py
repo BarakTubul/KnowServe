@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import request_context
 from .models import Job, OutboxEntry
 
+# Prefix written to ``jobs.last_error`` when an operator manually requeues a job. It keeps the
+# previous error visible and lets spike-only test handlers see that a manual retry happened.
+MANUAL_RETRY_MARKER = "manual retry requested"
+
 
 async def enqueue_job(
     session: AsyncSession, job_type: str, correlation_id: str | None = None

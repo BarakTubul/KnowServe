@@ -29,7 +29,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_ENABLE_SPIKE_JOB_OPS` | API | default `false`. Mounts the spike-only operator routes `/internal/spike/jobs` only when `KS_SPIKE_OPERATOR_EMAILS` and `KS_SPIKE_OIDC_AUDIENCE` are also set; otherwise 404 |
 | `KS_SPIKE_OPERATOR_EMAILS` | API | comma list of the identities allowed on the operator routes (non-secret). In the spike this is the operator **service account** `ks-spike-operator@<project>.iam.gserviceaccount.com` (Terraform sets it), never a human account |
 | `KS_SPIKE_OIDC_AUDIENCE` | API | audience the operator's Google OIDC ID token must carry (Terraform sets it to the API origin). Human accounts mint it by impersonating the operator service account (`jobs-outbox.md`) |
-| `KS_ENABLE_SPIKE_FAILURE_HOOKS` | API | default `false`; test-only `skip_publish` and job type `always_fail`, additionally require `KS_ENABLE_SPIKE_JOB_OPS=true`. Set only in the isolated spike environment |
+| `KS_ENABLE_SPIKE_FAILURE_HOOKS` | API | default `false`; test-only `skip_publish` and job types `always_fail` and `fail_then_ok`, additionally require `KS_ENABLE_SPIKE_JOB_OPS=true`. Set only in the isolated spike environment |
 | `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |
 
 Production values come from Google Secret Manager through per-service service accounts. Terraform creates secret *containers* and access bindings only; values are entered by the user and never enter Terraform state.

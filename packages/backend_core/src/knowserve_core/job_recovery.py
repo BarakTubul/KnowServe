@@ -28,7 +28,7 @@ from typing import Literal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .jobs import enqueue_job
+from .jobs import MANUAL_RETRY_MARKER, enqueue_job
 from .outbox import publish_after_commit, republish_manual
 from .qstash import Publisher
 
@@ -77,7 +77,9 @@ _SELECT = """
 _REQUEUE_JOB = text(
     """
     UPDATE jobs SET status = 'queued', attempts = 0, claimed_by = NULL,
-                    lease_expires_at = NULL, updated_at = now()
+                    lease_expires_at = NULL, updated_at = now(),
+                    last_error = left(
+                        :marker || '; previous: ' || coalesce(last_error, 'none'), 500)
     WHERE id = :id
       AND (status = 'failed'
            OR (status = 'processing' AND lease_expires_at < now())
@@ -207,7 +209,8 @@ async def _requeue(
     try:
         async with session_factory() as session, session.begin():
             reset = await session.execute(
-                _REQUEUE_JOB, {"id": job_id, "stuck": stuck_after_seconds}
+                _REQUEUE_JOB,
+                {"id": job_id, "stuck": stuck_after_seconds, "marker": MANUAL_RETRY_MARKER},
             )
             if reset.first() is None:
                 raise _Skip

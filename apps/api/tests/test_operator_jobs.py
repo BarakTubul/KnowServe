@@ -281,9 +281,17 @@ async def test_m0_ac17_failure_hooks_are_refused_unless_enabled(h: Harness) -> N
     async with h.client(app) as c:
         skip = await c.post("/internal/spike/jobs", headers=GOOD, json={"skip_publish": True})
         fail = await c.post("/internal/spike/jobs", headers=GOOD, json={"job_type": "always_fail"})
+        then_ok = await c.post(
+            "/internal/spike/jobs", headers=GOOD, json={"job_type": "fail_then_ok"}
+        )
         ok = await c.post("/internal/spike/jobs", headers=GOOD, json={"job_type": "noop"})
         unknown = await c.post("/internal/spike/jobs", headers=GOOD, json={"job_type": "evil"})
-    assert (skip.status_code, fail.status_code, ok.status_code) == (403, 403, 201)
+    assert (skip.status_code, fail.status_code, then_ok.status_code, ok.status_code) == (
+        403,
+        403,
+        403,
+        201,
+    )
     assert skip.json()["error"]["code"] == "FAILURE_HOOKS_DISABLED"
     assert unknown.status_code == 422
     assert len(h.publisher.published) == 1
