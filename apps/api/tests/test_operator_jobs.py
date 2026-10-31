@@ -111,12 +111,13 @@ async def test_m0_ac17_job_ops_cannot_be_enabled_without_operators_and_audience(
             database_url="postgresql://u:p@localhost/db",
             enable_spike_job_ops=True,
         )
-    with pytest.raises(ValueError, match="KS_ENABLE_SPIKE_JOB_OPS"):
-        Settings(  # type: ignore[call-arg]
-            _env_file=None,  # pyright: ignore[reportCallIssue]
-            database_url="postgresql://u:p@localhost/db",
-            enable_spike_failure_hooks=True,
-        )
+    # The hooks flag alone is valid (the Worker gets only that flag) but inert on the API.
+    hooks_only = Settings(  # type: ignore[call-arg]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        database_url="postgresql://u:p@localhost/db",
+        enable_spike_failure_hooks=True,
+    )
+    assert hooks_only.enable_spike_failure_hooks and not hooks_only.enable_spike_job_ops
 
 
 @pytest.mark.parametrize(
@@ -304,3 +305,14 @@ async def test_m0_ac17_unfinished_test_jobs_are_capped(h: Harness) -> None:
         over = await c.post("/internal/spike/jobs", headers=GOOD, json={})
     assert over.status_code == 429 and over.json()["error"]["code"] == "TOO_MANY_OPEN_JOBS"
     assert len(h.publisher.published) == MAX_OPEN_JOBS
+
+
+async def test_m0_ac17_hooks_flag_without_job_ops_mounts_no_operator_routes(h: Harness) -> None:
+    app = h.app(
+        enable_spike_job_ops=False, enable_spike_failure_hooks=True, spike_operator_emails=[]
+    )
+    async with h.client(app) as c:
+        response = await c.post(
+            "/internal/spike/jobs", headers=GOOD, json={"job_type": "always_fail"}
+        )
+    assert response.status_code == 404

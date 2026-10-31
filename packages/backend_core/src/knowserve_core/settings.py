@@ -98,8 +98,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _spike_job_guards(self) -> Settings:
-        if self.enable_spike_failure_hooks and not self.enable_spike_job_ops:
-            raise ValueError("KS_ENABLE_SPIKE_FAILURE_HOOKS requires KS_ENABLE_SPIKE_JOB_OPS")
+        # Not coupled to job ops here: the Worker receives only the hooks flag (it registers the
+        # test-only handlers) while the API receives both. The hooks are reachable only through the
+        # operator routes, which exist only with job ops; Terraform enforces the pairing.
         if self.enable_spike_job_ops and not (
             self.spike_operator_emails and self.spike_oidc_audience
         ):

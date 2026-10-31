@@ -760,3 +760,19 @@ async def test_m0_ac17_failure_hook_handlers_exist_only_with_failure_hooks(
         assert (response.status_code, response.json().get("result")) == (
             (500, None) if hooks else (200, "failed")
         )
+
+
+def test_m0_ac17_worker_starts_with_only_the_failure_hooks_flag_as_terraform_sets_it() -> None:
+    """Regression: the deployed Worker revision crashed because the hooks flag required job ops."""
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        database_url="postgresql://u:p@localhost/db",
+        env="production",
+        qstash_token="t",
+        qstash_current_signing_key=CURRENT,
+        qstash_next_signing_key=NEXT,
+        worker_public_url=PUBLIC_URL,
+        enable_spike_failure_hooks=True,
+    )
+    app = create_app(settings=settings)
+    assert sorted(app.state.handlers) == ["always_fail", "fail_then_ok", "noop"]
