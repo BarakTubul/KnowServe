@@ -152,3 +152,12 @@ def verify_signature(
             sub.rstrip("/").encode(), expected_url.rstrip("/").encode()
         ):
             raise SignatureError("destination mismatch")
+
+
+def build_publisher(
+    qstash_url: str, token: str | None, worker_public_url: str | None, timeout: float = 10.0
+) -> Publisher:
+    """The one publisher factory used by the API (immediate publish) and the Worker."""
+    if token and worker_public_url:
+        return HttpPublisher(qstash_url, token, worker_public_url, timeout=timeout)
+    return UnconfiguredPublisher()

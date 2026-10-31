@@ -57,6 +57,23 @@ class Settings(BaseSettings):
     outbox_lease_seconds: int = 60
     outbox_batch_size: int = 20
     job_lease_seconds: int = 120
+    job_handler_timeout_seconds: int = Field(default=90, ge=1)
+    # Total processing attempts per job (QStash deliveries included). Reconcile with QStash's
+    # retry count: UNVERIFIED against a live QStash (docs/contracts/jobs-outbox.md).
+    job_max_attempts: int = Field(default=4, ge=1)
+    publish_timeout_seconds: float = Field(default=5.0, gt=0)
+    publish_grace_seconds: int = Field(default=120, ge=0)
+    stuck_after_seconds: int = Field(default=900, ge=1)
+
+    # The batch dispatcher (multi-row dispatch_pending) is the optional scheduled-recovery path.
+    # It is not mounted unless this is true (default false in M0).
+    enable_recovery_dispatcher: bool = False
+
+    # Operator test surface for the isolated spike (never public, never behind Pages).
+    enable_spike_job_ops: bool = False
+    enable_spike_failure_hooks: bool = False
+    spike_operator_emails: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    spike_oidc_audience: str | None = None
 
     @field_validator("database_url")
     @classmethod
@@ -69,6 +86,29 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("spike_operator_emails", mode="before")
+    @classmethod
+    def _split_emails(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip().lower() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip().lower() for item in value if str(item).strip()]
+        return value
+
+    @model_validator(mode="after")
+    def _spike_job_guards(self) -> Settings:
+        if self.enable_spike_failure_hooks and not self.enable_spike_job_ops:
+            raise ValueError("KS_ENABLE_SPIKE_FAILURE_HOOKS requires KS_ENABLE_SPIKE_JOB_OPS")
+        if self.enable_spike_job_ops and not (
+            self.spike_operator_emails and self.spike_oidc_audience
+        ):
+            raise ValueError(
+                "KS_ENABLE_SPIKE_JOB_OPS needs KS_SPIKE_OPERATOR_EMAILS and KS_SPIKE_OIDC_AUDIENCE"
+            )
+        if self.job_handler_timeout_seconds >= self.job_lease_seconds:
+            raise ValueError("KS_JOB_HANDLER_TIMEOUT_SECONDS must be below KS_JOB_LEASE_SECONDS")
+        return self
 
     @model_validator(mode="after")
     def _production_guards(self) -> Settings:

@@ -49,6 +49,8 @@ def make_settings(database_url: str, **overrides: Any) -> Settings:
         "qstash_next_signing_key": NEXT,
         "dispatcher_local_token": LOCAL_TOKEN,
         "worker_public_url": PUBLIC_URL,
+        # Dispatcher tests exercise the optional batch endpoint; its default is off (M0).
+        "enable_recovery_dispatcher": True,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
@@ -598,3 +600,131 @@ async def test_sec14_oversized_body_is_rejected_before_any_work(h: Harness) -> N
     assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
     assert h.handler.calls == []
     assert (await h.job(job_id)).status == "queued"
+
+
+# ------------------------------------------- processing failures, retry budget, optional dispatcher
+
+
+class Flaky:
+    """Fails for the first ``failures`` calls, then succeeds."""
+
+    def __init__(self, failures: int) -> None:
+        self.failures, self.calls = failures, 0
+
+    async def __call__(self, ctx: JobContext) -> None:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError("transient")
+
+
+def _app_with(h: Harness, handler: Any, **overrides: Any) -> Any:
+    return create_app(
+        settings=make_settings(h.url, **overrides),
+        engine=h.engine,
+        publisher=h.publisher,
+        handlers={"noop": handler},
+    )
+
+
+@integration
+async def test_ing16_transient_failure_is_not_acked_then_succeeds(h: Harness) -> None:
+    job_id = await h.enqueue()
+    handler = Flaky(failures=1)
+    async with h.client(_app_with(h, handler)) as c:
+        first = await h.deliver(c, job_id)
+        queued = await h.job(job_id)
+        second = await h.deliver(c, job_id)
+    assert first.status_code == 500  # a retry is still required: never acknowledged with 2xx
+    assert queued.status == "queued" and queued.attempts == 1 and queued.last_error
+    assert second.status_code == 200 and second.json() == {"result": "done"}
+    assert (await h.job(job_id)).status == "done" and handler.calls == 2
+
+
+@integration
+async def test_ing16_exhausted_attempts_become_failed_and_stop_retries(h: Harness) -> None:
+    job_id = await h.enqueue()
+    handler = Counting(fail=True)
+    async with h.client(_app_with(h, handler, job_max_attempts=4)) as c:
+        codes = [(await h.deliver(c, job_id)).status_code for _ in range(3)]
+        mid = await h.job(job_id)
+        last = await h.deliver(c, job_id)
+        failed = await h.job(job_id)
+        again = await h.deliver(c, job_id)
+    assert codes == [500, 500, 500] and mid.status == "queued" and mid.attempts == 3
+    # Only the final attempt is acknowledged, because no further automatic retry is needed.
+    assert last.status_code == 200 and last.json() == {"result": "failed"}
+    assert failed.status == "failed" and failed.attempts == 4 and failed.last_error
+    assert again.status_code == 200 and again.json() == {"result": "failed"}
+    assert len(handler.calls) == 4  # a redelivery of a failed job runs nothing
+
+
+@integration
+async def test_ing16_handler_timeout_counts_as_a_failed_attempt(h: Harness) -> None:
+    job_id = await h.enqueue()
+    handler = Counting(delay=5)
+    async with h.client(_app_with(h, handler, job_handler_timeout_seconds=1)) as c:
+        response = await h.deliver(c, job_id)
+    job = await h.job(job_id)
+    assert response.status_code == 500
+    assert job.status == "queued" and "timed out" in job.last_error and job.lease_expires_at is None
+
+
+@integration
+async def test_ing15_zombie_worker_cannot_complete_a_requeued_job(h: Harness) -> None:
+    job_id = await h.enqueue()
+    await h.sql(
+        f"UPDATE jobs SET status = 'processing', claimed_by = 'zombie', attempts = 1, "
+        f"lease_expires_at = now() - interval '1 second' WHERE id = '{job_id}'"
+    )
+    async with h.client() as c:  # a new delivery reclaims the expired lease and finishes
+        response = await h.deliver(c, job_id)
+    assert response.status_code == 200 and (await h.job(job_id)).claimed_by != "zombie"
+    async with h.factory() as s, s.begin():
+        late = await s.execute(
+            text(
+                "UPDATE jobs SET status = 'done' WHERE id = :id "
+                "AND claimed_by = 'zombie' AND status = 'processing'"
+            ),
+            {"id": job_id},
+        )
+    assert late.rowcount == 0  # type: ignore[attr-defined]
+
+
+@integration
+async def test_m0_ac10_batch_dispatcher_is_not_mounted_by_default(h: Harness) -> None:
+    app = _app_with(h, h.handler, enable_recovery_dispatcher=False)
+    async with h.client(app) as c:
+        with_token = await c.post(
+            "/internal/outbox/dispatch", headers={"Authorization": f"Bearer {LOCAL_TOKEN}"}
+        )
+        without = await c.post("/internal/outbox/dispatch")
+    assert with_token.status_code == 404 and without.status_code == 404
+
+
+def test_m0_ac10_production_starts_without_dispatcher_settings() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_url="postgresql://u:p@localhost/db",
+        env="production",
+        qstash_token="t",
+        qstash_current_signing_key=CURRENT,
+        qstash_next_signing_key=NEXT,
+        worker_public_url=PUBLIC_URL,
+    )
+    app = create_app(settings=settings)
+    assert "/internal/outbox/dispatch" not in app.openapi()["paths"]
+
+
+def test_m0_ac10_production_requires_dispatcher_settings_only_when_enabled() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_url="postgresql://u:p@localhost/db",
+        env="production",
+        qstash_token="t",
+        qstash_current_signing_key=CURRENT,
+        qstash_next_signing_key=NEXT,
+        worker_public_url=PUBLIC_URL,
+        enable_recovery_dispatcher=True,
+    )
+    with pytest.raises(RuntimeError, match="KS_DISPATCHER_OIDC_AUDIENCE"):
+        create_app(settings=settings)

@@ -26,14 +26,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from knowserve_core import request_context
 from knowserve_core.db import check_database, create_engine, create_session_factory
 from knowserve_core.logging import configure_logging
+from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.outbox import dispatch_pending
 from knowserve_core.qstash import (
     ENVELOPE_SCHEMA_VERSION,
     SIGNATURE_HEADER,
-    HttpPublisher,
     Publisher,
     SignatureError,
-    UnconfiguredPublisher,
+    build_publisher,
     verify_signature,
 )
 from knowserve_core.settings import Settings, get_settings
@@ -51,7 +51,6 @@ class JobContext:
 
 
 Handler = Callable[[JobContext], Awaitable[None]]
-OidcVerifier = Callable[[str, str], dict[str, Any]]
 RUN_PATH = "/internal/jobs/run"
 
 
@@ -60,23 +59,16 @@ async def noop_handler(ctx: JobContext) -> None:
     logger.info("noop job executed", extra={"job_id": str(ctx.job_id)})
 
 
-def google_oidc_verifier(token: str, audience: str) -> dict[str, Any]:
-    """Verify a Google-signed ID token. Blocking; BLOCKED live (no real token available)."""
-    from google.auth.transport import requests as google_requests
-    from google.oauth2 import id_token
-
-    return id_token.verify_oauth2_token(token, google_requests.Request(), audience)  # type: ignore[no-untyped-call]
-
-
 def _missing_production_settings(settings: Settings) -> list[str]:
     required = {
         "KS_WORKER_PUBLIC_URL": settings.worker_public_url,
         "KS_QSTASH_TOKEN": settings.qstash_token,
         "KS_QSTASH_CURRENT_SIGNING_KEY": settings.qstash_current_signing_key,
         "KS_QSTASH_NEXT_SIGNING_KEY": settings.qstash_next_signing_key,
-        "KS_DISPATCHER_OIDC_AUDIENCE": settings.dispatcher_oidc_audience,
-        "KS_DISPATCHER_OIDC_SERVICE_ACCOUNT": settings.dispatcher_oidc_service_account,
     }
+    if settings.enable_recovery_dispatcher:
+        required["KS_DISPATCHER_OIDC_AUDIENCE"] = settings.dispatcher_oidc_audience
+        required["KS_DISPATCHER_OIDC_SERVICE_ACCOUNT"] = settings.dispatcher_oidc_service_account
     return [name for name, value in required.items() if not value]
 
 
@@ -108,13 +100,10 @@ async def _read_capped_body(request: Request) -> bytes | None:
 
 
 def _build_publisher(settings: Settings) -> Publisher:
-    if settings.qstash_token and settings.worker_public_url:
-        return HttpPublisher(
-            settings.qstash_url,
-            settings.qstash_token.get_secret_value(),
-            settings.worker_public_url,
-        )
-    return UnconfiguredPublisher()
+    token = settings.qstash_token.get_secret_value() if settings.qstash_token else None
+    return build_publisher(
+        settings.qstash_url, token, settings.worker_public_url, settings.publish_timeout_seconds
+    )
 
 
 _UNAUTHENTICATED = ("UNAUTHENTICATED", "Authentication required")
@@ -255,9 +244,22 @@ async def run_job(request: Request) -> JSONResponse:
         return JSONResponse({"result": "failed"})
     logger.info("job claimed", extra={"job_id": str(job_id), "attempts": ctx.attempts})
     try:
-        await handler(ctx)
+        await asyncio.wait_for(handler(ctx), settings.job_handler_timeout_seconds)
     except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"[:500]
+        if isinstance(exc, TimeoutError):
+            error = "handler timed out"
+        else:
+            error = f"{type(exc).__name__}: {exc}"[:500]
+        if ctx.attempts >= settings.job_max_attempts:
+            # Attempts exhausted: the job is terminally failed and visible for a manual retry.
+            # No further automatic retry is needed, so QStash is told to stop (2xx) only now.
+            await _finish(factory, _RELEASE, job_id, me, status="failed", error=error)
+            logger.error(
+                "job failed permanently",
+                extra={"job_id": str(job_id), "attempts": ctx.attempts},
+                exc_info=True,
+            )
+            return JSONResponse({"result": "failed"})
         await _finish(factory, _RELEASE, job_id, me, status="queued", error=error)
         logger.error("job handler failed", extra={"job_id": str(job_id)}, exc_info=True)
         raise AppError(500, "JOB_FAILED", "Job failed; delivery will be retried") from None
@@ -302,7 +304,12 @@ async def _require_dispatcher(request: Request) -> None:
         raise _unauthenticated()
 
 
-@router.post("/internal/outbox/dispatch", tags=["internal"])
+# Optional scheduled-recovery endpoint: mounted only when KS_ENABLE_RECOVERY_DISPATCHER is true.
+# It is the only caller of the multi-row dispatch_pending (see its known gap).
+dispatcher_router = APIRouter()
+
+
+@dispatcher_router.post("/internal/outbox/dispatch", tags=["internal"])
 async def dispatch(request: Request) -> dict[str, int]:
     await _require_dispatcher(request)
     state = request.app.state
@@ -355,5 +362,7 @@ def create_app(
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.state.instance_id = f"worker-{uuid.uuid4().hex[:8]}"
     app.include_router(router)
+    if settings.enable_recovery_dispatcher:
+        app.include_router(dispatcher_router)
     install_web(app)
     return app

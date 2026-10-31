@@ -13,6 +13,8 @@ dependencies = [
     "pgvector>=0.3.6",
     "httpx>=0.27",
     "pyjwt>=2.9",
+    "google-auth>=2.35",
+    "requests>=2.32",
 ]
 
 [build-system]
