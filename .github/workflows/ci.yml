@@ -1,0 +1,190 @@
+name: ci
+
+# Quality pipeline for every PR and for pushes to main and m0/** branches (M0-10).
+# The single required status check is the aggregate job "ci-required".
+# Third-party actions are pinned by commit SHA (the comment names the release line).
+# To update one, look up the new SHA and review the change.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "m0/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: knowserve
+          POSTGRES_PASSWORD: knowserve_local_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U knowserve -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      KS_ENV: ci
+      KS_TEST_DATABASE_URL: postgresql+asyncpg://knowserve:knowserve_local_only@localhost:5432/knowserve_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Create test database
+        env:
+          PGPASSWORD: knowserve_local_only
+        run: |
+          psql -h localhost -U knowserve -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE knowserve_test"
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run pyright
+      - name: Tests
+        run: uv run pytest -q
+
+  openapi-drift:
+    name: openapi-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Regenerate OpenAPI
+        run: uv run python -m knowserve_api.export_openapi > "$RUNNER_TEMP/openapi.json"
+      - name: Fail on drift against docs/contracts/openapi.json
+        run: |
+          if ! diff -u docs/contracts/openapi.json "$RUNNER_TEMP/openapi.json"; then
+            echo "::error::OpenAPI contract drift. Update docs/contracts/openapi.json in the same commit (needs Owner approval)."
+            exit 1
+          fi
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        # version is taken from the "packageManager" field in the root package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r lint
+      - run: pnpm -r format:check
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - run: pnpm -r build
+      - name: Generated API types are in sync with the OpenAPI snapshot
+        run: pnpm --filter ./apps/frontend check:api
+
+  docker-build:
+    name: docker-build (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build ${{ matrix.image }} (no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: apps/${{ matrix.image }}/Dockerfile
+          push: false
+          tags: knowserve-${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  terraform-validate:
+    name: terraform-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Detect Terraform files
+        id: detect
+        run: |
+          if [ -d infra/terraform ] && [ -n "$(find infra/terraform -name '*.tf' -print -quit)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No .tf files in infra/terraform; terraform checks skipped."
+          fi
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        if: steps.detect.outputs.present == 'true'
+      - name: Format check
+        if: steps.detect.outputs.present == 'true'
+        run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - name: Init (no backend)
+        if: steps.detect.outputs.present == 'true'
+        run: terraform init -backend=false -input=false
+        working-directory: infra/terraform
+      - name: Validate
+        if: steps.detect.outputs.present == 'true'
+        run: terraform validate
+        working-directory: infra/terraform
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks over full history (pinned image, no licensed action)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" -w /repo \
+            zricethezav/gitleaks:v8.21.2 detect --source /repo --no-banner --redact --verbose
+
+  ci-required:
+    name: ci-required
+    if: ${{ always() }}
+    needs:
+      - python
+      - openapi-drift
+      - frontend
+      - docker-build
+      - terraform-validate
+      - secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All required jobs succeeded
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "needs results: $RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled|skipped)"'; then
+            echo "::error::At least one required job did not succeed."
+            exit 1
+          fi

@@ -1,0 +1,37 @@
+# Placeholders only. Copy to terraform.tfvars (git-ignored). Never put secret values here.
+project_id = "REPLACE_PROJECT_ID"
+region     = "europe-west1"
+
+# Exactly one origin: https://<pages_project_name>.pages.dev (no wildcard).
+# The first apply must confirm the real pages.dev host equals this value.
+api_allowed_origins = ["https://knowserve-m0-spike.pages.dev"]
+qstash_url          = "https://REPLACE_QSTASH_BASE_URL"
+
+github_repository = "REPLACE_OWNER/REPLACE_REPO"
+github_repository_id       = "REPLACE_GITHUB_REPOSITORY_ID"   # not secret: gh api repos/OWNER/NAME --jq .id
+github_repository_owner_id = "REPLACE_GITHUB_OWNER_ID"   # not secret: gh api repos/OWNER/NAME --jq .owner.id
+github_environment         = "production"  # "spike" for the M0 spike project
+
+# GCP billing budgets are configured manually by the user; Terraform does not manage them.
+
+cloudflare_account_id   = "REPLACE_CLOUDFLARE_ACCOUNT_ID"
+pages_project_name      = "knowserve-m0-spike"
+pages_production_branch = "REPLACE_BRANCH"
+
+# Cloud Run API URL (plain Pages variable API_ORIGIN). Placeholder until the first apply shows output api_url.
+api_origin = "https://api.example.invalid"
+
+# Required: the Worker's public https URL (QStash destination).
+worker_public_url = "https://worker.example.invalid"
+
+# Optional scheduled recovery: disabled by default (M0 recovery is an admin manual retry).
+# enable_recovery_scheduler = false
+# scheduler_cron            = "REPLACE_CRON"                    # only if enabled
+# scheduler_time_zone       = "Etc/UTC"                         # only if enabled
+# dispatcher_oidc_audience  = "https://worker.example.invalid"  # only if enabled
+
+# Spike operator job routes (isolated spike environment only). Keep real emails in the
+# git-ignored terraform.tfvars, never in this file.
+# enable_spike_job_ops       = false
+# enable_spike_failure_hooks = false
+# spike_token_creator_emails = ["REPLACE_YOUR_GOOGLE_ACCOUNT_EMAIL"]  # may impersonate ks-spike-operator

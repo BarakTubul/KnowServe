@@ -1,0 +1,6 @@
+dist
+playwright-report
+test-results
+src/lib/api/schema.d.ts
+pnpm-lock.yaml
+.wrangler
