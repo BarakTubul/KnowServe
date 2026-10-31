@@ -3,7 +3,7 @@
 Requirements: AUTH-06, AUTH-14, AUTH-19, INFRA-11, FE-ARCH-02, SEC-13. Evidence for the choice: `docs/milestones/M0/hosting-comparison.md`. Until the M0 spike confirms the three open behaviors (incremental SSE, cookie pass-through, free-quota fit), this contract is provisional.
 
 ## Topology
-The browser only talks to one origin, `https://<project>.pages.dev`. Static files are served by Cloudflare Pages. Requests to `/api/*` are handled by a Pages Function (`apps/frontend/functions/api/[[path]].ts`) that forwards them to the Cloud Run API at `API_ORIGIN`. The Worker service is not behind the proxy: QStash calls the Worker's own Cloud Run URL, authenticated by signature (SEC-14).
+The browser only talks to one origin, `https://<project>.pages.dev`. Static files are served by Cloudflare Pages. Requests to `/api/*` are handled by a Pages Function (`apps/frontend/functions/api/[[path]].ts`) that forwards them to the Cloud Run API at `API_ORIGIN`. The Worker service is not behind the proxy: QStash calls the Worker's own Cloud Run URL, authenticated by signature (SEC-14). The spike-only operator routes (`/internal/spike/jobs`, `jobs-outbox.md`) are also not proxied: the Function forwards only `/api/v1/*`, so they are unreachable through Cloudflare Pages. An operator calls the API's `run.app` URL directly and must send `X-KS-Proxy-Secret` as well as the OIDC bearer token.
 
 ```text
 browser --/api/v1/...--> Pages Function --(+ X-KS-Proxy-Secret, X-KS-Client-IP)--> Cloud Run API /v1/...

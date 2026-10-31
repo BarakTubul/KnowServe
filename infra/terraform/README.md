@@ -1,15 +1,14 @@
 # KnowServe Terraform (M0-05)
 
-One root module. Authored and validated **without cloud access**. Nothing here has been planned or applied. Requirements: INFRA-02, INFRA-05..07, INFRA-11, COST-04. Interface: `docs/contracts/config-and-deploy.md`, `docs/contracts/jobs-outbox.md`, ADR 0003.
+One root module. Authored and validated **without cloud access**. Nothing here has been planned or applied. Requirements: INFRA-02, INFRA-05..07, INFRA-11, STACK-23. Interface: `docs/contracts/config-and-deploy.md`, `docs/contracts/jobs-outbox.md`, ADR 0003.
 
 | File | Content |
 |---|---|
 | `versions.tf`, `backend.tf` | providers; `backend "gcs" {}` (partial config at init) |
 | `variables.tf`, `terraform.tfvars.example` | typed, described inputs; placeholders only |
-| `gcp_foundation.tf` | APIs, Artifact Registry, 4 service accounts, 5 secret containers (incl. `proxy-shared-secret`) and per-secret accessor bindings |
-| `gcp_cloud_run.tf` | `knowserve-api`, `knowserve-worker`, public invoker, Scheduler job |
+| `gcp_foundation.tf` | APIs, Artifact Registry, 3 service accounts (+ `ks-scheduler` only with the optional scheduler), 5 secret containers (incl. `proxy-shared-secret`) and per-secret accessor bindings |
+| `gcp_cloud_run.tf` | `knowserve-api`, `knowserve-worker` (scale to zero, max 2 instances), public invoker, optional Scheduler job (`enable_recovery_scheduler`, default false) |
 | `gcp_github_wif.tf` | Workload Identity pool/provider (repo-restricted), deployer roles |
-| `gcp_budget.tf` | billing budget with threshold alerts |
 | `cloudflare.tf` | Pages project with the plain production variable `API_ORIGIN` (no custom domain) |
 | `check_no_secrets.py` | heuristic guard: no secret versions or secret-looking values in `.tf`/`*.example` |
 
@@ -19,8 +18,12 @@ The browser only talks to `https://<pages_project_name>.pages.dev`. Static files
 ## Design notes
 - **Secrets:** Terraform creates only the five secret *containers* (`database-url`, `qstash-token`, `qstash-current-signing-key`, `qstash-next-signing-key`, `proxy-shared-secret`) and `secretAccessor` bindings (API: database-url, qstash-token, proxy-shared-secret; Worker: the four QStash/database ones, never the proxy secret). No `google_secret_manager_secret_version`, no values, no `KS_DISPATCHER_LOCAL_TOKEN`. Cloud Run references secrets with `secret_key_ref` at version `latest`, so values never enter state.
 - **Images:** variables default to a public placeholder image. `lifecycle.ignore_changes` on the image means the deploy workflow rolls revisions without Terraform drift.
-- **Public invoker (`allUsers`) is required on both services**: browsers and QStash cannot present Google credentials. This is network reachability only. The API authenticates with its own session/CSRF rules; the Worker authenticates `/internal/jobs/run` (QStash signature) and `/internal/outbox/dispatch` (Scheduler Google OIDC: audience + service account email) itself. URL secrecy is not authentication (SEC-14). Health routes are intentionally open.
-- **Worker URL and audience:** a Cloud Run service cannot reference its own URL, so `worker_public_url` (`KS_WORKER_PUBLIC_URL`) and `dispatcher_oidc_audience` (Scheduler token audience and `KS_DISPATCHER_OIDC_AUDIENCE`) are **required variables** (https, validated). The Worker refuses to start in production without them. Apply once with the planned Worker URL (the URL shown by the console after a first deploy), then set the real value if it differed. Cadence (`scheduler_cron`) has no default and no recommendation.
+- **Public invoker (`allUsers`) is required on both services**: browsers and QStash cannot present Google credentials. This is network reachability only. The API authenticates with its own session/CSRF rules; the Worker authenticates `/internal/jobs/run` (QStash signature) itself, and `/internal/outbox/dispatch` (Scheduler Google OIDC: audience + service account email) only exists when the optional recovery dispatcher is enabled. URL secrecy is not authentication (SEC-14). Health routes are intentionally open.
+- **Worker URL and audience:** a Cloud Run service cannot reference its own URL, so `worker_public_url` (`KS_WORKER_PUBLIC_URL`) is a **required variable** (https, validated). Apply once with the planned Worker URL (the URL shown by the console after a first deploy), then set the real value if it differed.
+- **Optional scheduled recovery (default off):** `enable_recovery_scheduler=false` creates no Cloud Scheduler job, no `ks-scheduler` account and no `cloudscheduler` API enablement, and sets no dispatcher env on the Worker. M0 recovery is an admin-initiated manual retry. When true, `scheduler_cron`, `scheduler_time_zone` and `dispatcher_oidc_audience` become required (validated) and the Worker gets `KS_ENABLE_RECOVERY_DISPATCHER=true` plus the OIDC settings. Enabling needs a user decision (STACK-23).
+- **Billing budgets:** not managed by Terraform. The user keeps manually configured budgets/alerts (COST-04); a budget only alerts and does not cap spend.
+- **Spike operator job routes (default off):** `enable_spike_job_ops` (needs non-empty `spike_operator_emails`) sets plain env `KS_ENABLE_SPIKE_JOB_OPS`, `KS_SPIKE_OPERATOR_EMAILS` and `KS_SPIKE_OIDC_AUDIENCE` (= `api_origin`) on the API; `enable_spike_failure_hooks` (requires job ops) sets `KS_ENABLE_SPIKE_FAILURE_HOOKS`, for the isolated spike environment only. No new secrets or cloud resources. Operator emails belong in the git-ignored `terraform.tfvars`.
+- **Scaling:** both Cloud Run services use `min_instance_count = 0` and `max_instance_count = 2` to cap cost.
 - **Deployer minimal roles:** `run.developer` on each service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts only, impersonable only by the repository-restricted WIF principal.
 
 ## Bootstrap (the USER does this once, outside Terraform)
@@ -34,7 +37,7 @@ The browser only talks to `https://<pages_project_name>.pages.dev`. Static files
 
 ## Manual steps in order (the USER; nothing here has been run)
 1. Create the GCS state bucket; create the GCP project and link billing; enable `serviceusage`, `cloudresourcemanager`, `iam` (Bootstrap above).
-2. Fill `backend.hcl` and `terraform.tfvars`. `api_allowed_origins` is `["https://<pages_project_name>.pages.dev"]`. `api_origin` is unknown before the first apply: use a placeholder https URL.
+2. Fill `backend.hcl` and `terraform.tfvars`. `api_allowed_origins` is `["https://<pages_project_name>.pages.dev"]` (approved: Pages project `knowserve-m0-spike`, region `europe-west1`). `api_origin` is unknown before the first apply: use a placeholder https URL.
 3. `terraform apply -target=google_project_service.apis -target=google_secret_manager_secret.secrets`.
 4. Generate a long random value and enter it as the first version of Secret Manager secret `proxy-shared-secret` (stdin or protected file, e.g. `gcloud secrets versions add proxy-shared-secret --data-file=-`); enter the other secret values too.
 5. Full `terraform apply`. Read output `api_url`; set `api_origin` to it and apply again so the Pages variable `API_ORIGIN` is correct. Check that output `app_url` equals `api_allowed_origins[0]`.
@@ -79,10 +82,10 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 `terraform validate` (run with providers google 6.50.0 and cloudflare 5.28.1 per the lock file) proves syntax and provider schema only. Not verified against any real cloud:
 1. That `plan`/`apply` succeed, IAM propagation, and API enablement ordering.
 2. Provider major versions `~> 6.0` (google) and `~> 5.0` (cloudflare): Cloudflare v5 attribute names for `cloudflare_pages_project` were only schema-validated; behavior (build config, drift, import needs) unknown.
-3. Region choice: `region` has no default; Cloud Run, Artifact Registry and Scheduler locations must be supported and are decided in M0-09.
-4. Free-tier eligibility and costs of every resource, including Secret Manager, Scheduler, Artifact Registry and budgets: not asserted; see M0-09 research with dated sources.
+3. Region: `region` has no default; the approved value is `europe-west1` (Cloud Run and Artifact Registry support it; free-tier applicability unverified). The first apply must also confirm the real pages.dev host equals `api_allowed_origins[0]`.
+4. Free-tier eligibility and costs of every resource, including Secret Manager and Artifact Registry: not asserted; see M0-09 research with dated sources.
 5. (Removed: custom domains are no longer part of the design.)
-6. The budget only alerts, it does not cap spend; the notification path (default billing-admin email vs `budget_notification_channel_ids`) is unverified.
+6. (Removed: Terraform no longer manages a billing budget; the user's manual budgets only alert and do not cap spend.)
 7. Startup probe `/health/live` assumes the apps' health routes exist in the deployed image (the placeholder bootstrap image will not serve them, so the first revision may fail its probe; may need the probe removed or a real first image).
 8. The WIF condition restricts by repository only, not branch/environment; the deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.
 9. Public Cloud Run may be blocked by an organization policy (domain restricted sharing); then the design needs revisiting.

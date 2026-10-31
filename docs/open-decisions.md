@@ -35,14 +35,23 @@ Classification: **B** = blocking before M0, **D** = resolve during M0, **L** = r
 | OPEN-09 | Actual provider backup/restore capability and limitations on the selected tiers | D | Owner | M0 spike | Documented provider capabilities and a restore attempt or stated limitation (INFRA-08); no guarantees claimed. |
 | OPEN-10 | Evidence that deployment can approach $0–5/month with modest AI usage (includes the custom-domain cost from OPEN-04) | D | Owner; user decides if over budget | M0 spike, re-checked M4 | Measured/estimated monthly cost per service at demo traffic (COST-01, M0-AC09); if over target, options go to the user. |
 | OPEN-20 | Confirm the reconciliation-added M0 IDs and the M0 planning refinements: M0-EX1..6, M0-AC10/AC11, and from M0 readiness planning M0-AC12..14, the AC08 evidence split, the AC11 no-login refinement, and tasks M0-08..10 | D | Owner; user confirms at M0 plan approval | M0 start | They map to source exit criteria, approved decisions and M0-tagged requirements (`milestones/M0/plan.md`, `milestones/M0/test-plan.md`). Owner recommendation: approve with refinements. |
-| — | M0 operational details: ephemeral CI DB, environment split, scheduler cadence, recovery-test shape, Cloud Run timeout vs job size | D | Owner | M0 | Recorded in M0 tasks/ADRs (WF-10); not user-level. |
+| — | M0 operational details: ephemeral CI DB, environment split, recovery-test shape, Cloud Run timeout vs job size (scheduler cadence: resolved, see below) | D | Owner | M0 | Recorded in M0 tasks/ADRs (WF-10); not user-level. |
+
+### M0 recovery and spike decisions (approved by the user, 2026-10-31)
+| Decision | Detail |
+|---|---|
+| Region and Pages | Cloud Run `europe-west1`; Cloudflare Pages project `knowserve-m0-spike` (`https://knowserve-m0-spike.pages.dev`, confirmed at first apply). |
+| Async delivery and recovery | Immediate awaited QStash publish after the Job+Outbox commit (bounded timeout), outbox kept. **No Cloud Scheduler in M0** (the "scheduler cadence" item is resolved: none); scheduled recovery stays optional and disabled (`enable_recovery_scheduler=false`, `KS_ENABLE_RECOVERY_DISPATCHER=false`). Recovery is an admin-initiated manual retry with explicit failed/stuck states (ING-13, ING-16, ADM-16, STACK-23). `KS_JOB_MAX_ATTEMPTS=4`; the reconciliation with QStash's real retry behaviour is UNVERIFIED until a live test. |
+| Billing budgets | The user keeps manually configured GCP budgets; Terraform does not create or manage one (COST-04). |
+| Cloud Run scale | Scale to zero kept; `max_instance_count = 2` on both services. |
+| Spike operator surface | Spike-only `/internal/spike/jobs` routes, OIDC-allow-listed, off by default, not public (`contracts/jobs-outbox.md`). Not application auth (M1) or admin RBAC (M3). Minting an ID token for a human account is UNVERIFIED; fallbacks need user approval. |
 
 No item is classified **B**: the only prerequisites before M0 are the user's approval of the docs-only PR and explicit authorization to start M0.
 
 ## Review-required tensions (kept for visibility)
 | ID | Tension | Current documented position |
 |---|---|---|
-| — | Fast-path publish plus scheduled recovery is at-least-once | Documented as at-least-once with idempotency (ING-15); never claimed as exactly-once. |
+| — | Immediate publish plus manual-retry (or optional scheduled) recovery is at-least-once | Documented as at-least-once with idempotency (ING-15); never claimed as exactly-once. |
 | — | OPEN-11 vs source package 02 ("restricted immediately after revocation") | The user-approved OPEN-11 policy supersedes it for **historical answer text** only. Viewer, citations, retrieval and active streams are still restricted immediately (SEC-09). |
 | — | Docs-only reconciliation vs legacy code | Every spec has "Current implementation (LEGACY)" and "Known gaps" sections. |
 

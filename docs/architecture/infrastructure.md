@@ -6,8 +6,8 @@
 | ID | Requirement | Milestone |
 |---|---|---|
 | INFRA-01 | Environments: local development uses Docker Compose (API, Worker, local PostgreSQL+pgvector where practical) and Vite for the frontend. CI uses ephemeral test resources. There is one Production environment and **no permanent staging**. | M0 |
-| INFRA-02 | Hosting: Cloudflare Pages (static frontend), Google Cloud Run (separate FastAPI API and Worker HTTP services), Neon PostgreSQL+pgvector, Cloudflare R2 (private objects), Upstash QStash (signed deliveries), Cloud Scheduler (outbox recovery) and Resend (email). | M0 |
-| INFRA-03 | An **early M0 deployment spike** checks and documents provider interoperability, quotas and free-tier conditions, region and cold starts, Cloud Run streaming and request timeouts, QStash invocation and signatures, and real cost. Uncertainties are recorded, not guaranteed. | M0 |
+| INFRA-02 | Hosting: Cloudflare Pages (static frontend), Google Cloud Run (separate FastAPI API and Worker HTTP services), Neon PostgreSQL+pgvector, Cloudflare R2 (private objects), Upstash QStash (signed deliveries) and Resend (email). Cloud Run region `europe-west1`, both services scale to zero with at most 2 instances. Outbox recovery in M0 is an admin manual retry; Cloud Scheduler is optional, deferred and disabled by default (STACK-23). | M0 |
+| INFRA-03 | An **early M0 deployment spike** checks and documents provider interoperability, quotas and free-tier conditions, region and cold starts, Cloud Run streaming and request timeouts, QStash invocation and signatures, and real cost. Uncertainties are recorded, not guaranteed. Evidence is not yet collected: every live-cloud claim stays UNVERIFIED until the spike report records it. | M0 |
 | INFRA-04 | Production deploys automatically on merge to `main`, and only after a **human-approved milestone PR** with passing CI. GitHub Actions runs the tests, builds the containers, deploys, and runs post-deploy smoke tests. | M0 |
 | INFRA-05 | Rollback uses Cloud Run revision rollback where safe. DB migrations are backward-compatible; any rollback-incompatible migration is handled explicitly. | M0 |
 | INFRA-06 | Terraform manages the supported resources, IAM and deployment settings, with a protected remote state and locking. **No secret values ever enter Terraform state.** Unsupported IaC gaps are documented. Image release may be independent of `terraform apply`. | M0 |
@@ -19,7 +19,7 @@
 | COST-01 | The aspirational target is a working public demo at **$0–5/month** including limited AI usage. This is a goal to verify (INFRA-03), not a guarantee (OPEN-10). | M0 |
 | COST-02 | Application-level limits: separate anonymous and registered AI quotas, per-request token caps, and parallel/concurrency caps. Values are OPEN-05. | M4 |
 | COST-03 | An atomic global token/dollar budget reservation happens before each LLM call. | M4 |
-| COST-04 | Provider billing alerts and an AI kill switch. | M0 (alerts) / M4 (switch) |
+| COST-04 | Provider billing alerts and an AI kill switch. GCP billing budgets/alerts are **configured manually by the user** in the console; Terraform neither creates nor manages a billing budget. | M0 (alerts, manual) / M4 (switch) |
 | COST-05 | With an exhausted budget or the kill switch on, live LLM generation is disabled, while authorized document reading and chat history keep working. Optional labeled pre-verified sample exchanges respect permissions (PROD-10, CHAT-17). | M4 |
 
 ## Required tests / evidence
