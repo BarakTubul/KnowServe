@@ -14,7 +14,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_API_ALLOWED_ORIGINS` | API | comma-separated explicit origins; in production the single `pages.dev` app origin (used by the Origin check) |
 | `KS_PROXY_SHARED_SECRET` | API | secret shared with the Pages Function; required when `KS_ENV=production`; when set the API rejects requests without `X-KS-Proxy-Secret` except `/health/*` (`proxy.md`) |
 | `KS_ENABLE_SPIKE_ENDPOINTS` | API | default `false` (M0-08 only) |
-| `KS_QSTASH_URL`, `KS_QSTASH_TOKEN` | API, Worker (publish) | token is a secret |
+| `KS_QSTASH_URL`, `KS_QSTASH_TOKEN` | API, Worker (publish) | token is a secret. The URL is region specific (EU: `https://qstash-eu-central-1.upstash.io`); the default is the US endpoint and rejects EU tokens. Upstash console names `QSTASH_*` are not read: copy them into the `KS_` keys. |
 | `KS_QSTASH_CURRENT_SIGNING_KEY`, `KS_QSTASH_NEXT_SIGNING_KEY` | Worker (verify) | secrets |
 | `KS_WORKER_PUBLIC_URL` | publisher | destination QStash calls, path `/internal/jobs/run` is appended |
 | `KS_DISPATCHER_OIDC_AUDIENCE`, `KS_DISPATCHER_OIDC_SERVICE_ACCOUNT` | Worker | production dispatcher authentication |
