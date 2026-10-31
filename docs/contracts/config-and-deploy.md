@@ -22,7 +22,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_DISPATCHER_LOCAL_TOKEN` | Worker | local/ci only; the settings validator rejects it when `KS_ENV=production` |
 | `KS_OUTBOX_LEASE_SECONDS`, `KS_OUTBOX_BATCH_SIZE`, `KS_JOB_LEASE_SECONDS` | Worker/core | defaults 60 / 20 / 120 (`KS_OUTBOX_BATCH_SIZE` matters only for the optional batch dispatcher) |
 | `KS_JOB_MAX_ATTEMPTS` | Worker | default `4` total processing attempts; the job is then `failed` (ING-16). Reconciliation with QStash retry behaviour is UNVERIFIED |
-| `KS_STUCK_AFTER_SECONDS` | API/core | default `900`: a published `queued` job older than this is `queued_stuck` |
+| `KS_STUCK_AFTER_SECONDS` | API/core | default `2400` (above QStash's longest default retry gap, about 1808 s, measured live): a published `queued` job with no activity for longer than this is `queued_stuck` |
 | `KS_PUBLISH_GRACE_SECONDS` | API/core | default `120`: a `pending` outbox row without error older than this is `unpublished_stuck` |
 | `KS_PUBLISH_TIMEOUT_SECONDS` | API/Worker | default `5`: bound on one QStash publish; a timeout is recorded as `delivery unconfirmed` and the row stays retryable |
 | `KS_JOB_HANDLER_TIMEOUT_SECONDS` | Worker | default `90`, must be below `KS_JOB_LEASE_SECONDS`: a handler that runs longer counts as a failed attempt |

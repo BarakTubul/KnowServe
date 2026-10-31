@@ -22,7 +22,7 @@ QStash delivers `POST <worker>/internal/jobs/run` with body `{"schema_version": 
 Publishing is at-least-once; the Worker is idempotent (ING-15). Nothing here claims exactly-once.
 
 ## Derived job states (no schema change)
-Computed from existing columns; the stored `jobs.status` and `outbox.status` values above are unchanged. Thresholds: `KS_PUBLISH_GRACE_SECONDS` (120), `KS_STUCK_AFTER_SECONDS` (900).
+Computed from existing columns; the stored `jobs.status` and `outbox.status` values above are unchanged. Thresholds: `KS_PUBLISH_GRACE_SECONDS` (120), `KS_STUCK_AFTER_SECONDS` (2400).
 
 | Derived state | Meaning |
 |---|---|

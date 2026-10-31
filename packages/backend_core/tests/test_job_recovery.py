@@ -355,3 +355,56 @@ async def test_adm16_manual_requeue_records_a_marker_and_keeps_the_previous_erro
     async with f() as s:
         error = (await s.execute(text("SELECT last_error FROM jobs"))).scalar_one()
     assert error == "manual retry requested; previous: boom"
+
+
+def test_ing16_default_stuck_threshold_exceeds_the_longest_qstash_retry_gap() -> None:
+    from knowserve_core.settings import Settings
+
+    default = Settings(  # type: ignore[call-arg]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        database_url="postgresql://u:p@localhost/db",
+    ).stuck_after_seconds
+    assert default == 2400
+    assert default > 1808 + 300  # last QStash retry gap measured live, plus a margin
+
+
+async def test_ing16_stuck_threshold_only_changes_the_queued_stuck_label(
+    session_factory: Factory,
+) -> None:
+    f = session_factory
+    old_queued = await create_job(f, FakePublisher(), "noop")  # idle for 20 minutes, retry pending
+    await sql(
+        f,
+        "UPDATE jobs SET updated_at = now() - interval '20 minutes' WHERE id = :id;"
+        "UPDATE outbox SET published_at = now() - interval '20 minutes' WHERE job_id = :id",
+        id=old_queued,
+    )
+    expired = await create_job(f, FakePublisher(), "noop")
+    await sql(
+        f,
+        "UPDATE jobs SET status = 'processing', lease_expires_at = now() - interval '1 minute' "
+        "WHERE id = :id",
+        id=expired,
+    )
+    failed = await create_job(f, FakePublisher(), "noop")
+    await sql(f, "UPDATE jobs SET status = 'failed' WHERE id = :id", id=failed)
+    unpublished_job = await unpublished(f)
+    for stuck, queued_label in ((900, "queued_stuck"), (2400, "queued")):
+        kw = {"grace_seconds": GRACE, "stuck_after_seconds": stuck}
+        got = {
+            "old": (await get_job_view(f, old_queued, **kw)).delivery_state,  # type: ignore[union-attr]
+            "expired": (await get_job_view(f, expired, **kw)).delivery_state,  # type: ignore[union-attr]
+            "failed": (await get_job_view(f, failed, **kw)).delivery_state,  # type: ignore[union-attr]
+            "unpublished": (await get_job_view(f, unpublished_job, **kw)).delivery_state,  # type: ignore[union-attr]
+        }
+        assert got == {
+            "old": queued_label,
+            "expired": "processing_stuck",
+            "failed": "failed",
+            "unpublished": "unpublished_stuck",
+        }, stuck
+    # With the new default a 20 minute idle queued job is not retryable (a QStash retry is pending).
+    with pytest.raises(NotRetryableError):
+        await retry_job(
+            f, FakePublisher(), old_queued, grace_seconds=GRACE, stuck_after_seconds=2400
+        )
