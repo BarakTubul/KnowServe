@@ -5,3 +5,8 @@ backend.hcl
 *.tfstate.*
 .terraform/
 crash.log
+
+# Saved plans can contain resolved values: never commit them.
+tfplan
+*.tfplan
+.terraform.tfstate.lock.info
