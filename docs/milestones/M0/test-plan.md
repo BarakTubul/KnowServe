@@ -100,3 +100,18 @@ Legend: **PASS-LOCAL** = verified by the Owner on the local stack; this is not c
 | INFRA-11, AUTH-19 (topology), FE-ARCH-02 (base URL) | M0-AC11, M0-AC15 |
 
 Test names include the requirement or AC id (TEST-07), e.g. `test_ing_14_worker_rejects_bad_signature`.
+
+## Live spike evidence (deployed, 2026-10-31; no secret values recorded)
+Environment: Cloud Run `europe-west1` (API revision 00003, Worker revision 00003), Cloudflare Pages `knowserve-m0-spike.pages.dev`, Neon `eu-central-1`, QStash EU. Spike flags were on only for this test. Script output: 31 checks, all passed except two harness/threshold items explained below.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| M0-AC11 proxy route | PASS (deployed) | `/api/v1/status` 200 through Pages; SSE 30 s and 120 s arrive incrementally (first event 1.3 s, max gap 1.02 s); cookie `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain`, round trip true/false verified with curl; `X-KS-Client-IP` equals the caller's real IP (46.x, matched Cloudflare trace) |
+| M0-AC15 direct access | PASS (deployed) | Cloud Run URL: no or wrong proxy secret 403; spoofed secret/IP headers sent to Pages ignored |
+| M0-AC17 operator access | PASS (deployed) | proxy secret only 401; wrong audience 401; personal default token 401; valid SA token without proxy secret 403; via Pages 404; valid token plus secret 200 |
+| M0-AC10 crash-after-commit | PASS (deployed) | `skip_publish` job `publish_pending`, early retry 409, `unpublished_stuck` after 122 s, listed, manual retry republished, done in 3.4 s |
+| Immediate publish (ING-13) | PASS (deployed) | `noop` queued to done through real QStash in 3.4 s; create request 0.77 s including the publish |
+| M0-AC16 retries and terminal failure | PASS (deployed) | QStash delivered 4 times (12 s, ~2.5 min, ~30 min gaps); job `failed`, attempts 4, 500 on the last attempt; both exhausted messages are in the QStash DLQ with response 500; `fail_then_ok` manual retry then `done`; retry of a done job 409, unknown job 404 |
+
+Findings: (1) QStash's default retry backoff is exponential (about 12 s, 148 s, 1808 s), so a job takes about 33 minutes to reach `failed`; `KS_STUCK_AFTER_SECONDS=900` labels a job `queued_stuck` about 15 minutes in, before the last retry. Recommended: 2400. (2) Harness artifact: the test client's cookie jar reused the test cookie; confirmed correct with curl. (3) The gcloud impersonation shortcut needs `getAccessToken` (see `jobs-outbox.md`). Duplicate-delivery against live QStash was not exercised (local tests only). Two DLQ messages remain from the `always_fail` and first `fail_then_ok` runs.
+
