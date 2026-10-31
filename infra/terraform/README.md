@@ -90,3 +90,8 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 8. The WIF claim names (`repository_id`, `repository_owner_id`, `environment`, `workflow_ref`, `sub`) are taken from GitHub's documentation and are unverified until a real GitHub Actions run; a wrong claim fails closed (no deployer token). The deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.
 9. Public Cloud Run may be blocked by an organization policy (domain restricted sharing); then the design needs revisiting.
 10. Neon and QStash have no authored provider resources; their Terraform coverage is for M0-09 to assess.
+
+## First-apply findings (2026-10-31)
+- Cloudflare rejected the Pages project with error 8000066 ("`fail_open` must be equal for production and preview"). `cloudflare.tf` now sets `fail_open = false` in both environments (fail closed).
+- Cloud Run returns a service-level `scaling` block (`min 0`, `manual 0`) that the provider planned to remove on every run; both services now ignore that block (scaling is set only on the template: min 0, max 2).
+- Each Cloud Run service answers on two hostnames: the hash form (`https://<service>-<hash>-ew.a.run.app`, shown as `status.url`) and the project-number form (`https://<service>-<project number>.<region>.run.app`). Both were verified to reach the service. The configuration uses the project-number form.

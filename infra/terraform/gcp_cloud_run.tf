@@ -102,6 +102,10 @@ resource "google_cloud_run_v2_service" "api" {
       template[0].containers[0].image,
       client,
       client_version,
+      # Service-level scaling: Cloud Run returns {min 0, manual 0} after creation, which the
+      # provider would otherwise try to remove on every plan (0 -> null). We scale through
+      # template[0].scaling only (min 0, max 2).
+      scaling,
     ]
   }
 
@@ -193,6 +197,10 @@ resource "google_cloud_run_v2_service" "worker" {
       template[0].containers[0].image,
       client,
       client_version,
+      # Service-level scaling: Cloud Run returns {min 0, manual 0} after creation, which the
+      # provider would otherwise try to remove on every plan (0 -> null). We scale through
+      # template[0].scaling only (min 0, max 2).
+      scaling,
     ]
   }
 
