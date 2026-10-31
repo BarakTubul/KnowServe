@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -15,10 +16,17 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 
+def _connect_args(database_url: str) -> dict[str, int]:
+    # Neon's pooled endpoint is PgBouncer in transaction mode: no reusable prepared statements.
+    host = urlsplit(database_url).hostname or ""
+    return {"statement_cache_size": 0} if "-pooler" in host else {}
+
+
 def create_engine(database_url: str, *, null_pool: bool = False) -> AsyncEngine:
+    connect_args = _connect_args(database_url)
     if null_pool:
-        return create_async_engine(database_url, poolclass=NullPool)
-    return create_async_engine(database_url, pool_pre_ping=True)
+        return create_async_engine(database_url, poolclass=NullPool, connect_args=connect_args)
+    return create_async_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

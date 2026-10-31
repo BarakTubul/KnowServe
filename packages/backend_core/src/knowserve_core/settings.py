@@ -15,6 +15,7 @@ def normalize_database_url(url: str) -> str:
 
     Providers such as Neon hand out ``postgresql://...?sslmode=require``. SQLAlchemy needs the
     ``+asyncpg`` driver, and asyncpg expects ``ssl=`` instead of ``sslmode=``.
+    Libpq-only options such as ``channel_binding`` are dropped because asyncpg rejects them.
     """
     parts = urlsplit(url)
     scheme = parts.scheme
@@ -22,6 +23,8 @@ def normalize_database_url(url: str) -> str:
         scheme = "postgresql+asyncpg"
     query = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "channel_binding":
+            continue
         if key == "sslmode":
             key = "ssl"
         query.append((key, value))

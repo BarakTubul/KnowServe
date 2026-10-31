@@ -9,7 +9,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 |---|---|---|
 | `KS_ENV` | all | `local`, `ci` or `production` |
 | `KS_LOG_LEVEL` | all | default `INFO` |
-| `KS_DATABASE_URL` | API, Worker, migrations | `postgresql+asyncpg://…`. A plain `postgresql://…?sslmode=require` URL (Neon style) is normalized automatically. |
+| `KS_DATABASE_URL` | API, Worker, migrations | `postgresql+asyncpg://…`. A plain `postgresql://…?sslmode=require&channel_binding=require` URL (Neon style) is normalized automatically (`sslmode`→`ssl`, `channel_binding` dropped). Use Neon's **direct** host for migrations and the **pooled** (`-pooler`) host for API/Worker runtime; the engine then disables asyncpg's prepared-statement cache. Only `KS_`-prefixed keys are read: plain `DATABASE_URL` / `DATABASE_URL_POOLED` in a local `.env` are ignored until copied into `KS_DATABASE_URL`. |
 | `KS_TEST_DATABASE_URL` | tests only | disposable database whose schema is dropped and recreated |
 | `KS_API_ALLOWED_ORIGINS` | API | comma-separated explicit origins; in production the single `pages.dev` app origin (used by the Origin check) |
 | `KS_PROXY_SHARED_SECRET` | API | secret shared with the Pages Function; required when `KS_ENV=production`; when set the API rejects requests without `X-KS-Proxy-Secret` except `/health/*` (`proxy.md`) |

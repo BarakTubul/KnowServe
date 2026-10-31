@@ -48,3 +48,11 @@ def test_arch_12_production_rejects_local_dispatcher_token_and_wildcard_origin(
     monkeypatch.setenv("KS_API_ALLOWED_ORIGINS", "*")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_arch_12_neon_channel_binding_is_dropped_for_asyncpg() -> None:
+    url = "postgresql://u:pw@ep-x-pooler.neon.tech/db?sslmode=require&channel_binding=require"
+    assert (
+        normalize_database_url(url)
+        == "postgresql+asyncpg://u:pw@ep-x-pooler.neon.tech/db?ssl=require"
+    )
