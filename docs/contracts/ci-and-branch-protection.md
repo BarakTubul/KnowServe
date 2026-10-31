@@ -66,7 +66,7 @@ The post-deploy smoke calls `<pages-url>/api/v1/status` and asserts that the dir
 No Google key file and no database URL is stored in GitHub; the database URL is read from Secret Manager at deploy time and masked.
 
 ## Branch protection (user runs; not run by the agent)
-Replace `OWNER/REPO`. This requires a PR with one approving review, the `ci-required` check up to date, conversation resolution, no force pushes, no deletions, and applies to admins.
+Replace `OWNER/REPO`. For a **sole maintainer** this requires a PR, the `ci-required` check up to date, conversation resolution, no force pushes and no deletions, and applies to admins. It requires **no approving review**, because GitHub does not let a pull request author approve their own PR (a required review would make every PR unmergeable, and with `enforce_admins` you could not bypass it). Do **not** enable "Require review from Code Owners" while you are the only code owner, for the same reason; `CODEOWNERS` stays in place for when a second maintainer joins. Create the rule only after the first CI run, because the `ci-required` check name is selectable only once it has reported.
 
 ```bash
 gh api -X PUT repos/OWNER/REPO/branches/main/protection --input - <<'JSON'
@@ -74,8 +74,7 @@ gh api -X PUT repos/OWNER/REPO/branches/main/protection --input - <<'JSON'
   "required_status_checks": { "strict": true, "contexts": ["ci-required"] },
   "enforce_admins": true,
   "required_pull_request_reviews": {
-    "required_approving_review_count": 1,
-    "dismiss_stale_reviews": true
+    "required_approving_review_count": 0
   },
   "restrictions": null,
   "required_linear_history": false,
@@ -86,7 +85,7 @@ gh api -X PUT repos/OWNER/REPO/branches/main/protection --input - <<'JSON'
 JSON
 ```
 
-If the user is the only maintainer, GitHub does not allow approving one's own PR; either set `required_approving_review_count` to `0` (the PR plus `ci-required` still gates the merge) or add a second reviewer. Decide this explicitly, it is the user's approval point for WF-13.
+With a second maintainer, raise `required_approving_review_count` to 1 and add code-owner review. Merging the milestone PR is the user's approval point for WF-13.
 
 **Required before any deployment (security review H1/M2):** the target environment (`spike`) must have required reviewers and be restricted to `main`, and `main` must be protected. The Workload Identity condition in Terraform only trusts runs on `refs/heads/main` that declare the matching environment (`environment: spike` for the spike project), so these GitHub settings are part of the security boundary, not optional hardening. The automatic `push: main` deploy trigger stays disabled in `deploy.yml` until the user approves enabling it.
 
@@ -127,9 +126,9 @@ Limitations (honest scope): `workflow_ref` pins the top-level workflow file, not
 
 ## GitHub-side prerequisites (user configures before the first deploy; nothing here has been configured)
 As of the last check the repository is public, has no GitHub Environment (`spike`) and no confirmed branch protection on `main`. Until the environment exists, no workflow can authenticate (fail closed).
-1. Settings, Environments, `spike`: required reviewer (you), deployment branches limited to `main`, no wildcard branch rules.
+1. Settings, Environments, `spike`: required reviewer (you), **"Prevent self-review" OFF** (it is opt-in; if it is on and you are the only reviewer, every deployment waits forever because you cannot approve a run you started), deployment branches limited to `main`, no wildcard branch rules. Required reviewers are available on the Free plan for public repositories. **Create and protect the environment before the first dispatch:** a workflow that names an environment that does not exist creates it automatically with no protection rules.
 2. Settings, Branches, rule for `main`: require a pull request, require the `ci-required` status check, block force pushes and deletion, include administrators if practical.
-3. `.github/CODEOWNERS` exists (owner `@BarakTubul` for `.github/`, `infra/`, `docs/contracts/`, ADRs, migrations, `AGENTS.md`); enable "Require review from Code Owners" on `main`.
+3. `.github/CODEOWNERS` exists (owner `@BarakTubul` for `.github/`, `infra/`, `docs/contracts/`, ADRs, migrations, `AGENTS.md`). Do not require code-owner review while you are the only maintainer (you cannot approve your own PR); enable it when a second maintainer joins.
 4. Settings, Actions, General: workflow permissions read-only by default; require approval for workflows from outside collaborators and for fork pull requests.
 5. Keep the `push: main` trigger of `deploy.yml` disabled; deploy by manual dispatch only.
 6. Set the environment variables and secret listed above (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` from Terraform's outputs, ...).
@@ -153,3 +152,7 @@ Before trusting the setup, confirm on the first approved run (and keep the negat
 
 ## Reusing this setup for a production project
 Create GCP project `knowserve-prod` with its own state bucket, its own tfvars and backend file (git-ignored), `github_environment = "production"`, and a GitHub Environment `production` with the same variable names, a reviewer and `main`-only deployment. Add `production` to the `target` options of `deploy.yml`. Each project has its own Workload Identity pool, deployer, registry and Pages project, and uses separate Neon, QStash and Cloudflare resources.
+
+### Sole-maintainer behaviour (verified against GitHub's documentation, not yet on GitHub)
+- Environment approval: you may be the required reviewer and approve your own `workflow_dispatch` run as long as "Prevent self-review" is off. Each deploy still stops at the approval click.
+- Pull request: a PR with the required `ci-required` check and zero required approvals merges without anyone else; admins are bound by the rule (`enforce_admins`).
