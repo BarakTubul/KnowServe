@@ -77,10 +77,10 @@ resource "google_service_account" "spike_operator" {
   depends_on   = [google_project_service.apis]
 }
 
-resource "google_service_account_iam_member" "spike_operator_token_creator" {
+resource "google_service_account_iam_member" "spike_operator_id_token_creator" {
   for_each           = var.enable_spike_job_ops ? toset(var.spike_token_creator_emails) : toset([])
   service_account_id = google_service_account.spike_operator[0].name
-  role               = "roles/iam.serviceAccountTokenCreator"
+  role               = "roles/iam.serviceAccountOpenIdTokenCreator"
   member             = "user:${each.value}"
 }
 
