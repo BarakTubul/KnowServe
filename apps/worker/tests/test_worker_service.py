@@ -641,7 +641,9 @@ async def test_ing16_transient_failure_is_not_acked_then_succeeds(h: Harness) ->
 
 
 @integration
-async def test_ing16_exhausted_attempts_become_failed_and_stop_retries(h: Harness) -> None:
+async def test_ing16_exhausted_attempts_become_failed_and_later_redelivery_runs_nothing(
+    h: Harness,
+) -> None:
     job_id = await h.enqueue()
     handler = Counting(fail=True)
     async with h.client(_app_with(h, handler, job_max_attempts=4)) as c:
@@ -651,8 +653,8 @@ async def test_ing16_exhausted_attempts_become_failed_and_stop_retries(h: Harnes
         failed = await h.job(job_id)
         again = await h.deliver(c, job_id)
     assert codes == [500, 500, 500] and mid.status == "queued" and mid.attempts == 3
-    # Only the final attempt is acknowledged, because no further automatic retry is needed.
-    assert last.status_code == 200 and last.json() == {"result": "failed"}
+    # The final failed execution is still not acknowledged with 2xx; it is simply terminal.
+    assert last.status_code == 500 and last.json()["error"]["code"] == "JOB_FAILED_PERMANENTLY"
     assert failed.status == "failed" and failed.attempts == 4 and failed.last_error
     assert again.status_code == 200 and again.json() == {"result": "failed"}
     assert len(handler.calls) == 4  # a redelivery of a failed job runs nothing
@@ -703,7 +705,7 @@ async def test_m0_ac10_batch_dispatcher_is_not_mounted_by_default(h: Harness) ->
 
 def test_m0_ac10_production_starts_without_dispatcher_settings() -> None:
     settings = Settings(  # type: ignore[call-arg]
-        _env_file=None,
+        _env_file=None,  # pyright: ignore[reportCallIssue]
         database_url="postgresql://u:p@localhost/db",
         env="production",
         qstash_token="t",
@@ -717,7 +719,7 @@ def test_m0_ac10_production_starts_without_dispatcher_settings() -> None:
 
 def test_m0_ac10_production_requires_dispatcher_settings_only_when_enabled() -> None:
     settings = Settings(  # type: ignore[call-arg]
-        _env_file=None,
+        _env_file=None,  # pyright: ignore[reportCallIssue]
         database_url="postgresql://u:p@localhost/db",
         env="production",
         qstash_token="t",
@@ -728,3 +730,30 @@ def test_m0_ac10_production_requires_dispatcher_settings_only_when_enabled() -> 
     )
     with pytest.raises(RuntimeError, match="KS_DISPATCHER_OIDC_AUDIENCE"):
         create_app(settings=settings)
+
+
+@integration
+async def test_m0_ac17_always_fail_handler_exists_only_with_failure_hooks(h: Harness) -> None:
+    for hooks, expected in ((True, "queued"), (False, "failed")):
+        async with h.factory() as s, s.begin():
+            job_id = (await enqueue_job(s, "always_fail", correlation_id="req_hook_001")).id
+        app = create_app(
+            settings=make_settings(
+                h.url,
+                enable_spike_failure_hooks=hooks,
+                enable_spike_job_ops=hooks,
+                spike_operator_emails=["a@b.test"],
+                spike_oidc_audience="https://x.test",
+            ),
+            engine=h.engine,
+            publisher=h.publisher,
+        )
+        async with h.client(app) as c:
+            response = await h.deliver(c, job_id)
+        job = await h.job(job_id)
+        # With hooks the handler runs, fails and the job is retried; without hooks there is no
+        # handler at all and the job is terminally failed at once (no silent success).
+        assert job.status == expected, (hooks, response.status_code)
+        assert (response.status_code, response.json().get("result")) == (
+            (500, None) if hooks else (200, "failed")
+        )

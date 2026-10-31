@@ -147,3 +147,26 @@ async def test_ing13_http_publisher_failure_raises_publish_error_without_secret(
     )
     with pytest.raises(PublishError):
         await publisher.publish(uuid.uuid4(), "req_corr_00001")
+
+
+async def test_ing16_publish_does_not_override_qstash_delivery_retries() -> None:
+    """QStash's own retry policy is preserved: no retry/delay/dedup override headers are sent."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json={"messageId": "m"})
+
+    publisher = HttpPublisher(
+        "https://qstash.example",
+        "tok",
+        "https://worker.example",
+        transport=httpx.MockTransport(handler),
+    )
+    await publisher.publish(uuid.uuid4(), "req_hdr_001")
+    assert len(seen) == 1
+    sent = {k.lower() for k in seen[0].headers}
+    assert not {
+        k for k in sent if k.startswith("upstash-") and k != "upstash-forward-x-correlation-id"
+    }
+    assert seen[0].url.path.endswith("/internal/jobs/run")

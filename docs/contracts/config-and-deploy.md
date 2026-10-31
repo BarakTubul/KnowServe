@@ -24,6 +24,8 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_JOB_MAX_ATTEMPTS` | Worker | default `4` total processing attempts; the job is then `failed` (ING-16). Reconciliation with QStash retry behaviour is UNVERIFIED |
 | `KS_STUCK_AFTER_SECONDS` | API/core | default `900`: a published `queued` job older than this is `queued_stuck` |
 | `KS_PUBLISH_GRACE_SECONDS` | API/core | default `120`: a `pending` outbox row without error older than this is `unpublished_stuck` |
+| `KS_PUBLISH_TIMEOUT_SECONDS` | API/Worker | default `5`: bound on one QStash publish; a timeout is recorded as `delivery unconfirmed` and the row stays retryable |
+| `KS_JOB_HANDLER_TIMEOUT_SECONDS` | Worker | default `90`, must be below `KS_JOB_LEASE_SECONDS`: a handler that runs longer counts as a failed attempt |
 | `KS_ENABLE_SPIKE_JOB_OPS` | API | default `false`. Mounts the spike-only operator routes `/internal/spike/jobs` only when `KS_SPIKE_OPERATOR_EMAILS` and `KS_SPIKE_OIDC_AUDIENCE` are also set; otherwise 404 |
 | `KS_SPIKE_OPERATOR_EMAILS` | API | comma list of operator Google account emails (non-secret allow-list); supplied in git-ignored local config, never committed |
 | `KS_SPIKE_OIDC_AUDIENCE` | API | audience the operator's Google OIDC ID token must carry (Terraform sets it to the API origin) |

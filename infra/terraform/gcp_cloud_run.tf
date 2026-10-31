@@ -146,6 +146,15 @@ resource "google_cloud_run_v2_service" "worker" {
         value = var.worker_public_url
       }
 
+      # The Worker registers the test-only always_fail handler only for the isolated spike.
+      dynamic "env" {
+        for_each = var.enable_spike_failure_hooks ? { KS_ENABLE_SPIKE_FAILURE_HOOKS = "true" } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       dynamic "env" {
         for_each = var.enable_recovery_scheduler ? {
           KS_ENABLE_RECOVERY_DISPATCHER      = "true"

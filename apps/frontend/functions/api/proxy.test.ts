@@ -49,6 +49,23 @@ describe('open21 path allow-list and prefix stripping', () => {
     expect(upstreamPath('/api/v1/a/b')).toBe('/v1/a/b');
     expect(upstreamPath('/api/v2/a')).toBeNull();
   });
+
+  it('m0ac17_operator_job_routes_are_never_forwarded_by_the_public_proxy', async () => {
+    const f = upstreamOk();
+    for (const path of [
+      '/api/internal/spike/jobs',
+      '/api/internal/spike/jobs/00000000-0000-0000-0000-000000000000/retry',
+      '/api/v1/../internal/spike/jobs',
+      '/api/v1/%2e%2e/internal/spike/jobs',
+      '/api/%2e%2e/internal/spike/jobs',
+      '/internal/spike/jobs',
+    ]) {
+      expect(upstreamPath(path)).toBeNull();
+      const res = await handle(req(path, { method: 'POST' }), ENV, f as unknown as typeof fetch);
+      expect(res.status).toBe(404);
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
 });
 
 describe('open21 methods', () => {

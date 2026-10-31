@@ -54,6 +54,11 @@ Handler = Callable[[JobContext], Awaitable[None]]
 RUN_PATH = "/internal/jobs/run"
 
 
+async def always_fail_handler(ctx: JobContext) -> None:
+    """Spike failure hook (KS_ENABLE_SPIKE_FAILURE_HOOKS): drives retries and terminal failure."""
+    raise RuntimeError("always_fail test job")
+
+
 async def noop_handler(ctx: JobContext) -> None:
     """The M0 no-op job: proves claim, execute and complete. Real ingestion arrives in M3."""
     logger.info("noop job executed", extra={"job_id": str(ctx.job_id)})
@@ -252,14 +257,17 @@ async def run_job(request: Request) -> JSONResponse:
             error = f"{type(exc).__name__}: {exc}"[:500]
         if ctx.attempts >= settings.job_max_attempts:
             # Attempts exhausted: the job is terminally failed and visible for a manual retry.
-            # No further automatic retry is needed, so QStash is told to stop (2xx) only now.
+            # The execution still failed, so it is not acknowledged with 2xx; if QStash has
+            # retries left, the next delivery finds a `failed` job and answers 200 (no work).
             await _finish(factory, _RELEASE, job_id, me, status="failed", error=error)
             logger.error(
                 "job failed permanently",
                 extra={"job_id": str(job_id), "attempts": ctx.attempts},
                 exc_info=True,
             )
-            return JSONResponse({"result": "failed"})
+            raise AppError(
+                500, "JOB_FAILED_PERMANENTLY", "Job failed; attempts exhausted"
+            ) from None
         await _finish(factory, _RELEASE, job_id, me, status="queued", error=error)
         logger.error("job handler failed", extra={"job_id": str(job_id)}, exc_info=True)
         raise AppError(500, "JOB_FAILED", "Job failed; delivery will be retried") from None
@@ -358,7 +366,10 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.publisher = publisher or _build_publisher(settings)
-    app.state.handlers = handlers if handlers is not None else {"noop": noop_handler}
+    default_handlers: dict[str, Handler] = {"noop": noop_handler}
+    if settings.enable_spike_failure_hooks:
+        default_handlers["always_fail"] = always_fail_handler
+    app.state.handlers = handlers if handlers is not None else default_handlers
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.state.instance_id = f"worker-{uuid.uuid4().hex[:8]}"
     app.include_router(router)

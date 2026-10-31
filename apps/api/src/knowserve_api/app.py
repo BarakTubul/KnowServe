@@ -16,11 +16,14 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from knowserve_core.db import check_database, create_engine
+from knowserve_core.db import check_database, create_engine, create_session_factory
 from knowserve_core.logging import configure_logging
+from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
+from knowserve_core.qstash import Publisher, build_publisher
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, ErrorEnvelope, install_web
 
+from .operator import router as operator_router
 from .proxy_guard import install_proxy_guard
 
 
@@ -122,7 +125,12 @@ async def get_status(request: Request) -> StatusResponse:
     )
 
 
-def create_app(settings: Settings | None = None, engine: AsyncEngine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    engine: AsyncEngine | None = None,
+    publisher: Publisher | None = None,
+    oidc_verifier: OidcVerifier | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     proxy_secret = (
         settings.proxy_shared_secret.get_secret_value() if settings.proxy_shared_secret else ""
@@ -145,7 +153,15 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     )
     app.state.settings = settings
     app.state.engine = engine
+    app.state.session_factory = create_session_factory(engine)
+    token = settings.qstash_token.get_secret_value() if settings.qstash_token else None
+    app.state.publisher = publisher or build_publisher(
+        settings.qstash_url, token, settings.worker_public_url, settings.publish_timeout_seconds
+    )
+    app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.include_router(router)
+    if settings.enable_spike_job_ops:
+        app.include_router(operator_router)
     if settings.enable_spike_endpoints:
         app.include_router(spike_router)
     if proxy_secret:
