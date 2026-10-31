@@ -24,7 +24,7 @@ The browser only talks to `https://<pages_project_name>.pages.dev`. Static files
 - **Billing budgets:** not managed by Terraform. The user keeps manually configured budgets/alerts (COST-04); a budget only alerts and does not cap spend.
 - **Spike operator job routes (default off):** `enable_spike_job_ops` (needs non-empty `spike_token_creator_emails`) creates the role-less service account `ks-spike-operator`, grants `roles/iam.serviceAccountOpenIdTokenCreator` on it to those Google accounts only, and sets plain env `KS_ENABLE_SPIKE_JOB_OPS`, `KS_SPIKE_OPERATOR_EMAILS` (= that service account's email) and `KS_SPIKE_OIDC_AUDIENCE` (= `api_origin`) on the API; `enable_spike_failure_hooks` (requires job ops) sets `KS_ENABLE_SPIKE_FAILURE_HOOKS`, for the isolated spike environment only. No new secrets. Your Google account email belongs only in the git-ignored `terraform.tfvars`.
 - **Scaling:** both Cloud Run services use `min_instance_count = 0` and `max_instance_count = 2` to cap cost.
-- **Deployer minimal roles:** `run.developer` on each service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts only, impersonable only by the repository-restricted WIF principal.
+- **Deployer minimal roles:** `run.developer` on each service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts only, impersonable only by the single WIF subject `repo:<owner>/<repo>:environment:production`. The provider accepts a token only if the numeric repository and owner IDs, the repository name, `refs/heads/main`, the `production` environment, that exact `sub` and the `deploy.yml` workflow path all match (`docs/contracts/ci-and-branch-protection.md`).
 
 ## Bootstrap (the USER does this once, outside Terraform)
 1. Create the GCP project, link billing.
@@ -87,6 +87,6 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 5. (Removed: custom domains are no longer part of the design.)
 6. (Removed: Terraform no longer manages a billing budget; the user's manual budgets only alert and do not cap spend.)
 7. Startup probe `/health/live` assumes the apps' health routes exist in the deployed image (the placeholder bootstrap image will not serve them, so the first revision may fail its probe; may need the probe removed or a real first image).
-8. The WIF condition restricts by repository only, not branch/environment; the deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.
+8. The WIF claim names (`repository_id`, `repository_owner_id`, `environment`, `workflow_ref`, `sub`) are taken from GitHub's documentation and are unverified until a real GitHub Actions run; a wrong claim fails closed (no deployer token). The deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.
 9. Public Cloud Run may be blocked by an organization policy (domain restricted sharing); then the design needs revisiting.
 10. Neon and QStash have no authored provider resources; their Terraform coverage is for M0-09 to assess.

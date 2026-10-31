@@ -14,7 +14,7 @@ Project `knowserve-m0-spike` (Free Trial, billing linked, Cloud Run spend cap an
 | H5 | Terraform's `google_billing_budget` duplicated the budget you already created and needed billing-account rights. | RESOLVED: the resource, its variables and the Billing Budgets API were removed; budgets stay manual. |
 | H6 | Chicken-and-egg URLs: `worker_public_url` and `api_origin` are required before the services exist (`dispatcher_oidc_audience` only if the optional scheduler is enabled). | Cloud Run's deterministic URL is `https://<service>-<PROJECT_NUMBER>.<region>.run.app`. The user reads the project number once and fills the tfvars. The `terraform output` URLs are compared afterwards. |
 | H7 | Terraform is not installed on this machine. | User installs Terraform >= 1.6, or runs the `hashicorp/terraform` container with the ADC file mounted. |
-| H8 | The deploy workflow cannot run yet: the repository is not pushed, WIF trusts only `main` + environment `production`, and the deployer cannot read `database-url`. | For the spike, images are built and pushed by the user locally (section 3). The CI/WIF path is tested later after push approval. |
+| H8 | The deploy workflow cannot run yet: the repository is not pushed, WIF trusts only `main` + environment `production` + the `deploy.yml` workflow + immutable repository/owner IDs, and the deployer cannot read `database-url`. | For the spike, images are built and pushed by the user locally (section 3). The CI/WIF path is tested later after push approval. |
 
 ## 1. Manual (user) versus Terraform
 | Item | Who | Notes |
@@ -42,7 +42,7 @@ Project `knowserve-m0-spike` (Free Trial, billing linked, Cloud Run spend cap an
 - **Applying identity:** the project creator already holds `roles/owner` on a Free Trial project. That is acceptable for a throwaway spike. The equivalent least-privilege set is `serviceusage.serviceUsageAdmin`, `run.admin`, `artifactregistry.admin`, `secretmanager.admin`, `iam.serviceAccountAdmin`, `iam.workloadIdentityPoolAdmin`, `iam.serviceAccountUser`, `storage.objectAdmin` on the state bucket (plus `cloudscheduler.admin` only if the optional scheduler is enabled). No billing-account role is needed.
 - **Runtime accounts (created by Terraform):** `ks-api-runtime` and `ks-worker-runtime` get only `secretmanager.secretAccessor` on their own secrets (API: `database-url`, `qstash-token`, `proxy-shared-secret`; Worker: `database-url`, `qstash-token`, both signing keys). No project-level roles.
 - **`ks-scheduler`:** created only when the optional scheduler is enabled; no roles of its own, used only as the OIDC caller.
-- **`ks-github-deployer`:** `run.developer` per service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts, impersonable only through WIF restricted to the repository, `refs/heads/main` and environment `production`.
+- **`ks-github-deployer`:** `run.developer` per service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts, impersonable only through the single WIF subject `repo:BarakTubul/KnowServe:environment:production`; the provider also pins the numeric repository and owner IDs, `refs/heads/main` and the `deploy.yml` workflow path.
 - **Public invoker (`allUsers`)** on both Cloud Run services is required by the design. If an organization policy blocks it, the apply fails and the design needs revisiting (a personal Free Trial project normally has no such policy).
 
 ## 3. Ordered steps (all user-run; each gate needs approval)

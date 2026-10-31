@@ -8,6 +8,8 @@ api_allowed_origins = ["https://knowserve-m0-spike.pages.dev"]
 qstash_url          = "https://REPLACE_QSTASH_BASE_URL"
 
 github_repository = "REPLACE_OWNER/REPLACE_REPO"
+github_repository_id       = "REPLACE_GITHUB_REPOSITORY_ID"   # not secret: gh api repos/OWNER/NAME --jq .id
+github_repository_owner_id = "REPLACE_GITHUB_OWNER_ID"   # not secret: gh api repos/OWNER/NAME --jq .owner.id
 
 # GCP billing budgets are configured manually by the user; Terraform does not manage them.
 

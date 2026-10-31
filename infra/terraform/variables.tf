@@ -123,6 +123,31 @@ variable "spike_token_creator_emails" {
 variable "github_repository" {
   type        = string
   description = "GitHub repository (owner/name) trusted by Workload Identity Federation."
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", var.github_repository))
+    error_message = "github_repository must look like OWNER/NAME."
+  }
+}
+
+variable "github_repository_id" {
+  type        = string
+  description = "Immutable numeric GitHub repository ID (not secret): `gh api repos/OWNER/NAME --jq .id`. Required by the WIF condition so a renamed or recreated repo with the same name cannot deploy."
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_id))
+    error_message = "github_repository_id must be a number."
+  }
+}
+
+variable "github_repository_owner_id" {
+  type        = string
+  description = "Immutable numeric GitHub owner (user or organization) ID (not secret): `gh api repos/OWNER/NAME --jq .owner.id`."
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_owner_id))
+    error_message = "github_repository_owner_id must be a number."
+  }
 }
 
 ############ Cloudflare ############

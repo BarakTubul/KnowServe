@@ -97,3 +97,41 @@ gh api -X POST repos/OWNER/REPO/environments/production/deployment-branch-polici
 - Actions are pinned by major tag, not SHA. SHA pinning is recommended once real SHAs can be looked up with network or `gh` access.
 - The workflows were not executed remotely. The deployed Playwright smoke needs `tests/e2e/smoke.spec.ts` and a Playwright config and dependency resolvable from the repository root (not present yet).
 - Frontend jobs depend on `apps/frontend` scripts (`lint`, `format:check`, `typecheck`, `test`, `build`, `check:api`) and the Docker jobs on `apps/api/Dockerfile` and `apps/worker/Dockerfile`, written by other streams.
+
+## Workload Identity trust (Terraform: `infra/terraform/gcp_github_wif.tf`)
+GitHub Actions gets Google credentials only through Workload Identity Federation (no key file). A token is accepted only if **all** of these hold (the provider's attribute condition, checked at token exchange; any mismatch is rejected):
+
+| Claim | Required value |
+|---|---|
+| `repository_id` | `1074746051` (immutable, not secret) |
+| `repository_owner_id` | `168983818` (immutable, not secret) |
+| `repository` | `BarakTubul/KnowServe` |
+| `ref` | `refs/heads/main` |
+| `environment` | `production` |
+| `sub` | `repo:BarakTubul/KnowServe:environment:production` |
+| `workflow_ref` | `BarakTubul/KnowServe/.github/workflows/deploy.yml@refs/heads/main` |
+
+Issuer `https://token.actions.githubusercontent.com`; the audience is the provider default (the provider's resource URL, which `google-github-actions/auth` sets). `google.subject` is mapped from `sub`, and the one impersonation grant is `roles/iam.workloadIdentityUser` on `ks-github-deployer` for `principal://iam.googleapis.com/projects/<project number>/locations/global/workloadIdentityPools/github/subject/repo:BarakTubul/KnowServe:environment:production`. It is a single subject, not a `principalSet`.
+
+The deployer holds only: `run.developer` on `knowserve-api` and `knowserve-worker` (service scope), `artifactregistry.writer` on the `knowserve` repository, and `serviceAccountUser` on `ks-api-runtime` and `ks-worker-runtime`. No project-level role, no Secret Manager access, no IAM administration, no Owner or Editor.
+
+`workflow_ref` is used instead of `job_workflow_ref`: GitHub documents `job_workflow_ref` only for jobs that call a reusable workflow, and says nothing about regular workflows, so it is not relied on. `workflow_ref` is documented for every workflow.
+
+Limitations (honest scope): `workflow_ref` pins the top-level workflow file, not its content, so anyone who can merge to `main` can change what `deploy.yml` does (hence branch protection below). Someone approved to deploy can deploy any image, which can read the runtime accounts' secrets; the environment reviewer is the control. Repository admins can change environment rules. Claim names and values are UNVERIFIED until a real run.
+
+## GitHub-side prerequisites (user configures before the first deploy; nothing here has been configured)
+As of the last check the repository is public, has no `production` environment and no confirmed branch protection on `main`. Until the environment exists, no workflow can authenticate (fail closed).
+1. Settings, Environments, `production`: required reviewer (you), deployment branches limited to `main`, no wildcard branch rules.
+2. Settings, Branches, rule for `main`: require a pull request, require the `ci-required` status check, block force pushes and deletion, include administrators if practical.
+3. Add a `CODEOWNERS` entry for `.github/workflows/`, `infra/` and `docs/contracts/ci-and-branch-protection.md` and require code-owner review on `main`.
+4. Settings, Actions, General: workflow permissions read-only by default; require approval for workflows from outside collaborators and for fork pull requests.
+5. Keep the `push: main` trigger of `deploy.yml` disabled; deploy by manual dispatch only.
+6. Set the repository variables listed above (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`, ...), using Terraform's outputs.
+
+## Verifying the claims at the first real run
+Before trusting the setup, confirm on the first approved run (and keep the negative checks):
+1. **Positive:** the `google-github-actions/auth` step succeeds from `main`, environment `production`, `deploy.yml`.
+2. **If it is rejected** ("credential is rejected by the attribute condition"): add a temporary step before the auth step that requests an ID token from `ACTIONS_ID_TOKEN_REQUEST_URL` (the job already has `id-token: write`), decodes it and prints only these claims: `sub`, `repository`, `repository_id`, `repository_owner_id`, `ref`, `environment`, `workflow_ref`, `job_workflow_ref`. Never print or log the token. Compare each value with the table, fix the Terraform in the matching claim, and remove the step.
+3. **Negative:** a run from another branch, a job without `environment: production`, and a different workflow file must all fail to authenticate (they fail at token exchange).
+4. **Least privilege:** with the deployer identity, `gcloud secrets versions access` on any secret and any project-level change must be denied.
+5. Record the evidence in `docs/milestones/M0/test-plan.md` (M0-AC08).
