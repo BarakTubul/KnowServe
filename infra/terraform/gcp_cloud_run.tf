@@ -21,6 +21,12 @@ resource "google_cloud_run_v2_service" "api" {
   template {
     service_account = google_service_account.api.email
 
+    # Cost cap: scale to zero, at most 2 instances.
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
     containers {
       # Bootstrap image only; the deploy workflow rolls real revisions.
       image = var.api_image
@@ -48,6 +54,26 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "KS_WORKER_PUBLIC_URL"
         value = var.worker_public_url
+      }
+
+      # Spike operator job surface: plain non-secret settings, only when enabled.
+      dynamic "env" {
+        for_each = var.enable_spike_job_ops ? {
+          KS_ENABLE_SPIKE_JOB_OPS  = "true"
+          KS_SPIKE_OPERATOR_EMAILS = join(",", var.spike_operator_emails)
+          KS_SPIKE_OIDC_AUDIENCE   = var.api_origin
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_spike_failure_hooks ? { KS_ENABLE_SPIKE_FAILURE_HOOKS = "true" } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       dynamic "env" {
@@ -94,6 +120,12 @@ resource "google_cloud_run_v2_service" "worker" {
   template {
     service_account = google_service_account.worker.email
 
+    # Cost cap: scale to zero, at most 2 instances.
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
     containers {
       image = var.worker_image
 
@@ -113,13 +145,17 @@ resource "google_cloud_run_v2_service" "worker" {
         name  = "KS_WORKER_PUBLIC_URL"
         value = var.worker_public_url
       }
-      env {
-        name  = "KS_DISPATCHER_OIDC_AUDIENCE"
-        value = var.dispatcher_oidc_audience
-      }
-      env {
-        name  = "KS_DISPATCHER_OIDC_SERVICE_ACCOUNT"
-        value = google_service_account.scheduler.email
+
+      dynamic "env" {
+        for_each = var.enable_recovery_scheduler ? {
+          KS_ENABLE_RECOVERY_DISPATCHER      = "true"
+          KS_DISPATCHER_OIDC_AUDIENCE        = var.dispatcher_oidc_audience
+          KS_DISPATCHER_OIDC_SERVICE_ACCOUNT = google_service_account.scheduler[0].email
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       dynamic "env" {
@@ -159,7 +195,7 @@ resource "google_cloud_run_v2_service" "worker" {
 
 # Public invoker is REQUIRED for both services: browsers and QStash cannot present Google
 # credentials. Each service authenticates its own routes (session cookie for the API;
-# QStash signature and Scheduler OIDC for the Worker, see docs/contracts/jobs-outbox.md).
+# QStash signature for the Worker, plus Scheduler OIDC only if the optional recovery dispatcher is enabled, see docs/contracts/jobs-outbox.md).
 # Network reachability is not authentication.
 resource "google_cloud_run_v2_service_iam_member" "api_public" {
   project  = var.project_id
@@ -177,8 +213,10 @@ resource "google_cloud_run_v2_service_iam_member" "worker_public" {
   member   = "allUsers"
 }
 
-# Outbox recovery: Scheduler calls the Worker with a Google OIDC token.
+# Optional scheduled outbox recovery (disabled by default; M0 has no Scheduler job).
+# Recovery in M0 is an admin-initiated manual retry. Enable only after a user decision.
 resource "google_cloud_scheduler_job" "outbox_dispatch" {
+  count     = var.enable_recovery_scheduler ? 1 : 0
   project   = var.project_id
   region    = var.region
   name      = "knowserve-outbox-dispatch"
@@ -190,7 +228,7 @@ resource "google_cloud_scheduler_job" "outbox_dispatch" {
     uri         = "${google_cloud_run_v2_service.worker.uri}/internal/outbox/dispatch"
 
     oidc_token {
-      service_account_email = google_service_account.scheduler.email
+      service_account_email = google_service_account.scheduler[0].email
       audience              = var.dispatcher_oidc_audience
     }
   }

@@ -7,7 +7,7 @@ variable "project_id" {
 
 variable "region" {
   type        = string
-  description = "Region for Cloud Run, Artifact Registry and Cloud Scheduler. Choice is an open assumption (see README); no default on purpose."
+  description = "Region for Cloud Run and Artifact Registry (approved: europe-west1). No default on purpose."
 }
 
 variable "api_image" {
@@ -43,16 +43,6 @@ variable "qstash_url" {
   description = "Base URL of the QStash publish API for the chosen Upstash region, copied from the Upstash console (KS_QSTASH_URL). Not a secret."
 }
 
-variable "dispatcher_oidc_audience" {
-  type        = string
-  description = "Audience of the Scheduler OIDC token and of KS_DISPATCHER_OIDC_AUDIENCE. Required: the Worker refuses to start in production without it. Use the Worker's public https URL (a service cannot reference its own URL, so this is supplied explicitly)."
-
-  validation {
-    condition     = startswith(var.dispatcher_oidc_audience, "https://")
-    error_message = "dispatcher_oidc_audience must be an https:// URL (the Worker's public URL)."
-  }
-}
-
 variable "worker_public_url" {
   type        = string
   description = "The Worker's public https URL (KS_WORKER_PUBLIC_URL). Required: QStash deliveries are verified against it. Supplied explicitly because a Cloud Run service cannot reference its own URL; after the first apply, read the real URL from the console or the 'worker_url' output and set this."
@@ -63,47 +53,76 @@ variable "worker_public_url" {
   }
 }
 
+variable "enable_recovery_scheduler" {
+  type        = bool
+  description = "Optional scheduled outbox recovery (Cloud Scheduler job, ks-scheduler service account, Worker dispatcher env). Default false: M0 recovery is an admin-initiated manual retry. Enabling requires a user decision."
+  default     = false
+}
+
 variable "scheduler_cron" {
   type        = string
-  description = "Cron expression for the outbox dispatch Scheduler job. No cadence is recommended here; choose after the M0 spike."
+  description = "Cron expression for the optional outbox dispatch Scheduler job. Required only when enable_recovery_scheduler is true; no cadence is recommended."
+  default     = null
+
+  validation {
+    condition     = !var.enable_recovery_scheduler || var.scheduler_cron != null
+    error_message = "scheduler_cron is required when enable_recovery_scheduler is true."
+  }
 }
 
 variable "scheduler_time_zone" {
   type        = string
-  description = "Time zone for the Scheduler cron."
-  default     = "Etc/UTC"
+  description = "Time zone for the optional Scheduler cron. Required only when enable_recovery_scheduler is true."
+  default     = null
+
+  validation {
+    condition     = !var.enable_recovery_scheduler || var.scheduler_time_zone != null
+    error_message = "scheduler_time_zone is required when enable_recovery_scheduler is true."
+  }
+}
+
+variable "dispatcher_oidc_audience" {
+  type        = string
+  description = "Audience of the Scheduler OIDC token and KS_DISPATCHER_OIDC_AUDIENCE. Required only when enable_recovery_scheduler is true (the Worker public https URL)."
+  default     = null
+
+  validation {
+    condition     = !var.enable_recovery_scheduler || (var.dispatcher_oidc_audience != null && startswith(coalesce(var.dispatcher_oidc_audience, "x"), "https://"))
+    error_message = "dispatcher_oidc_audience must be an https:// URL when enable_recovery_scheduler is true."
+  }
+}
+
+variable "enable_spike_job_ops" {
+  type        = bool
+  description = "Mount the spike-only operator job routes (/internal/spike/jobs) on the API (KS_ENABLE_SPIKE_JOB_OPS). Default false. Not public, not application auth (M1) or admin RBAC (M3)."
+  default     = false
+}
+
+variable "enable_spike_failure_hooks" {
+  type        = bool
+  description = "Allow test-only failure hooks (skip_publish, always_fail job type) via KS_ENABLE_SPIKE_FAILURE_HOOKS. Requires enable_spike_job_ops. Only for the isolated spike environment."
+  default     = false
+
+  validation {
+    condition     = !var.enable_spike_failure_hooks || var.enable_spike_job_ops
+    error_message = "enable_spike_failure_hooks requires enable_spike_job_ops."
+  }
+}
+
+variable "spike_operator_emails" {
+  type        = list(string)
+  description = "Allow-list of operator Google account emails for the spike job routes (KS_SPIKE_OPERATOR_EMAILS, comma-joined, non-secret). Supply in the git-ignored terraform.tfvars; do not commit real addresses."
+  default     = []
+
+  validation {
+    condition     = !var.enable_spike_job_ops || length(var.spike_operator_emails) > 0
+    error_message = "spike_operator_emails must be non-empty when enable_spike_job_ops is true."
+  }
 }
 
 variable "github_repository" {
   type        = string
   description = "GitHub repository (owner/name) trusted by Workload Identity Federation."
-}
-
-variable "billing_account_id" {
-  type        = string
-  description = "Billing account id (XXXXXX-XXXXXX-XXXXXX) for the budget."
-  sensitive   = true
-}
-
-variable "budget_amount_units" {
-  type        = number
-  description = "Budget amount in whole units of budget_currency_code. No default: the user decides."
-}
-
-variable "budget_currency_code" {
-  type        = string
-  description = "Currency code of the billing account (e.g. as shown in the billing console)."
-}
-
-variable "budget_threshold_percents" {
-  type        = list(number)
-  description = "Fractions of the budget (0.5 = 50%) at which alerts fire."
-}
-
-variable "budget_notification_channel_ids" {
-  type        = list(string)
-  description = "Optional Cloud Monitoring notification channel resource names for budget alerts. Empty = default billing-admin email only."
-  default     = []
 }
 
 ############ Cloudflare ############

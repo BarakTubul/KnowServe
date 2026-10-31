@@ -10,8 +10,8 @@ Verification commands below are the intended checks. Exact script names are fixe
 | M0-01 | Repository skeleton, tooling and shared contracts | A1, A2 | Owner | done locally (merged into `m0/integration`) |
 | M0-02 | Shared core (config, DB, logging, errors), initial migration, API service | M0-01 | Backend | done locally |
 | M0-03 | Frontend shell and generated API client | M0-01 | Frontend | done locally; deployed smoke BLOCKED |
-| M0-04 | Worker: signed delivery, job claim, outbox publish and recovery dispatcher | M0-01; M0-02a for integration | Worker | done locally; live QStash/OIDC BLOCKED |
-| M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC, budgets | M0-01; apply needs A3, A4 | Infrastructure | code authored + validated; plan/apply BLOCKED |
+| M0-04 | Worker: signed delivery, job claim, outbox publish, failure handling and manual-retry recovery (batch dispatcher optional, disabled) | M0-01; M0-02a for integration | Worker | done locally; live QStash/OIDC BLOCKED |
+| M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC (no budget; Scheduler optional, off) | M0-01; apply needs A3, A4 | Infrastructure | code authored + validated; plan/apply BLOCKED |
 | M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | workflows authored; **not run**; BLOCKED (A3/A4) |
 | M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | not started (needs M0-06/08/09) |
 | M0-08 | Hosting route feasibility: same-site subdomains, or the same-origin `/api` proxy if OPEN-21 is approved | M0-06; A5 | Infrastructure | API side done; deployed check BLOCKED (A3/A4/A5) |
@@ -39,6 +39,9 @@ Real parallel agents were used (five workstreams plus a reviewer, each in its ow
 ### Security review outcome (independent, read-only)
 No Critical findings. Fixed: **H1** (Workload Identity now restricted to `refs/heads/main` + `production` environment), **H2** (Worker could not start: `worker_public_url` and `dispatcher_oidc_audience` are now required Terraform variables), **M2** (automatic deploy on push disabled until approved; GitHub environment rules are mandatory), **L2** (Worker body-size cap, 413), **L5** (https required for Worker/QStash URLs in production).
 Open, for decision or later: **M1** the deployer cannot read `database-url` but `deploy.yml` reads it for migrations (decision needed: separate migration secret/role, or a Cloud Run migration job); **M3** pin third-party actions by SHA and pin wrangler (needs real SHAs); **M4** (before M3) lease heartbeat, max attempts and rowcount check on completion; **L1** certificate-fetch amplification on the dispatcher endpoint; **L3** `last_error` content; **L4** refuse non-production env on Cloud Run; **L6/L7** Cloud Run limits and the dead `WORKER_REQUIRES_IAM` branch.
+
+### Recovery decisions and docs reconcile (Step 1, local docs and Terraform only)
+Branch `m0/14-recovery-docs-tf`. Specs, contracts, M0 plan/test plan and bootstrap plan reconciled to the user-approved decisions: immediate awaited publish plus admin manual retry (no Scheduler in M0; scheduled recovery optional, disabled), 4 total attempts, no Terraform billing budget, `europe-west1`, Pages project `knowserve-m0-spike`, max 2 Cloud Run instances. Terraform: `gcp_budget.tf` and budget variables/API removed; Scheduler job, `ks-scheduler` account, API and Worker dispatcher env made conditional on `enable_recovery_scheduler` (default false); `scaling { min 0, max 2 }`; `enable_spike_job_ops`, `enable_spike_failure_hooks`, `spike_operator_emails` added. Validation was local only (`terraform fmt -check` and `validate` in Docker with default variables, `check_no_secrets.py`). The implementing code and its tests (M0-AC10, AC16, AC17) are done by other agents and are not evidence here. No cloud action was taken.
 
 ## Dependency graph
 ```mermaid
@@ -178,7 +181,7 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 - **Objective:** prove the async foundation with a minimal no-op job.
 - **Deliverables:**
   - `apps/worker` HTTP service: QStash signature verification, then a job existence/eligibility check (ING-14), an atomic claim with a lease, and an idempotent minimal job (ING-15)
-  - outbox publish after commit, plus the recovery dispatcher endpoint with the authenticated invocation fixed in the M0-01 contract (ING-13)
+  - outbox publish after commit (awaited, bounded timeout), manual-retry recovery (republish / requeue) with derived stuck states, and the optional batch dispatcher endpoint (mounted only with `KS_ENABLE_RECOVERY_DISPATCHER`) (ING-13, ING-16)
   - correlation id carried from the outbox through the job into the Worker logs
   - a `Dockerfile` and the Compose service
   - faked QStash signing in tests (TEST-09)
@@ -186,7 +189,8 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 - **Verification:** `uv run pytest -m "m0 and worker"`, covering:
   - no signature / bad signature / unknown job
   - duplicate concurrent delivery
-  - crash after commit, then a dispatcher run
+  - crash after commit, then discovery as `unpublished_stuck` and a manual retry
+  - terminal failure after 4 attempts, retry rules, stale-claim guard, concurrent retries (M0-AC16)
 - **Integration point:** after M0-02a; before M0-06. Review Agent required.
 - **Blocking risks:**
   - a real QStash delivery needs A4 and a deployed Worker, so it is evidenced in M0-06
@@ -196,7 +200,7 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 - **Objective:** reproducible infrastructure with no secret values in code or state.
 - **Deliverables:**
   - `infra/terraform` with the remote state backend
-  - GCP: Artifact Registry, Cloud Run API and Worker services, least-privilege service accounts, Secret Manager secret *containers* and access bindings, a Cloud Scheduler job for the dispatcher, Workload Identity Federation for GitHub OIDC, billing budget alerts
+  - GCP: Artifact Registry, Cloud Run API and Worker services, least-privilege service accounts, Secret Manager secret *containers* and access bindings, an optional (disabled by default) Cloud Scheduler job for the dispatcher, Workload Identity Federation for GitHub OIDC; no billing budget (the user configures budgets manually)
   - Cloudflare Pages project
   - Neon and QStash resources where provider support exists; otherwise documented manual steps (OPEN-06)
 - **Acceptance:** M0-AC12, the M0-AC09 alerts part; INFRA-05..07.
@@ -216,7 +220,7 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
   - gating so production deploys run only on merge to `main` after an approved PR, with the spike exception from A3 run as a manual, recorded dispatch
   - full-stack integration in the trial worktree
   - a Playwright deployed smoke
-  - one real QStash → Worker delivery and one Scheduler-triggered dispatcher run
+  - one real QStash → Worker delivery and one manual-retry run through the spike operator surface (no Scheduler)
 - **Acceptance:** M0-AC02, M0-AC08 (pre-merge part), deployed parts of M0-AC04 and M0-AC10, M0-AC12.
 - **Verification:** workflow run logs; smoke report; Worker/dispatcher log lines with the correlation id; a PR without approval or with failing checks does not trigger the deploy.
 - **Integration point:** last integration before M0-08/M0-07. Review Agent required.
@@ -277,7 +281,7 @@ The Owner re-runs the checks in the trial worktree and does not rely on a "tests
 ### Findings from the provider research that need a decision (`spike-report.md`)
 - **F1 (blocks M0-AC11 design):** Cloud Run domain mapping, used by `infra/terraform/gcp_cloud_run.tf` for `api.<domain>`, is documented as preview and "not production-ready". The alternatives (load balancer, Firebase Hosting) change cost and topology. Decision for the user, with OPEN-04/OPEN-10.
 - **F3:** QStash retries (default 3, backoff up to 6 h) count against the free daily message limit, and the Worker's retryable 409 is retried; the behavior after retries are exhausted is undefined in `../../contracts/jobs-outbox.md`.
-- **F5:** immediate publish after the response may stall under request-based CPU billing; the recovery dispatcher covers it, latency unmeasured.
+- **F5:** immediate publish after the response may stall under request-based CPU billing; resolved by awaiting the publish inside the request with a bounded timeout, with manual retry as recovery (latency unmeasured).
 - **F6/F7:** Cloud Run timeout is not set in Terraform (default applies) and `deletion_protection` defaults to true in current docs; Terraform provider pins lag the latest releases.
 - **F8:** Neon Free has a 6-hour point-in-time window, no scheduled backups (OPEN-09 input). A GCP budget with alerts does not cap spend.
 

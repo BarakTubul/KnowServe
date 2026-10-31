@@ -17,9 +17,17 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_QSTASH_URL`, `KS_QSTASH_TOKEN` | API, Worker (publish) | token is a secret. The URL is region specific (EU: `https://qstash-eu-central-1.upstash.io`); the default is the US endpoint and rejects EU tokens. Upstash console names `QSTASH_*` are not read: copy them into the `KS_` keys. |
 | `KS_QSTASH_CURRENT_SIGNING_KEY`, `KS_QSTASH_NEXT_SIGNING_KEY` | Worker (verify) | secrets |
 | `KS_WORKER_PUBLIC_URL` | publisher | destination QStash calls, path `/internal/jobs/run` is appended |
-| `KS_DISPATCHER_OIDC_AUDIENCE`, `KS_DISPATCHER_OIDC_SERVICE_ACCOUNT` | Worker | production dispatcher authentication |
+| `KS_ENABLE_RECOVERY_DISPATCHER` | Worker | default `false`: `/internal/outbox/dispatch` is not mounted (404). Optional scheduled recovery only; not required in M0 |
+| `KS_DISPATCHER_OIDC_AUDIENCE`, `KS_DISPATCHER_OIDC_SERVICE_ACCOUNT` | Worker | production dispatcher authentication; required **only** when `KS_ENABLE_RECOVERY_DISPATCHER=true`. No longer required for the Worker to start in production |
 | `KS_DISPATCHER_LOCAL_TOKEN` | Worker | local/ci only; the settings validator rejects it when `KS_ENV=production` |
-| `KS_OUTBOX_LEASE_SECONDS`, `KS_OUTBOX_BATCH_SIZE`, `KS_JOB_LEASE_SECONDS` | Worker/core | defaults 60 / 20 / 120 |
+| `KS_OUTBOX_LEASE_SECONDS`, `KS_OUTBOX_BATCH_SIZE`, `KS_JOB_LEASE_SECONDS` | Worker/core | defaults 60 / 20 / 120 (`KS_OUTBOX_BATCH_SIZE` matters only for the optional batch dispatcher) |
+| `KS_JOB_MAX_ATTEMPTS` | Worker | default `4` total processing attempts; the job is then `failed` (ING-16). Reconciliation with QStash retry behaviour is UNVERIFIED |
+| `KS_STUCK_AFTER_SECONDS` | API/core | default `900`: a published `queued` job older than this is `queued_stuck` |
+| `KS_PUBLISH_GRACE_SECONDS` | API/core | default `120`: a `pending` outbox row without error older than this is `unpublished_stuck` |
+| `KS_ENABLE_SPIKE_JOB_OPS` | API | default `false`. Mounts the spike-only operator routes `/internal/spike/jobs` only when `KS_SPIKE_OPERATOR_EMAILS` and `KS_SPIKE_OIDC_AUDIENCE` are also set; otherwise 404 |
+| `KS_SPIKE_OPERATOR_EMAILS` | API | comma list of operator Google account emails (non-secret allow-list); supplied in git-ignored local config, never committed |
+| `KS_SPIKE_OIDC_AUDIENCE` | API | audience the operator's Google OIDC ID token must carry (Terraform sets it to the API origin) |
+| `KS_ENABLE_SPIKE_FAILURE_HOOKS` | API | default `false`; test-only `skip_publish` and job type `always_fail`, additionally require `KS_ENABLE_SPIKE_JOB_OPS=true`. Set only in the isolated spike environment |
 | `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |
 
 Production values come from Google Secret Manager through per-service service accounts. Terraform creates secret *containers* and access bindings only; values are entered by the user and never enter Terraform state.
@@ -35,11 +43,11 @@ Production values come from Google Secret Manager through per-service service ac
 | Item | Value |
 |---|---|
 | Images | `api` built from `apps/api/Dockerfile`, `worker` from `apps/worker/Dockerfile`; build context is the repository root; both run as non-root and listen on `$PORT` (default 8000 / 8001) |
-| Cloud Run services | `knowserve-api`, `knowserve-worker` (one region, chosen in M0-09/M0-05) |
+| Cloud Run services | `knowserve-api`, `knowserve-worker` (region `europe-west1`; min instances 0, max instances 2 each) |
 | Migrations | run by the deploy workflow with `alembic -c packages/backend_core/alembic.ini upgrade head` before traffic shifts; never at service start |
 | Health | liveness `/health/live`, readiness `/health/ready` on both services |
 | Smoke entry points | `GET <pages-url>/api/v1/status` (through the proxy), a direct `GET <api>/v1/status` that must return 403, `GET <worker>/health/ready`, and the Playwright deployed specs in `tests/e2e/` |
 | Secrets | mounted from Secret Manager as env vars named exactly as the keys above |
-| Frontend | static build of `apps/frontend` plus its Pages Function (`functions/`, `_routes.json`) deployed with wrangler to Cloudflare Pages; Pages variable `API_ORIGIN` and Pages secret `PROXY_SHARED_SECRET` (`proxy.md`) |
+| Frontend | static build of `apps/frontend` plus its Pages Function (`functions/`, `_routes.json`) deployed with wrangler to Cloudflare Pages; Pages project `knowserve-m0-spike` (origin `https://knowserve-m0-spike.pages.dev`; the first apply must confirm the real pages.dev host equals `api_allowed_origins[0]`), Pages variable `API_ORIGIN` and Pages secret `PROXY_SHARED_SECRET` (`proxy.md`) |
 
 No cloud resource is created or changed by any file in this repository until the user authorizes it (M0 plan, approvals A3/A4).

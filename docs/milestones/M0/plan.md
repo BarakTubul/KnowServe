@@ -12,7 +12,7 @@ Companion files:
 | M0-EX1 | Repository foundation: repeatable `uv`/`pnpm` installs from lockfiles, tooling, `.env.example`, and a docs/contract index. |
 | M0-EX2 | React+Vite on Cloudflare Pages reaches FastAPI on Cloud Run with a minimal successful API response. |
 | M0-EX3 | Separate Cloud Run images for the API and the Worker. The API connects to Neon PostgreSQL, the initial Alembic migration runs, and pgvector feasibility is shown. |
-| M0-EX4 | A signed QStash call reaches the Worker. The Worker refuses bad signatures and handles a duplicate minimal job safely. Outbox fast-path and recovery feasibility are proven. This is **not** full ingestion (that is M3). |
+| M0-EX4 | A signed QStash call reaches the Worker. The Worker refuses bad signatures and handles a duplicate minimal job safely. Outbox fast-path (immediate awaited publish) and admin manual-retry recovery are proven; scheduled recovery is optional and disabled by default. This is **not** full ingestion (that is M3). |
 | M0-EX5 | Terraform, IAM, Secrets and CI are connected with no committed secrets. GitHub Actions has protected merge and a post-deploy smoke test. |
 | M0-EX6 | Budget, free-tier, timeout and quota checks are documented, along with risks, blocked assumptions and requirement-to-test mapping. Reviewer and human approval come before merge. |
 
@@ -95,7 +95,7 @@ Owned by the Owner (approval and coordination, OPEN-01); implementation may be d
 - API/OpenAPI baseline and the error envelope (ARCH-04, ARCH-05).
 - Config/environment keys and the typed settings object (ARCH-12, `.env.example`).
 - M0 DB schema (job, outbox, and pgvector feasibility table) and migration ownership (ARCH-11).
-- Job envelope `{schema_version, job_id}` (ING-21) and the Worker/recovery-dispatcher endpoints, including which service hosts the dispatcher and how its invocation is authenticated.
+- Job envelope `{schema_version, job_id}` (ING-21) and the Worker endpoints. The batch recovery dispatcher is optional (`KS_ENABLE_RECOVERY_DISPATCHER`, default off, not mounted); M0 recovery is a manual retry through shared core functions, exposed in the spike only by operator routes on the API (`contracts/jobs-outbox.md`).
 - Structured logging fields and correlation-id propagation (MON-03).
 - Health/readiness endpoints (ARCH-13).
 - Deployment interface: image names, service names, required env/secret keys, smoke-test entry points.
@@ -107,16 +107,22 @@ The OpenAPI schema is generated from FastAPI and diffed against the approved con
 - **Workstreams are allocated dynamically** from the dependency graph in `tasks.md` (WF-16): no fixed agent count. There is no permanent Shared Core Agent; the shared-core implementation is delegated to the backend workstream under Owner-approved interfaces.
 - **Independent Review Agents** for security-critical and cross-cutting changes (`tasks.md` "Quality gates").
 
+## Recovery and spike decisions (user-approved, binding)
+- Cloud Run region `europe-west1`; Cloudflare Pages project `knowserve-m0-spike` (origin `https://knowserve-m0-spike.pages.dev`; the first apply must confirm the real pages.dev host equals `api_allowed_origins[0]`).
+- Async delivery: immediate QStash publish after the Job+Outbox commit, awaited in the request with a bounded timeout; transactional outbox kept. No Cloud Scheduler in M0; scheduled recovery stays optional and disabled. Recovery is an admin-initiated manual retry with explicit failed/stuck states. Processing is limited to 4 total attempts (`KS_JOB_MAX_ATTEMPTS`), to be reconciled with QStash's real retry behaviour (UNVERIFIED until a live test).
+- GCP billing budgets stay manually configured by the user; Terraform does not manage a budget.
+- Cloud Run scales to zero with `max_instance_count = 2` on both services.
+
 ## M0-dependent open decisions
 | Item | Investigate | Verified by | Evidence | Task | Blocks |
 |---|---|---|---|---|---|
-| OPEN-06 Terraform/provider feasibility | State backend and locking; GCP region for Cloud Run, Scheduler and Secret Manager; which resources the available Terraform providers can manage (GCP, Cloudflare, Neon, Upstash) and which need documented manual steps | `terraform validate` and `plan`, then an authorized apply (A3) | Spike report section listing each resource as managed or a manual gap, with plan/apply logs | M0-09 (research), M0-05 | Production deploy only; local implementation is not blocked |
+| OPEN-06 Terraform/provider feasibility | State backend and locking; GCP region for Cloud Run and Secret Manager (approved: `europe-west1`); which resources the available Terraform providers can manage (GCP, Cloudflare, Neon, Upstash) and which need documented manual steps | `terraform validate` and `plan`, then an authorized apply (A3) | Spike report section listing each resource as managed or a manual gap, with plan/apply logs | M0-09 (research), M0-05 | Production deploy only; local implementation is not blocked |
 | OPEN-09 Backup/restore | Backup/restore capability of the selected Neon plan; that R2 is not a versioned backup | Provider documentation (dated citations); a restore attempt only if the plan supports one | Spike report section without guarantees (INFRA-08) | M0-09 | Neither; production-readiness documentation only |
 | OPEN-10 Cost | Current free tiers, pricing and quotas per service, plus the domain (A5); billing alerts | Dated provider pricing pages, then billing data from the spike period | Cost table separating **measured** from **estimated** values, with sources and assumptions (AC09) | M0-09, M0-07 | Not implementation; if over target, the user decides before go-live |
 | OPEN-04 feasibility (decision resolved; mechanism under review, OPEN-21) | Custom-domain mapping for Pages and Cloud Run, TLS, cookie and CORS behavior, or the same-origin `/api` route proposed in OPEN-21 | Deployed spike checks | AC11 evidence, or a documented blocker with alternatives | M0-08 | Blocks M1 production auth deploy, not M0 implementation |
 | ING-22 Worker timeout | Cloud Run request timeout and limits vs expected job duration | Provider documentation + a measured run of the minimal job | Spike report entry and a decision note for M3 | M0-09, M0-04 | Neither in M0; informs M3 |
 | OPEN-20 | — | User approval | — | — | M0 start |
-| Owner-level details | Ephemeral CI DB, environment/bootstrap ADR, scheduler cadence, recovery-test shape | ADRs in M0-01/M0-05 | `docs/adr/` | M0-01, M0-05 | No |
+| Owner-level details | Ephemeral CI DB, environment/bootstrap ADR, recovery-test shape (scheduler cadence resolved: no Scheduler in M0) | ADRs in M0-01/M0-05 | `docs/adr/` | M0-01, M0-05 | No |
 
 No pricing, quota or capability figures are recorded in this plan; they are evidence produced by M0-09 and M0-07.
 

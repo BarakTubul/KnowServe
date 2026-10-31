@@ -1,19 +1,19 @@
 locals {
   # APIs Terraform enables. The first ones needed to START Terraform are enabled manually (README).
-  required_apis = [
+  required_apis = concat([
     "run.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
-    "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "sts.googleapis.com",
-    "billingbudgets.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "serviceusage.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
-  ]
+    ],
+    # Optional scheduled recovery only (STACK-23: disabled by default).
+  var.enable_recovery_scheduler ? ["cloudscheduler.googleapis.com"] : [])
 }
 
 resource "google_project_service" "apis" {
@@ -57,6 +57,7 @@ resource "google_service_account" "deployer" {
 }
 
 resource "google_service_account" "scheduler" {
+  count        = var.enable_recovery_scheduler ? 1 : 0
   project      = var.project_id
   account_id   = "ks-scheduler"
   display_name = "KnowServe Cloud Scheduler OIDC caller"
