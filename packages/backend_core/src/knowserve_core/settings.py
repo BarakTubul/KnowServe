@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     publish_timeout_seconds: float = Field(default=5.0, gt=0)
     publish_grace_seconds: int = Field(default=120, ge=0)
     # Must exceed QStash's longest default retry gap (about e^7.5 s = 1808 s, measured live) so a
-    # job that still has a scheduled retry is not labelled stuck. Used only by `queued_stuck` and by the
-    # requeue guard for queued jobs; the other recovery states do not depend on it.
+    # job that still has a scheduled retry is not labelled stuck. Used only by `queued_stuck` and
+    # by the requeue guard for queued jobs; the other recovery states do not depend on it.
     stuck_after_seconds: int = Field(default=2400, ge=1)
 
     # The batch dispatcher (multi-row dispatch_pending) is the optional scheduled-recovery path.
