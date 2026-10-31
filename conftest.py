@@ -10,6 +10,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import pytest_asyncio
@@ -29,7 +30,12 @@ ALEMBIC_INI = Path(__file__).parent / "packages" / "backend_core" / "alembic.ini
 
 @pytest.fixture(scope="session")
 def database_url() -> str:
-    return normalize_database_url(os.environ.get("KS_TEST_DATABASE_URL", DEFAULT_TEST_DB))
+    url = normalize_database_url(os.environ.get("KS_TEST_DATABASE_URL", DEFAULT_TEST_DB))
+    host = urlsplit(url).hostname
+    if host not in ("localhost", "127.0.0.1", "::1", "db"):
+        # The fixtures DROP SCHEMA public CASCADE; never point them at a remote database.
+        raise RuntimeError("KS_TEST_DATABASE_URL must be a local database (it is wiped each run)")
+    return url
 
 
 async def _reset_schema(url: str) -> None:
