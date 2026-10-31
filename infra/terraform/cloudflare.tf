@@ -25,4 +25,15 @@ resource "cloudflare_pages_project" "app" {
       }
     }
   }
+
+  lifecycle {
+    # PROXY_SHARED_SECRET is a Pages secret set out of band with `wrangler pages secret put` (its
+    # value comes from Secret Manager and must never enter Terraform state). Cloudflare reports
+    # it back as an env var with an empty value, so without this Terraform plans to strip it
+    # (observed in the first full plan after the secret was set: applying that plan could have
+    # removed the secret and broken the proxy). API_ORIGIN stays managed.
+    ignore_changes = [
+      deployment_configs.production.env_vars["PROXY_SHARED_SECRET"],
+    ]
+  }
 }
