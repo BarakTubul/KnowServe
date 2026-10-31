@@ -44,7 +44,7 @@ Classification: **B** = blocking before M0, **D** = resolve during M0, **L** = r
 | Async delivery and recovery | Immediate awaited QStash publish after the Job+Outbox commit (bounded timeout), outbox kept. **No Cloud Scheduler in M0** (the "scheduler cadence" item is resolved: none); scheduled recovery stays optional and disabled (`enable_recovery_scheduler=false`, `KS_ENABLE_RECOVERY_DISPATCHER=false`). Recovery is an admin-initiated manual retry with explicit failed/stuck states (ING-13, ING-16, ADM-16, STACK-23). `KS_JOB_MAX_ATTEMPTS=4`; the reconciliation with QStash's real retry behaviour is UNVERIFIED until a live test. |
 | Billing budgets | The user keeps manually configured GCP budgets; Terraform does not create or manage one (COST-04). |
 | Cloud Run scale | Scale to zero kept; `max_instance_count = 2` on both services. |
-| Spike operator surface | Spike-only `/internal/spike/jobs` routes, OIDC-allow-listed, off by default, not public (`contracts/jobs-outbox.md`). Not application auth (M1) or admin RBAC (M3). Minting an ID token for a human account is UNVERIFIED; fallbacks need user approval. |
+| Spike operator surface | Spike-only `/internal/spike/jobs` routes, OIDC-allow-listed, off by default, not public (`contracts/jobs-outbox.md`). Not application auth (M1) or admin RBAC (M3). Token minting: decided (B2) to impersonate a role-less operator service account with the API URL as audience; UNVERIFIED until the first deployed run. |
 
 No item is classified **B**: the only prerequisites before M0 are the user's approval of the docs-only PR and explicit authorization to start M0.
 

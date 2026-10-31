@@ -109,14 +109,14 @@ variable "enable_spike_failure_hooks" {
   }
 }
 
-variable "spike_operator_emails" {
+variable "spike_token_creator_emails" {
   type        = list(string)
-  description = "Allow-list of operator Google account emails for the spike job routes (KS_SPIKE_OPERATOR_EMAILS, comma-joined, non-secret). Supply in the git-ignored terraform.tfvars; do not commit real addresses."
+  description = "Google accounts (plain emails) allowed to impersonate the spike operator service account to mint ID tokens for the job routes. Supply in the git-ignored terraform.tfvars; do not commit real addresses. The API allow-list (KS_SPIKE_OPERATOR_EMAILS) is the operator service account itself, never these human accounts."
   default     = []
 
   validation {
-    condition     = !var.enable_spike_job_ops || length(var.spike_operator_emails) > 0
-    error_message = "spike_operator_emails must be non-empty when enable_spike_job_ops is true."
+    condition     = !var.enable_spike_job_ops || length(var.spike_token_creator_emails) > 0
+    error_message = "spike_token_creator_emails must be non-empty when enable_spike_job_ops is true."
   }
 }
 

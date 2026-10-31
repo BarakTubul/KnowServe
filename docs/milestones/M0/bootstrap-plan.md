@@ -38,6 +38,7 @@ Project `knowserve-m0-spike` (Free Trial, billing linked, Cloud Run spend cap an
 **APIs Terraform enables:** `run`, `artifactregistry`, `secretmanager`, `iam`, `iamcredentials`, `sts`, `cloudresourcemanager`, `serviceusage`, `logging`, `monitoring` (`*.googleapis.com`); `cloudscheduler` only if `enable_recovery_scheduler` is true.
 
 ## 2. Identity and roles
+- **Spike operator identity (B2 = option B, only when `enable_spike_job_ops`):** one role-less service account `ks-spike-operator` plus `roles/iam.serviceAccountTokenCreator` on it for the Google accounts listed in `spike_token_creator_emails` (git-ignored tfvars). This adds 1 service account and 1 IAM binding to the resource inventory (38 becomes 40 when enabled); the API allow-list holds the service account email.
 - **Applying identity:** the project creator already holds `roles/owner` on a Free Trial project. That is acceptable for a throwaway spike. The equivalent least-privilege set is `serviceusage.serviceUsageAdmin`, `run.admin`, `artifactregistry.admin`, `secretmanager.admin`, `iam.serviceAccountAdmin`, `iam.workloadIdentityPoolAdmin`, `iam.serviceAccountUser`, `storage.objectAdmin` on the state bucket (plus `cloudscheduler.admin` only if the optional scheduler is enabled). No billing-account role is needed.
 - **Runtime accounts (created by Terraform):** `ks-api-runtime` and `ks-worker-runtime` get only `secretmanager.secretAccessor` on their own secrets (API: `database-url`, `qstash-token`, `proxy-shared-secret`; Worker: `database-url`, `qstash-token`, both signing keys). No project-level roles.
 - **`ks-scheduler`:** created only when the optional scheduler is enabled; no roles of its own, used only as the OIDC caller.
@@ -54,7 +55,7 @@ Project `knowserve-m0-spike` (Free Trial, billing linked, Cloud Run spend cap an
 7. **Phase 2:** full `terraform plan -out=tfplan`, agent reviews the text for secret values and unexpected changes, then `terraform apply tfplan`.
 8. Compare `terraform output` URLs with the predicted ones; fix `api_origin` if different and re-apply.
 9. Set the Pages secret with the same value as `proxy-shared-secret`; deploy the Pages site from `apps/frontend` with wrangler (`wrangler pages deploy`), as an explicit separate approval.
-10. Run the spike checks (deployed SSE, cookie, client IP, direct 403, QStash delivery, manual-retry run through the spike operator surface (failure hooks only in this isolated environment; token minting UNVERIFIED), cold start, region latency, free-tier counters).
+10. Run the spike checks (deployed SSE, cookie, client IP, direct 403, QStash delivery, manual-retry run through the spike operator surface (failure hooks only in this isolated environment; token minted by impersonating `ks-spike-operator` (B2 = option B); acceptance UNVERIFIED until this run), cold start, region latency, free-tier counters).
 
 ## 4. Credentials without exposing them to the agent
 - The agent never receives tokens, passwords or secret values in chat, files or command lines.

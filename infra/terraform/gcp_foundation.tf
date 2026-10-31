@@ -64,6 +64,26 @@ resource "google_service_account" "scheduler" {
   depends_on   = [google_project_service.apis]
 }
 
+# Spike operator identity (option B of the audience decision). A personal Google account cannot
+# mint an ID token with a custom audience, but it can impersonate this service account:
+#   gcloud auth print-identity-token --impersonate-service-account=<email> --audiences=<api url> --include-email
+# The service account holds NO roles; it only exists so the API can allow-list its email. Only the
+# listed human accounts may impersonate it. Created only for the isolated spike.
+resource "google_service_account" "spike_operator" {
+  count        = var.enable_spike_job_ops ? 1 : 0
+  project      = var.project_id
+  account_id   = "ks-spike-operator"
+  display_name = "KnowServe spike operator (ID tokens for /internal/spike/jobs)"
+  depends_on   = [google_project_service.apis]
+}
+
+resource "google_service_account_iam_member" "spike_operator_token_creator" {
+  for_each           = var.enable_spike_job_ops ? toset(var.spike_token_creator_emails) : toset([])
+  service_account_id = google_service_account.spike_operator[0].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "user:${each.value}"
+}
+
 # Runtime accounts get no project-level roles; Cloud Run writes logs through the platform agent.
 
 # ---- Secret containers (NO versions: values are entered by the user, never by Terraform) ----

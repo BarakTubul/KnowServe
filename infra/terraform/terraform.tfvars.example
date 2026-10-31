@@ -31,4 +31,4 @@ worker_public_url = "https://worker.example.invalid"
 # git-ignored terraform.tfvars, never in this file.
 # enable_spike_job_ops       = false
 # enable_spike_failure_hooks = false
-# spike_operator_emails      = ["REPLACE_OPERATOR_EMAIL"]
+# spike_token_creator_emails = ["REPLACE_YOUR_GOOGLE_ACCOUNT_EMAIL"]  # may impersonate ks-spike-operator

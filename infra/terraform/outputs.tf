@@ -37,3 +37,8 @@ output "app_url" {
   description = "The single app origin (pages.dev). api_allowed_origins must equal this value."
   value       = "https://${cloudflare_pages_project.app.subdomain}"
 }
+
+output "spike_operator_service_account" {
+  description = "Email of the role-less operator service account to impersonate for spike ID tokens (null unless enable_spike_job_ops)."
+  value       = one(google_service_account.spike_operator[*].email)
+}

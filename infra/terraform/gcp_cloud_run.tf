@@ -60,7 +60,7 @@ resource "google_cloud_run_v2_service" "api" {
       dynamic "env" {
         for_each = var.enable_spike_job_ops ? {
           KS_ENABLE_SPIKE_JOB_OPS  = "true"
-          KS_SPIKE_OPERATOR_EMAILS = join(",", var.spike_operator_emails)
+          KS_SPIKE_OPERATOR_EMAILS = google_service_account.spike_operator[0].email
           KS_SPIKE_OIDC_AUDIENCE   = var.api_origin
         } : {}
         content {
