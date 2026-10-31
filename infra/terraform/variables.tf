@@ -92,6 +92,12 @@ variable "dispatcher_oidc_audience" {
   }
 }
 
+variable "enable_spike_endpoints" {
+  type        = bool
+  description = "Mount the public spike test endpoints /v1/spike/{cookie,echo,stream} (KS_ENABLE_SPIKE_ENDPOINTS). They are reachable through the Pages proxy and /stream can hold a connection for up to 10 minutes, so enable only briefly for the M0 spike checks."
+  default     = false
+}
+
 variable "enable_spike_job_ops" {
   type        = bool
   description = "Mount the spike-only operator job routes (/internal/spike/jobs) on the API (KS_ENABLE_SPIKE_JOB_OPS). Default false. Not public, not application auth (M1) or admin RBAC (M3)."

@@ -45,7 +45,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "KS_ENABLE_SPIKE_ENDPOINTS"
-        value = "false"
+        value = var.enable_spike_endpoints ? "true" : "false"
       }
       env {
         name  = "KS_QSTASH_URL"

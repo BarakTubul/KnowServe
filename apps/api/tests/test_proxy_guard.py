@@ -150,3 +150,15 @@ async def test_open21_secret_never_appears_in_logs(caplog: pytest.LogCaptureFixt
         await client.get("/v1/status", headers=HEADERS)
     assert SECRET not in caplog.text
     assert "attacker-guess" not in caplog.text
+
+
+async def test_open21_spike_echo_reports_the_forwarded_client_ip_only_with_the_secret() -> None:
+    async with _client(_app()) as client:
+        shown = await client.get(
+            "/v1/spike/echo", headers={**HEADERS, "X-KS-Client-IP": "203.0.113.7"}
+        )
+        garbage = await client.get("/v1/spike/echo", headers={**HEADERS, "X-KS-Client-IP": "nope"})
+        denied = await client.get("/v1/spike/echo", headers={"X-KS-Client-IP": "203.0.113.7"})
+    assert shown.json() == {"cookie_present": False, "client_ip": "203.0.113.7"}
+    assert garbage.json() == {"cookie_present": False, "client_ip": None}
+    assert denied.status_code == 403 and "203.0.113.7" not in denied.text

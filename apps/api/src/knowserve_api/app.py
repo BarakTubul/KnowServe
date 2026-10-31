@@ -58,6 +58,9 @@ SPIKE_COOKIE = "ks_spike"
 
 class SpikeEchoResponse(BaseModel):
     cookie_present: bool
+    # The client IP the Pages Function forwarded (X-KS-Client-IP), trusted only after the proxy
+    # secret check; None when absent. M0-AC11 spike evidence only.
+    client_ip: str | None = None
 
 
 @spike_router.post("/cookie", status_code=204)
@@ -72,7 +75,10 @@ async def spike_cookie() -> Response:
 
 @spike_router.get("/echo", response_model=SpikeEchoResponse)
 async def spike_echo(request: Request) -> SpikeEchoResponse:
-    return SpikeEchoResponse(cookie_present=SPIKE_COOKIE in request.cookies)
+    return SpikeEchoResponse(
+        cookie_present=SPIKE_COOKIE in request.cookies,
+        client_ip=getattr(request.state, "client_ip", None),
+    )
 
 
 @spike_router.get("/stream")

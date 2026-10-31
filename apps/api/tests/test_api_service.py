@@ -287,8 +287,8 @@ async def test_m0_08_spike_echo_reflects_cookie_presence() -> None:
             present = await client.get("/v1/spike/echo", headers={"Cookie": "ks_spike=1"})
     finally:
         await engine.dispose()
-    assert absent.json() == {"cookie_present": False}
-    assert present.json() == {"cookie_present": True}
+    assert absent.json() == {"cookie_present": False, "client_ip": None}
+    assert present.json() == {"cookie_present": True, "client_ip": None}
 
 
 # ---------------------------------------------------------------- logging
