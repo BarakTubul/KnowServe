@@ -1,0 +1,8 @@
+# Code owners (enforced once "Require review from Code Owners" is enabled on main).
+# Files that change what can be deployed, who can deploy it, or the shared contracts.
+/.github/              @BarakTubul
+/infra/                @BarakTubul
+/docs/contracts/       @BarakTubul
+/docs/adr/             @BarakTubul
+/packages/backend_core/migrations/ @BarakTubul
+/AGENTS.md             @BarakTubul

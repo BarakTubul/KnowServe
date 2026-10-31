@@ -136,6 +136,17 @@ variable "github_repository" {
   }
 }
 
+variable "github_environment" {
+  type        = string
+  description = "Name of the GitHub Environment whose jobs may authenticate to this project (WIF condition and subject). Use `spike` for the M0 spike project and `production` for the future production project, so each GCP project trusts exactly one environment. Changing it updates the provider condition and replaces the impersonation binding; apply it before the first deploy that uses the new name."
+  default     = "production"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,38}$", var.github_environment))
+    error_message = "github_environment must be lower-case letters, digits and dashes (it is part of the OIDC subject)."
+  }
+}
+
 variable "github_repository_id" {
   type        = string
   description = "Immutable numeric GitHub repository ID (not secret): `gh api repos/OWNER/NAME --jq .id`. Required by the WIF condition so a renamed or recreated repo with the same name cannot deploy."

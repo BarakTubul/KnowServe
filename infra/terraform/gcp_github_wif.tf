@@ -10,7 +10,7 @@ resource "google_iam_workload_identity_pool" "github" {
 locals {
   # The only identity allowed to deploy: the deploy workflow, on main, in the `production`
   # environment of one repository. Every value below must match for a token to be accepted.
-  github_environment  = "production"
+  github_environment  = var.github_environment
   github_deploy_ref   = "refs/heads/main"
   github_deploy_sub   = "repo:${var.github_repository}:environment:${local.github_environment}"
   github_workflow_ref = "${var.github_repository}/.github/workflows/deploy.yml@${local.github_deploy_ref}"
