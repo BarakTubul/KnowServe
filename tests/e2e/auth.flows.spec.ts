@@ -1,7 +1,7 @@
 // M1-06 auth flows against the Firebase Auth Emulator. Run: pnpm --filter @knowserve/frontend e2e:auth
 // Default: API = contract-faithful fake (support/fake-api.ts). E2E_REAL_API=1 targets the real API
-// (needs KS_FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 set together with the emulator); until the backend
-// slices merge (routes are 501 stubs) every spec is test.fixme in that mode.
+// (needs KS_FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 set together with the emulator); specs that need hooks the API does not expose
+// (clock control, fixture seeding, a small freshness window) stay test.fixme in that mode.
 import { expect, test, type Page } from '@playwright/test';
 import {
   PASSWORD,
@@ -11,10 +11,6 @@ import {
   uniqueEmail,
 } from './support/emulator';
 import { REAL_API, useApi } from './support/fake-api';
-
-test.beforeEach(() => {
-  test.fixme(REAL_API, 'Real API routes are 501 stubs until M1-02b/M1-04 merge; run with the fake.');
-});
 
 async function signIn(page: Page, email: string, password = PASSWORD) {
   await page.goto('/login');
@@ -52,7 +48,7 @@ test('password signup, verify in a fresh browser, login, logout (FE-AUTH-02/03/0
   await tab.goto(actionPath('verifyEmail', await latestOobCode(email, 'VERIFY_EMAIL')));
   await expect(tab.getByRole('heading', { name: 'Email verified' })).toBeVisible();
   await expect(tab.getByRole('link', { name: 'Go to sign in' })).toBeVisible();
-  expect(api?.calls.filter((c) => c === 'POST /v1/auth/session')).toHaveLength(0);
+  if (api) expect(api.calls.filter((c) => c === 'POST /v1/auth/session')).toHaveLength(0);
   await other.close();
 
   // Back in the original tab the explicit continue starts the session.
