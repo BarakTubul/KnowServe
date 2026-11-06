@@ -1,6 +1,6 @@
 # M0 task board
 
-**Status:** Local implementation and the temporary isolated cloud spike are done on branch `m0/integration` (see `handoff.md`). Nothing was pushed or merged; GitHub-dependent work (Actions, WIF run, branch protection) is BLOCKED. The Owner keeps this board current at meaningful changes, not every commit (WF-10). Acceptance criteria are defined in `test-plan.md`; the context, approvals A1–A5 and contracts are in `plan.md`.
+**Status:** Local implementation and the temporary isolated cloud spike are done on branch `m0/integration` (see `handoff.md`). Merged to `main` (PR #21); as of 2026-11-06 the GitHub work (Actions, Workload Identity run, branch protection) is done and a first deploy to the spike passed. The Owner keeps this board current at meaningful changes, not every commit (WF-10). Acceptance criteria are defined in `test-plan.md`; the context, approvals A1–A5 and contracts are in `plan.md`.
 
 Verification commands below are the intended checks. Exact script names are fixed by M0-01 and recorded in `AGENTS.md`; `<health>` and similar placeholders come from the M0-01 contracts.
 
@@ -12,11 +12,11 @@ Verification commands below are the intended checks. Exact script names are fixe
 | M0-03 | Frontend shell and generated API client | M0-01 | Frontend | done; deployed to Cloudflare Pages (`pages.dev`) |
 | M0-04 | Worker: signed delivery, job claim, outbox publish, failure handling and manual-retry recovery (batch dispatcher optional, disabled) | M0-01; M0-02a for integration | Worker | done; live QStash verified; Google OIDC dispatcher not used (optional, disabled) |
 | M0-05 | Terraform: GCP, Pages, IAM, Secret Manager, OIDC (no budget; Scheduler optional, off) | M0-01; apply needs A3, A4 | Infrastructure | applied (Phase 1, Phase 2, cleanup); state in GCS; no drift (owner-verified) |
-| M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | workflows authored; **not run on GitHub**; BLOCKED (push, `production` environment, branch protection) |
+| M0-06 | Deploy workflow, full integration and deployed smoke | M0-02..05, M0-10 | Owner | done on the spike: `auth-check` (run 42201463304) and `deploy` (run 42203473574) passed on GitHub with Workload Identity; negative runs still to do |
 | M0-07 | Spike report, security review, traceability and review package | M0-06, M0-08, M0-09 | Owner + Review Agent | handoff written (`handoff.md`); formal M0 completion waits on the open items there |
 | M0-08 | Hosting route feasibility: same-site subdomains, or the same-origin `/api` proxy if OPEN-21 is approved | M0-06; A5 | Infrastructure | done; same-origin Pages Function proxy verified on the real edge |
 | M0-09 | Provider research: limits, regions, Terraform coverage, backups, cost sources | A1 (read-only) | Research (Owner or a read-only agent) | done (sourced documented values; nothing measured) |
-| M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | workflows authored + actionlint clean; **not run on GitHub** |
+| M0-10 | CI quality pipeline and branch protection | M0-01 | CI (may merge with Owner or Infrastructure) | done: `ci` green on PR and `main` (PRs #21, #22); branch protection requires `ci-required` (checked 2026-11-06) |
 
 M0-01..07 keep their earlier numbering. M0-08..10 were split out of the earlier M0-05/M0-06 drafts, so the work that is genuinely parallel or blocked can run separately. They are part of the OPEN-20 approval.
 
