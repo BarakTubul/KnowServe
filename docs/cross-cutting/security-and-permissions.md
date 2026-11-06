@@ -21,9 +21,9 @@ This is the single normative source for access-control rules, HTTP status semant
 | SEC-11 | Uploaded PDFs and ZIPs are untrusted. The system validates signatures and types, filenames and paths, archive traversal, symlinks, zip bombs and count/size limits, and processes them with bounded resources and time. There is no OCR and no separate antivirus in the MVP. | M3 |
 | SEC-12 | Documents and user prompts rank below system and developer instructions. The model has no administrative tool access. Prompt-injection content is treated as adversarial test input. | M4 |
 | SEC-13 | If the DB or auth is unavailable, the system fails closed: no access is granted on error. An LLM outage only degrades chat (INFRA-10). | M1 |
-| SEC-14 | The Worker endpoint accepts only deliveries with a valid QStash signature that reference an eligible DB job. URL secrecy is not authentication. | M0 (spike) / M3 |
+| SEC-14 | The Worker endpoint accepts only deliveries with a valid QStash signature that reference an eligible DB job. URL secrecy is not authentication. **One narrow exception (OPEN-26, N6, M1):** a single dedicated Demo-cleanup maintenance endpoint accepts a valid QStash signature without a job row, takes no caller-controlled parameters and performs one fixed, bounded, idempotent operation that is safe under conversion/cleanup races; it requires independent security review. Normal document-processing jobs keep the signed-job requirement. | M0 (spike) / M1 (exception) / M3 |
 | SEC-15 | Frontend route hiding and admin-control hiding are UX only. All authorization is enforced by the backend. | M1 |
-| SEC-16 | Try Demo visitors are isolated from registered users, from each other, and per department. | M1 |
+| SEC-16 | Try Demo users (Firebase anonymous uid with a KnowServe Demo identity) are isolated from registered users, from each other, and per department. A Demo conversion keeps the same internal identity and grants no additional document or Admin permission (AUTH-34). Demo users never reach Admin operations. | M1 |
 | SEC-17 | The Admin's elevated permissions apply **only** to dedicated Admin endpoints and UI (ADM-*). In the regular library, PDF viewer and RAG chat the Admin follows exactly the same active-department rules (SEC-07) as any user; there is **no global Admin bypass** (OPEN-13). | M1/M2/M4 |
 
 ### Demo authorization model (OPEN-12)
@@ -33,7 +33,7 @@ Any user or visitor may choose any fictional department, so department membershi
 For this fictional demo the user approved a less strict historical-disclosure policy. Answer text generated while a user had access stays readable in that user's saved conversation after access is revoked, so information derived from the revoked document may remain visible there. Everything else is restricted immediately: the viewer, citation links/content, new retrieval and generation, and active streams. Historical answer text is not trusted context for new generation. This must not be reinterpreted as hiding or deleting old answers, nor presented as suitable for real confidential data.
 
 Related normative rules live elsewhere:
-- Session, CSRF + Origin check, password policy/hashing, Email OTP (password alternative, not MFA) and rate limits: `../backend/auth.md` (AUTH-03, AUTH-06, AUTH-10, AUTH-14, AUTH-15, AUTH-22..28).
+- Firebase Authentication as identity provider, the session exchange, opaque DB sessions, CSRF + Origin check, account linking, password reset and rate limits: `../backend/auth.md` (AUTH-03, AUTH-06, AUTH-10, AUTH-14, AUTH-15, AUTH-29..33). KnowServe stores no passwords.
 - Secrets and IAM: `../architecture/infrastructure.md` (INFRA-07).
 - Logging and audit: `../backend/monitoring.md` (MON-03 to MON-05).
 - Quotas and budget: `../architecture/infrastructure.md` (COST-02 to COST-04).
@@ -70,7 +70,7 @@ All errors use the envelope `{"error": {"code", "message", "request_id"}}` defin
 | SEC-11 | integration | Bad PDF signature, path traversal in a ZIP, a symlink, a zip bomb, over-count/over-size | rejected with a per-file reason; nothing stored |
 | SEC-12 | eval | Prompt-injection cases in the golden set (EVAL-01) | hard-fail if any instruction is followed or data leaks |
 | SEC-13 | integration | DB unavailable during session lookup | 5xx/401, never 200 with data |
-| SEC-14 | integration | Worker called with no signature, a bad signature, a valid signature + unknown job | rejected; no processing |
+| SEC-14 | integration | Worker called with no signature, a bad signature, a valid signature + unknown job; the cleanup endpoint with no/bad signature, with extra parameters, and with a valid signature | rejected; no processing; rejected; parameters ignored or refused and the operation unchanged; one bounded cleanup |
 | SEC-15 | e2e | Non-admin navigates to an admin URL | UI blocks it and the API returns 403 |
 | SEC-16 | integration | Two demo visitors; one visitor in two departments | no cross-visitor or cross-department history or data |
 | SEC-17 | integration | Admin with active department A requests the library, bytes and chat retrieval for a doc shared only with B | not listed / 404 / not retrieved; the same doc is visible via the Admin list endpoint |

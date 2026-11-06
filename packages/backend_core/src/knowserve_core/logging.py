@@ -17,6 +17,8 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _BEARER = re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+# Firebase ID tokens are JWTs; mask one wherever it shows up inside a string value (MON-05).
+_JWT = re.compile(r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
 _RESERVED = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
 
 
@@ -28,7 +30,7 @@ def redact(value: Any, key: str | None = None) -> Any:
     if isinstance(value, list | tuple):
         return [redact(v) for v in value]
     if isinstance(value, str):
-        return _BEARER.sub(r"\1" + REDACTED, value)
+        return _JWT.sub(REDACTED, _BEARER.sub(r"\1" + REDACTED, value))
     return value
 
 

@@ -13,7 +13,7 @@
 | TEST-06 | Tooling: backend uses pytest, pytest-asyncio and HTTPX, with integration tests against **real PostgreSQL + pgvector** (not SQLite or mocks for permission SQL). Frontend uses Vitest + React Testing Library. E2E uses Playwright, staged by milestone. |
 | TEST-07 | Test names or docstrings reference the requirement id they cover (for example `test_sec_02_forbidden_pdf_returns_404`). |
 | TEST-08 | Every testable requirement has at least one positive test, and a negative or error test where applicable, listed in its spec's "Required tests" table. |
-| TEST-09 | External providers (QStash, R2, OpenRouter, OpenAI embeddings, Resend) are faked in unit and integration tests. Real-provider calls happen only in deployment smoke tests and opt-in real-model eval runs. |
+| TEST-09 | External providers (QStash, R2, OpenRouter, OpenAI embeddings, Firebase token verification) are faked in unit and integration tests. Real-provider calls happen only in deployment smoke tests and opt-in real-model eval runs. |
 
 ## Test levels used in specs
 | Level | Meaning |

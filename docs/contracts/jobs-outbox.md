@@ -57,5 +57,8 @@ Routes on the **API**: `POST /internal/spike/jobs` (create; allow-listed `job_ty
 
 The Worker allows unauthenticated network access to Cloud Run (QStash cannot present Google credentials), so every non-health route must authenticate itself as above; URL secrecy is not authentication (SEC-14).
 
+## Scheduled maintenance endpoint (M1, OPEN-26 N6)
+One exception to the job-row requirement: `POST /internal/maintenance/demo-cleanup` on the Worker. It verifies the QStash signature with the same code as the job endpoint, accepts **no** caller-controlled parameters (the body and query are ignored; limits come from configuration), and runs one fixed, bounded, idempotent cleanup (`AUTH-35`). It is triggered by one daily QStash schedule. No other maintenance routes exist.
+
 ## Correlation
 `correlation_id` is copied from the request context into `jobs` and `outbox` at enqueue time and set again from the job row when the Worker processes it, so one id appears in API and Worker logs (MON-03).

@@ -55,6 +55,19 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "KS_WORKER_PUBLIC_URL"
         value = var.worker_public_url
       }
+      # M1 authentication: the audience of verified Firebase ID tokens (public, not a secret).
+      env {
+        name  = "KS_FIREBASE_PROJECT_ID"
+        value = var.firebase_project_id
+      }
+      # Optional non-secret M1 overrides; empty map = application defaults.
+      dynamic "env" {
+        for_each = var.api_m1_settings
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
 
       # Spike operator job surface: plain non-secret settings, only when enabled.
       dynamic "env" {
@@ -148,6 +161,15 @@ resource "google_cloud_run_v2_service" "worker" {
       env {
         name  = "KS_WORKER_PUBLIC_URL"
         value = var.worker_public_url
+      }
+
+      # Optional non-secret M1 overrides (Demo cleanup); empty map = application defaults.
+      dynamic "env" {
+        for_each = var.worker_m1_settings
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       # The Worker registers the test-only always_fail handler only for the isolated spike.

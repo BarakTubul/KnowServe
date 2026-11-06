@@ -73,5 +73,15 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # --- Owner: Firebase Auth Emulator for local development and e2e tests (M1, ADR 0004) ---
+  firebase-auth:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["npx", "--yes", "firebase-tools@15.35.0", "emulators:start", "--only", "auth", "--project", "demo-knowserve"]
+    volumes:
+      - ./infra/local/firebase:/app:ro
+    ports:
+      - "9099:9099"
+
 volumes:
   db-data:
