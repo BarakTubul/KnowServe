@@ -37,16 +37,47 @@ SELECT version_num FROM alembic_version;   -- expected: 0001 before the first M1
 -- ALTER tables it does not own.
 
 -- ============================================================================================
--- 2. Create the runtime role in the Neon console (generated password), named ks_runtime.
---    Then run the rest as neondb_owner (the owner) or a Neon admin role.
+-- 2. The role ks_runtime exists (created in the Neon console, password stored by the Owner).
+--    READ-ONLY inspection of what Neon gave it. Run as neondb_owner.
+--    Roles created through the Neon console/API are, as far as I know, members of `neon_superuser`
+--    (and so inherit broad rights such as pg_write_all_data and CREATEROLE). UNVERIFIED: check.
 -- ============================================================================================
+SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolcanlogin
+FROM pg_roles WHERE rolname = 'ks_runtime';
+
+SELECT r.rolname AS member_of
+FROM pg_auth_members m
+JOIN pg_roles r ON r.oid = m.roleid
+JOIN pg_roles u ON u.oid = m.member
+WHERE u.rolname = 'ks_runtime';
+
+SELECT has_schema_privilege('ks_runtime', 'public', 'CREATE')            AS schema_create,
+       has_database_privilege('ks_runtime', current_database(), 'CREATE') AS database_create,
+       has_database_privilege('ks_runtime', current_database(), 'CONNECT') AS database_connect;
+
+SELECT table_name, privilege_type
+FROM information_schema.role_table_grants WHERE grantee = 'ks_runtime' ORDER BY 1, 2;
+
+SELECT pg_get_userbyid(defaclrole) AS for_role, defaclobjtype AS objtype, defaclacl
+FROM pg_default_acl;
 
 -- ============================================================================================
--- 3. Grants for ks_runtime (DML only, no DDL, no ownership)
+-- 2b. Corrections (run only what section 2 showed to be needed; each is idempotent)
+--     If ks_runtime is a member of neon_superuser, pg_read_all_data, pg_write_all_data or any
+--     other role, remove it, and clear the privileged attributes. Nothing else is touched.
+-- ============================================================================================
+REVOKE neon_superuser FROM ks_runtime;       -- only if listed above; skip if not a member
+REVOKE pg_read_all_data FROM ks_runtime;     -- only if listed above
+REVOKE pg_write_all_data FROM ks_runtime;    -- only if listed above
+ALTER ROLE ks_runtime NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+-- ============================================================================================
+-- 3. Grants for ks_runtime (DML only, no DDL, no ownership). Run as neondb_owner.
 -- ============================================================================================
 GRANT USAGE ON SCHEMA public TO ks_runtime;
-REVOKE CREATE ON SCHEMA public FROM ks_runtime;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;          -- no role may create objects in public
+-- No `REVOKE ... FROM PUBLIC` here: PostgreSQL 15+ (Neon runs 17/18) already withholds CREATE on
+-- schema public from PUBLIC, and this script must not change other roles' rights. Section 2's
+-- schema_create / database_create columns must both be false after the corrections.
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ks_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ks_runtime;
@@ -60,6 +91,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public
 
 -- The runtime role does not need to touch Alembic's bookkeeping table.
 REVOKE ALL ON TABLE alembic_version FROM ks_runtime;
+
+-- Final read-only check (expect: schema_create false, database_create false, no extra memberships)
+SELECT has_schema_privilege('ks_runtime', 'public', 'CREATE')            AS schema_create,
+       has_database_privilege('ks_runtime', current_database(), 'CREATE') AS database_create;
 
 -- ============================================================================================
 -- 4. Verify as ks_runtime (connect with the NEW runtime URL; use a transaction you roll back)
