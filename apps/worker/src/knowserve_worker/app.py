@@ -23,7 +23,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from knowserve_core import request_context
+from knowserve_core import demo_cleanup, request_context
+from knowserve_core.clock import Clock, SystemClock
 from knowserve_core.db import check_database, create_engine, create_session_factory
 from knowserve_core.jobs import MANUAL_RETRY_MARKER
 from knowserve_core.logging import configure_logging
@@ -54,6 +55,7 @@ class JobContext:
 
 Handler = Callable[[JobContext], Awaitable[None]]
 RUN_PATH = "/internal/jobs/run"
+DEMO_CLEANUP_PATH = "/internal/maintenance/demo-cleanup"
 
 
 async def always_fail_handler(ctx: JobContext) -> None:
@@ -135,9 +137,9 @@ def _signing_keys(settings: Settings) -> list[str]:
     return [k.get_secret_value() for k in keys if k is not None]
 
 
-def _expected_url(settings: Settings) -> str | None:
+def _expected_url(settings: Settings, path: str = RUN_PATH) -> str | None:
     if settings.worker_public_url:
-        return settings.worker_public_url.rstrip("/") + RUN_PATH
+        return settings.worker_public_url.rstrip("/") + path
     return None
 
 
@@ -348,12 +350,46 @@ async def dispatch(request: Request) -> dict[str, int]:
     return {"published": result.published, "failed": result.failed}
 
 
+# The single SEC-14 exception (OPEN-26 N6, ADR 0006, AUTH-35): a signed delivery without a job row.
+# It takes NO caller-controlled input. The body is read (capped) only because the QStash signature
+# commits to its hash; it is never parsed, and neither are the query string or any header other
+# than the signature. The destination (`sub`) is bound to this path, so a signed job delivery
+# cannot be replayed here. Mounted unconditionally; there is no other maintenance route.
+maintenance_router = APIRouter()
+
+
+@maintenance_router.post(DEMO_CLEANUP_PATH, tags=["internal"])
+async def demo_cleanup_run(request: Request) -> dict[str, int | bool]:
+    state = request.app.state
+    settings: Settings = state.settings
+    body = await _read_capped_body(request)
+    if body is None:
+        raise AppError(413, "PAYLOAD_TOO_LARGE", "Request body too large")
+    try:
+        verify_signature(
+            token=request.headers.get(SIGNATURE_HEADER),
+            body=body,
+            signing_keys=_signing_keys(settings),
+            expected_url=_expected_url(settings, DEMO_CLEANUP_PATH),
+        )
+    except SignatureError:
+        logger.warning("rejected maintenance delivery with invalid signature")
+        raise _unauthenticated() from None
+
+    result = await demo_cleanup.run(state.session_factory, settings, state.clock)
+    if result.failed_batches:
+        # Not acknowledged, so QStash retries; the cleanup is idempotent and resumable.
+        raise AppError(500, "CLEANUP_FAILED", "Demo cleanup did not complete; it will be retried")
+    return result.as_dict()
+
+
 def create_app(
     settings: Settings | None = None,
     engine: AsyncEngine | None = None,
     publisher: Publisher | None = None,
     handlers: dict[str, Handler] | None = None,
     oidc_verifier: OidcVerifier | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     if settings.env == "production":
@@ -386,8 +422,10 @@ def create_app(
         default_handlers["fail_then_ok"] = fail_then_ok_handler
     app.state.handlers = handlers if handlers is not None else default_handlers
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
+    app.state.clock = clock or SystemClock()
     app.state.instance_id = f"worker-{uuid.uuid4().hex[:8]}"
     app.include_router(router)
+    app.include_router(maintenance_router)
     if settings.enable_recovery_dispatcher:
         app.include_router(dispatcher_router)
     install_web(app)
