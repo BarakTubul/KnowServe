@@ -12,6 +12,7 @@ from typing import Literal, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .identity import IdentityKind
+from .web import AppError
 
 QuotaReason = Literal["ok", "user_quota", "global_quota", "kill_switch"]
 
@@ -36,3 +37,22 @@ class QuotaService(Protocol):
         the global quota (503 ``AI_UNAVAILABLE``), then the user's quota (429 ``QUOTA_EXCEEDED``).
         """
         ...
+
+
+def quota_error(decision: QuotaDecision) -> AppError | None:
+    """Map a refusal to the client-visible error, or ``None`` when the question is allowed.
+
+    Graceful degradation (COST-03, INFRA-10): only AI work is refused. The kill switch and the
+    global quota give 503 ``AI_UNAVAILABLE``; sign-in, the library and every other route keep
+    working. The per-user quota gives 429 ``QUOTA_EXCEEDED``. The retry hint is part of the
+    message because ``AppError`` carries no headers.
+    """
+    if decision.allowed:
+        return None
+    if decision.reason == "user_quota":
+        return AppError(
+            429,
+            "QUOTA_EXCEEDED",
+            f"Daily question limit reached. Try again in {decision.retry_after_seconds} seconds.",
+        )
+    return AppError(503, "AI_UNAVAILABLE", "AI features are temporarily unavailable")
