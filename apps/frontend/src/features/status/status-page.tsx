@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getStatus } from '@/lib/api/client';
@@ -26,6 +27,11 @@ export function StatusPage() {
           Demo Mode
         </span>
       </header>
+      <p>
+        <Link to="/login" className="underline">
+          Sign in or try the demo
+        </Link>
+      </p>
       <Card>
         <CardHeader>
           <CardTitle>API status</CardTitle>
