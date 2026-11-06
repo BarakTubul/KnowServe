@@ -16,8 +16,14 @@ name: deploy
 #   * Authentication is Workload Identity Federation only (no JSON keys). The provider trusts one
 #     repository, `refs/heads/main`, this workflow file and the environment named in Terraform
 #     (`github_environment`), so the environment name here must match it.
-#   * Database migrations are OFF unless the environment variable RUN_MIGRATIONS is `true`; the
-#     deployer cannot read the database secret by design (a separate migration job comes in M1).
+#   * Database migrations run in the dedicated Cloud Run job `knowserve-migrate` (own service
+#     account, own secret `migration-database-url`; infra/terraform/gcp_migration_job.tf). The
+#     deployer only points the job at the deployed image digest and executes it: it reads no database
+#     credential. The migration runs BEFORE the API and Worker are rolled, and a failed migration
+#     stops the deploy, so an API version that needs a schema change never goes live without it.
+#     Migrations run on every deploy unless the environment variable RUN_MIGRATIONS is exactly
+#     `false` (explicit skip, for example while the job is not applied yet). Migrations must stay
+#     backward compatible with the previous API revision (expand, then contract).
 # =============================================================================
 
 on:
@@ -111,8 +117,8 @@ jobs:
       GCP_REGION: ${{ vars.GCP_REGION }}
       GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
       GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
-      DATABASE_URL_SECRET: ${{ vars.GCP_DATABASE_URL_SECRET_NAME }}
       IMAGE_TAG: ${{ github.sha }}
+      MIGRATION_JOB: knowserve-migrate
       PAGES_URL: ${{ vars.E2E_BASE_URL != '' && vars.E2E_BASE_URL || format('https://{0}.pages.dev', vars.CLOUDFLARE_PAGES_PROJECT) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -170,6 +176,15 @@ jobs:
             echo "::error::The deployer can read the project IAM policy; it must not."; exit 1
           fi
           echo "  project IAM policy: denied (good)"
+          if gcloud secrets versions access latest --secret=migration-database-url --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            echo "::error::The deployer can read the migration database secret; it must not."; exit 1
+          fi
+          echo "  migration-database-url access: denied (good)"
+          if gcloud run jobs describe "${MIGRATION_JOB}" --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(metadata.name)'; then
+            echo "  migration job ${MIGRATION_JOB}: visible to the deployer (good)"
+          else
+            echo "::warning::Migration job ${MIGRATION_JOB} not found or not describable. Apply infra/terraform (gcp_migration_job.tf) before the first deploy that carries M1, or set RUN_MIGRATIONS=false."
+          fi
           echo "auth-check passed: login works and the deployer is limited to deploy actions."
 
       # ------------------------------------------------------------------------- deploy mode
@@ -188,19 +203,26 @@ jobs:
             echo "${svc^^}_IMAGE=${digest}" >> "$GITHUB_ENV"
           done
 
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        if: ${{ inputs.mode == 'deploy' && vars.RUN_MIGRATIONS == 'true' }}
-        with:
-          enable-cache: true
-
-      - name: Database migration (alembic upgrade head; only when RUN_MIGRATIONS is true)
-        if: ${{ inputs.mode == 'deploy' && vars.RUN_MIGRATIONS == 'true' }}
+      # The migration job runs the API image of THIS commit (it contains alembic, alembic.ini and the
+      # migrations). Updating the job needs run.jobs.update on the job and actAs on its service
+      # account; executing it needs run.jobs.run. No database credential is read here: the job reads
+      # its own secret. `--wait` returns non-zero if the execution fails, which fails this step and
+      # skips every later step (the rollout below), so the old revisions keep serving.
+      - name: Database migration (Cloud Run job; unless RUN_MIGRATIONS is false)
+        if: ${{ inputs.mode == 'deploy' && vars.RUN_MIGRATIONS != 'false' }}
+        timeout-minutes: 15
         run: |
-          uv sync --frozen
-          db_url="$(gcloud secrets versions access latest --secret="${DATABASE_URL_SECRET}" --project="${GCP_PROJECT_ID}")"
-          echo "::add-mask::${db_url}"
-          KS_DATABASE_URL="${db_url}" uv run alembic -c packages/backend_core/alembic.ini upgrade head > /dev/null
-          echo "Migration completed."
+          gcloud run jobs update "${MIGRATION_JOB}" --image "${API_IMAGE}" --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --quiet
+          if ! gcloud run jobs execute "${MIGRATION_JOB}" --wait --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}"; then
+            echo "::error::Migration job ${MIGRATION_JOB} failed. API and Worker were NOT rolled out. See the job execution logs in Cloud Logging (the deployer cannot read them; the Owner can)."
+            exit 1
+          fi
+          echo "Migration job completed."
+
+      - name: Note skipped migration
+        if: ${{ inputs.mode == 'deploy' && vars.RUN_MIGRATIONS == 'false' }}
+        run: |
+          echo "::warning::RUN_MIGRATIONS=false, so migrations were skipped. The rollout proceeds against the current schema."
 
       - name: Deploy Cloud Run revisions (image roll only; env, flags and secrets untouched)
         if: ${{ inputs.mode == 'deploy' }}
@@ -232,7 +254,15 @@ jobs:
           # Same-origin: the browser calls /api/* on the pages.dev host and the Pages Function
           # forwards to Cloud Run (docs/contracts/proxy.md). Never the Cloud Run URL.
           VITE_API_BASE_URL: /api
+          # Public Firebase web config (M1; not secrets). The page is built here, not by Cloudflare,
+          # so these are GitHub Environment variables, not Pages build variables.
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
         run: |
+          for v in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID; do
+            [ -n "${!v}" ] || { echo "::error::Environment variable $v is not set; the deployed app could not sign in."; exit 1; }
+          done
           pnpm install --frozen-lockfile
           pnpm --filter ./apps/frontend build
 

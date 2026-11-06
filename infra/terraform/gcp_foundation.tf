@@ -89,7 +89,10 @@ resource "google_service_account_iam_member" "spike_operator_id_token_creator" {
 # ---- Secret containers (NO versions: values are entered by the user, never by Terraform) ----
 
 locals {
-  secret_ids = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret"]
+  # `migration-database-url` (M1, OPEN-26 D2) holds the DDL-role connection string used only by the
+  # migration job. It has no entry in secret_readers on purpose: the API, the Worker and the deployer
+  # never read it. Its single accessor binding is in gcp_migration_job.tf.
+  secret_ids = ["database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret"]
 
   # Which runtime account may read which secret.
   secret_readers = {

@@ -6,8 +6,9 @@ One root module. Authored and validated **without cloud access**. Nothing here h
 |---|---|
 | `versions.tf`, `backend.tf` | providers; `backend "gcs" {}` (partial config at init) |
 | `variables.tf`, `terraform.tfvars.example` | typed, described inputs; placeholders only |
-| `gcp_foundation.tf` | APIs, Artifact Registry, 3 service accounts (+ `ks-scheduler` only with the optional scheduler), 5 secret containers (incl. `proxy-shared-secret`) and per-secret accessor bindings |
+| `gcp_foundation.tf` | APIs, Artifact Registry, 3 service accounts (+ `ks-scheduler` only with the optional scheduler), 6 secret containers (incl. `proxy-shared-secret` and, from M1, `migration-database-url`) and per-secret accessor bindings |
 | `gcp_cloud_run.tf` | `knowserve-api`, `knowserve-worker` (scale to zero, max 2 instances), public invoker, optional Scheduler job (`enable_recovery_scheduler`, default false) |
+| `gcp_migration_job.tf` | M1: `knowserve-migrate` Cloud Run job, its own service account, deployer grants on the job; optional `knowserve-admin-seed` job |
 | `gcp_github_wif.tf` | Workload Identity pool/provider (repo-restricted), deployer roles |
 | `cloudflare.tf` | Pages project with the plain production variable `API_ORIGIN` (no custom domain) |
 | `check_no_secrets.py` | heuristic guard: no secret versions or secret-looking values in `.tf`/`*.example` |
@@ -16,7 +17,7 @@ One root module. Authored and validated **without cloud access**. Nothing here h
 The browser only talks to `https://<pages_project_name>.pages.dev`. Static files come from Cloudflare Pages; `/api/*` is handled by the Pages Function (`apps/frontend/functions`), which forwards to the Cloud Run API at `API_ORIGIN` adding header `X-KS-Proxy-Secret`. The API (`KS_PROXY_SHARED_SECRET`, from Secret Manager `proxy-shared-secret`) rejects any non-health request without the correct header (403 `DIRECT_ACCESS_DENIED`). `KS_API_ALLOWED_ORIGINS` is the single pages.dev origin (variable `api_allowed_origins`, validated: exactly one https origin, no `*`). The Worker is not behind the proxy (QStash calls it directly, signature-authenticated). Terraform sets only the plain Pages variable `API_ORIGIN` (variable `api_origin`); it never touches the proxy secret value.
 
 ## Design notes
-- **Secrets:** Terraform creates only the five secret *containers* (`database-url`, `qstash-token`, `qstash-current-signing-key`, `qstash-next-signing-key`, `proxy-shared-secret`) and `secretAccessor` bindings (API: database-url, qstash-token, proxy-shared-secret; Worker: the four QStash/database ones, never the proxy secret). No `google_secret_manager_secret_version`, no values, no `KS_DISPATCHER_LOCAL_TOKEN`. Cloud Run references secrets with `secret_key_ref` at version `latest`, so values never enter state.
+- **Secrets:** Terraform creates only the six secret *containers* (`database-url`, `migration-database-url` (M1, readable only by the migration job), `qstash-token`, `qstash-current-signing-key`, `qstash-next-signing-key`, `proxy-shared-secret`) and `secretAccessor` bindings (API: database-url, qstash-token, proxy-shared-secret; Worker: the four QStash/database ones, never the proxy secret). No `google_secret_manager_secret_version`, no values, no `KS_DISPATCHER_LOCAL_TOKEN`. Cloud Run references secrets with `secret_key_ref` at version `latest`, so values never enter state.
 - **Images:** variables default to a public placeholder image. `lifecycle.ignore_changes` on the image means the deploy workflow rolls revisions without Terraform drift.
 - **Public invoker (`allUsers`) is required on both services**: browsers and QStash cannot present Google credentials. This is network reachability only. The API authenticates with its own session/CSRF rules; the Worker authenticates `/internal/jobs/run` (QStash signature) itself, and `/internal/outbox/dispatch` (Scheduler Google OIDC: audience + service account email) only exists when the optional recovery dispatcher is enabled. URL secrecy is not authentication (SEC-14). Health routes are intentionally open.
 - **Worker URL and audience:** a Cloud Run service cannot reference its own URL, so `worker_public_url` (`KS_WORKER_PUBLIC_URL`) is a **required variable** (https, validated). Apply once with the planned Worker URL (the URL shown by the console after a first deploy), then set the real value if it differed.
@@ -25,6 +26,101 @@ The browser only talks to `https://<pages_project_name>.pages.dev`. Static files
 - **Spike operator job routes (default off):** `enable_spike_job_ops` (needs non-empty `spike_token_creator_emails`) creates the role-less service account `ks-spike-operator`, grants `roles/iam.serviceAccountOpenIdTokenCreator` on it to those Google accounts only, and sets plain env `KS_ENABLE_SPIKE_JOB_OPS`, `KS_SPIKE_OPERATOR_EMAILS` (= that service account's email) and `KS_SPIKE_OIDC_AUDIENCE` (= `api_origin`) on the API; `enable_spike_failure_hooks` (requires job ops) sets `KS_ENABLE_SPIKE_FAILURE_HOOKS`, for the isolated spike environment only. No new secrets. Your Google account email belongs only in the git-ignored `terraform.tfvars`.
 - **Scaling:** both Cloud Run services use `min_instance_count = 0` and `max_instance_count = 2` to cap cost.
 - **Deployer minimal roles:** `run.developer` on each service, `artifactregistry.writer` on the repo, `serviceAccountUser` on the two runtime accounts only, impersonable only by the single WIF subject `repo:<owner>/<repo>:environment:production`. The provider accepts a token only if the numeric repository and owner IDs, the repository name, `refs/heads/main`, the `production` environment, that exact `sub` and the `deploy.yml` workflow path all match (`docs/contracts/ci-and-branch-protection.md`).
+
+## M1 additions (task M1-07; authored and validated locally only, nothing planned or applied)
+
+> **Every step under "Owner-only cloud actions" below needs the Owner's separate, explicit approval.** `terraform fmt -check` and `terraform validate` (after `init -backend=false`) are the only Terraform commands run for this work.
+
+### Migration job (OPEN-26 D2, INFRA-07, M1-AC11)
+`gcp_migration_job.tf` adds:
+
+| Resource | Purpose |
+|---|---|
+| `google_cloud_run_v2_job.migrate` (`knowserve-migrate`) | Runs the **API image** with `alembic -c packages/backend_core/alembic.ini upgrade head`. One task, no retries, 600 s timeout. Env: `KS_ENV`, `KS_LOG_LEVEL`, and `KS_DATABASE_URL` from the secret below. The image is in `ignore_changes`: the deploy workflow points the job at the deployed digest, as it does for the services |
+| `google_service_account.migrate` (`ks-migrate-runtime`) | The job's own identity |
+| secret container `migration-database-url` (in `gcp_foundation.tf`) | The DDL role's connection string. **Terraform creates no version.** Its only accessor is `ks-migrate-runtime`; the API, the Worker and the deployer have no binding on it |
+| `google_cloud_run_v2_job_iam_member.deployer_migrate` | The deployer gets `roles/run.developer` on this one job (update the image, execute, read executions for `--wait`) |
+| `google_service_account_iam_member.deployer_acts_as_migrate` | The deployer may act as `ks-migrate-runtime` (needed to update a job that runs as it) |
+| `google_cloud_run_v2_job.admin_seed` (optional) | See "Admin provisioning" |
+
+The Dockerfile needed no change. `apps/api/Dockerfile` already puts `alembic` (a dependency of `knowserve-core`) on the venv `PATH` and copies `alembic.ini` and `migrations/` to `/app/packages/backend_core/`, with `WORKDIR /app`. The job overrides `command` and `args`, so the uvicorn `CMD` is not used. `migrations/env.py` reads only `KS_DATABASE_URL`, so no other setting is needed.
+
+**Deploy flow** (`.github/workflows/deploy.yml`). Build and push the images; `gcloud run jobs update knowserve-migrate --image <api digest>`; `gcloud run jobs execute knowserve-migrate --wait`; only then roll `knowserve-api` and `knowserve-worker`. A failed execution fails the step, so the rollout steps are skipped and the old revisions keep serving. The deployer reads no secret.
+
+`RUN_MIGRATIONS` (a GitHub Environment variable) is now **on unless it is exactly `false`**. Before M1 it was off unless `true`. `false` is the explicit skip for an environment whose job is not applied. Migrations must stay backward compatible with the previous API revision, because that revision keeps serving while the new schema is applied (expand, then contract).
+
+`auth-check` mode now also asserts that the deployer is **denied** `migration-database-url`, and reports whether it can describe the job (a warning, not a failure, before the job exists).
+
+**What the deployer grants allow.** The deployer cannot read the migration secret. It can run the job and change the job's image, command and args, so a compromised deploy workflow could run arbitrary code with the DDL credential. That is inherent to letting CI run migrations. The controls are the WIF conditions (repository ids, `refs/heads/main`, the `deploy.yml` path, one environment), the CI gate and the environment's protection rules (a required reviewer is recommended). `roles/run.developer` on the job also allows deleting it. A tighter custom role (`run.jobs.get`, `run.jobs.update`, `run.jobs.run`, `run.executions.get`) was not authored, because whether it is enough for `jobs update` and `--wait` cannot be verified without a cloud run. Swapping the role is a small change in `gcp_migration_job.tf`.
+
+#### Owner steps for the migration job (all Owner-only, in this order)
+1. **Neon roles.** Decide which role owns the tables: `SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public';`. Migration 0001 ran in M0 through the role in `database-url`, so that role very likely owns the objects and has DDL rights.
+   - The **DDL role** must own the schema objects, because another role cannot `ALTER` tables it does not own. Either transfer ownership to a new DDL role, or reuse the current owner role as the DDL role and create a new DML role for the runtime.
+   - Create a **DML-only runtime role** and grant it (role names are examples): `GRANT USAGE ON SCHEMA public TO ks_runtime;` `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ks_runtime;` `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ks_runtime;` then `ALTER DEFAULT PRIVILEGES FOR ROLE <ddl role> IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ks_runtime;` and the same for sequences (`USAGE, SELECT`). Without the default privileges, tables created by migration 0002 are invisible to the runtime role.
+   - Verify that the runtime role cannot do DDL (`CREATE TABLE` fails) and can read and write the tables.
+2. **Secret values.** `migration-database-url` is the DDL role's **direct** (non-pooler) host URL. `database-url` gets a new version with the **pooled** DML role URL (Cloud Run reads `latest`). Enter both with `gcloud secrets versions add <id> --data-file=-` from stdin, never from a file in the repo or from CI.
+3. **Apply order.** `terraform apply -target=google_project_service.apis -target=google_secret_manager_secret.secrets` (creates the new container), enter the values, then the full apply. `firebase_project_id` must be in `terraform.tfvars` first. Review `terraform plan` before any apply: no secret value may appear, and the API gets a new revision for the new env.
+4. **The first execution belongs to the deploy workflow.** The job is created with the bootstrap image; do not execute it by hand before a deploy has set the image. Run the deploy workflow in `auth-check` mode first (it checks the denial and the job), then in `deploy` mode.
+5. **Evidence for M1-AC11.** The plan review; the job execution log (`gcloud run jobs executions list --job knowserve-migrate`, Cloud Logging); revision `0002` in `alembic_version` on the spike database; `gcloud secrets get-iam-policy migration-database-url` showing only `ks-migrate-runtime`; and the deployer's `auth-check` denial.
+
+### Admin provisioning (D4, AUTH-04)
+The Admin is created by hand in the Firebase Console (Email/Password or Google) and bound by an idempotent command, `python -m knowserve_api.admin_seed`. Another agent writes that command; it is not part of this task. It runs through the same mechanism as the migrations: a Cloud Run job in the API image that uses `ks-migrate-runtime` and `migration-database-url`.
+
+- Terraform: `enable_admin_seed_job = true` creates `knowserve-admin-seed` (command `python`, args `-m knowserve_api.admin_seed`). It is **off by default**, so no second job holds the DDL credential in normal operation. The deployer has no grant on it and CI never runs it.
+- The Admin identity is passed at execution time, so it never enters Terraform state or the repository. No password is involved or stored anywhere:
+  ```
+  gcloud run jobs update knowserve-admin-seed --image <current API digest> --region europe-west1
+  gcloud run jobs execute knowserve-admin-seed --wait --region europe-west1 \
+    --update-env-vars KS_ADMIN_FIREBASE_UID=<uid from the Firebase Console>,KS_ADMIN_EMAIL=<admin email>
+  ```
+- After the run, confirm that the log shows counts or an "already provisioned" result only. Then set `enable_admin_seed_job = false` and apply, which removes the job.
+- For the command's author: the job sets `KS_ENV=production`, `KS_FIREBASE_PROJECT_ID` and `KS_DATABASE_URL`, and carries no proxy or QStash secrets, so the command must not require the full API settings. It needs only INSERT/UPDATE on `users`, so a DML credential would suffice. The DDL credential is used here only to avoid a third role and secret; tell the Owner if that should change.
+
+### Configuration wiring (no secrets)
+| Key | Where | Source |
+|---|---|---|
+| `KS_FIREBASE_PROJECT_ID` | API (and the admin-seed job) | Required variable `firebase_project_id` (production: `knowserve-m0-spike`; a plain env var, not a secret) |
+| `KS_SESSION_COOKIE_NAME`, `KS_SESSION_TTL_SECONDS`, `KS_AUTH_MAX_AGE_SECONDS`, `KS_DEMO_RETENTION_SECONDS`, `KS_DEMO_START_LIMIT`, `KS_DEMO_START_WINDOW_SECONDS`, `KS_QUOTA_*_DAILY`, `KS_AI_GLOBAL_DAILY_QUOTA`, `KS_AI_KILL_SWITCH` | API | Optional map `api_m1_settings`. **Empty by default, so the application defaults apply.** Keys are allow-listed; a secret key name fails validation |
+| `KS_DEMO_RETENTION_SECONDS`, `KS_DEMO_CLEANUP_BATCH_SIZE` | Worker | Optional map `worker_m1_settings`, same rules |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID` | Frontend build | **Not created by Terraform.** The page is built in the deploy workflow, not by Cloudflare, so these are public **GitHub Environment variables** (not secrets) that the "Build frontend" step passes to `pnpm build`; the step fails if one is empty. Cloudflare Pages build variables would have no effect on this pipeline. The values come from the Firebase web app config (Project settings, General, Your apps) |
+
+The Worker does not get `KS_FIREBASE_PROJECT_ID`, because the contract lists it for the API only. If an M1 settings validator later requires it for the Worker, add it to `gcp_cloud_run.tf`.
+
+### Demo cleanup schedule (N4)
+Prepared, not created: `infra/qstash/README.md` and `infra/qstash/demo-cleanup-schedule.sh` (a dry run unless told otherwise). It needs the Owner's approval and a prior check of schedule availability and quotas. No Cloud Scheduler and no Terraform resource.
+
+### Firebase setup checklist (OPEN-26 D3, N2, N3; the Owner performs it in the console of `knowserve-m0-spike`)
+Terraform does not manage Firebase (coverage unverified), so these steps are manual. Use the **standard** Firebase Authentication. Do **not** upgrade to Identity Platform. If any step seems to need an upgrade, stop and report.
+
+1. **Sign-in providers** (Authentication, Sign-in method): enable **Email/Password** (leave "Email link (passwordless)" off), **Google** (set the project support email) and **Anonymous**.
+2. **Email enumeration protection:** enabled (Authentication, Settings, User actions).
+3. **One account per email address:** selected (Settings, User account linking).
+4. **Authorized domains:** `knowserve-m0-spike.pages.dev` is listed. Keep the default `firebaseapp.com` entries; keep `localhost` only if testing locally against the real project.
+5. **Email templates:** for both **Email address verification** and **Password reset**, set the action URL to `https://knowserve-m0-spike.pages.dev/auth/action`. Keep the default sender (no custom domain in M1; spam placement is a known risk).
+6. **Password policy** (Settings, Password policy): minimum length **8**, no uppercase, lowercase, numeric or special-character requirements, enforcement mode **Require**. **VERIFY first** that this is configurable on the standard (non Identity Platform) project, by opening the page and confirming that the policy can be saved in `Require` mode. **If it is unavailable or the console asks for an upgrade, stop, do not upgrade, and report to the Owner** (AUTH-03, N3).
+7. **Register a web app** (Project settings) and copy the public config into the three `VITE_FIREBASE_*` GitHub Environment variables. The default auth domain is `knowserve-m0-spike.firebaseapp.com`; confirm with the frontend docs which value `VITE_FIREBASE_AUTH_DOMAIN` should hold.
+8. **Admin account** (D4): create the one Admin user (Authentication, Users) and note its uid. Provisioning is the separate step above.
+9. **Pre-verified smoke account:** create one Email/Password test user with a verified email for the deployed smoke (M1-AC12). Its credentials are a test secret for the smoke and are not committed.
+
+**Evidence export (M1-AC02, the real-Firebase smoke, M1-08).** The console cannot export everything, so collect the following, dated, with nothing secret visible beyond the public web config:
+- A screenshot of Sign-in method (Email/Password, Google and Anonymous enabled; passwordless link off).
+- Screenshots of Settings: email enumeration protection on, one account per email, and the password policy (minimum 8, no composition rules, `Require`), or the report that it could not be enforced and why.
+- A screenshot of Authorized domains.
+- Screenshots of the two email templates showing the action URL.
+- A screenshot of the registered web app config (public values only).
+- If available, the project config read from the Identity Toolkit admin API: `GET https://identitytoolkit.googleapis.com/admin/v2/projects/knowserve-m0-spike/config` with the Owner's gcloud access token, saved as JSON (the response holds no secrets). UNVERIFIED: the field names, and whether the standard project returns the password policy. `firebase auth:export` exports users and is not wanted.
+- The result of one real signup with verification and reset mail delivery, one Google sign-in, and Try Demo on the deployed site.
+
+### Owner-only cloud actions for M1-07 (none has been run)
+1. Neon: create or assign the DDL role and a DML-only runtime role, and fix ownership and grants (SQL above).
+2. Secret Manager: add the `migration-database-url` value (direct URL, DDL role) and a new `database-url` version (pooled DML role).
+3. Terraform: review `terraform plan`, then `terraform apply` (targeted for the new secret container first, full after the values exist). Add `firebase_project_id` to `terraform.tfvars`.
+4. GitHub (settings, not code): environment variables `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`; keep `RUN_MIGRATIONS` unset or `true`; consider required reviewers on the environment; remove the obsolete `GCP_DATABASE_URL_SECRET_NAME` variable (no longer read).
+5. Run the deploy workflow: `auth-check`, then `deploy` (this executes the migration job against the spike database for the first time).
+6. Firebase Console setup and the evidence export (checklist above).
+7. Create the Admin in the Firebase Console; set `enable_admin_seed_job = true`, apply, run the job with the uid and email, then set it back to `false` and apply.
+8. QStash: confirm schedule availability and quotas, then create the schedule (`infra/qstash/README.md`).
+9. Any billing, budget or quota change.
 
 ## Bootstrap (the USER does this once, outside Terraform)
 1. Create the GCP project, link billing.
@@ -66,7 +162,7 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 - **Neon** (project, database, pgvector extension, connection string -> `database-url`): no provider resource authored; manual.
 - **Upstash QStash** (token, signing keys, region URL): no provider resource authored; manual. `qstash_url` variable is copied from the console.
 - **Cloudflare R2** bucket and credentials: not authored here (no M0 requirement in this task); manual until a later milestone.
-- **Firebase Authentication**: manual in the Firebase console for M1 (providers including Anonymous, authorized domains, templates), see `docs/milestones/M1/plan.md`. Resend is no longer planned (OPEN-24).
+- **Firebase Authentication**: manual in the Firebase console for M1; the checklist and the evidence list are under "M1 additions" above (see also `docs/milestones/M1/plan.md`). Resend is no longer planned (OPEN-24).
 - **Custom domains:** none. The Cloud Run domain mapping, `api_custom_domain`, the Pages domain resource and `app_custom_domain` were removed (OPEN-21 route: pages.dev + Pages Function). No domain is required.
 - **Pages secret `PROXY_SHARED_SECRET`:** set manually with wrangler, never in Terraform (see below).
 - **GitHub** repository settings / secrets: outside this module.
@@ -87,7 +183,7 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 5. (Removed: custom domains are no longer part of the design.)
 6. (Removed: Terraform no longer manages a billing budget; the user's manual budgets only alert and do not cap spend.)
 7. Startup probe `/health/live` assumes the apps' health routes exist in the deployed image (the placeholder bootstrap image will not serve them, so the first revision may fail its probe; may need the probe removed or a real first image).
-8. The WIF claim names (`repository_id`, `repository_owner_id`, `environment`, `workflow_ref`, `sub`) are taken from GitHub's documentation and are unverified until a real GitHub Actions run; a wrong claim fails closed (no deployer token). The deploy workflow's own needs (e.g. migrations needing `database-url`, which the deployer deliberately cannot read) are unresolved and need an Owner decision.
+8. The WIF claim names (`repository_id`, `repository_owner_id`, `environment`, `workflow_ref`, `sub`) are taken from GitHub's documentation and are unverified until a real GitHub Actions run; a wrong claim fails closed (no deployer token). (Migrations no longer need the deployer to read a database secret: M1 moves them into the `knowserve-migrate` job, see "M1 additions". That job, its IAM and the `jobs update` and `--wait` permissions of `roles/run.developer` are unverified until the first real run.)
 9. Public Cloud Run may be blocked by an organization policy (domain restricted sharing); then the design needs revisiting.
 10. Neon and QStash have no authored provider resources; their Terraform coverage is for M0-09 to assess.
 
