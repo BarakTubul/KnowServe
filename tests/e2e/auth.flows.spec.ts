@@ -19,6 +19,14 @@ async function signIn(page: Page, email: string, password = PASSWORD) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
+// The identity the app itself sees (goes through the fake or the real API, same cookies as the page).
+async function me(page: Page): Promise<{ user_id: string; kind: string; email: string | null }> {
+  return page.evaluate(async () => {
+    const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
+    return r.json();
+  });
+}
+
 async function pickDepartment(page: Page, name: string) {
   await page.getByRole('button', { name, exact: true }).click();
   await expect(page.getByTestId('active-department')).toHaveText(name);
@@ -108,13 +116,12 @@ test('Try Demo, reload stays Demo, expired Demo starts a new one (FE-AUTH-08)', 
 test('Demo becomes Registered keeping the same identity (FE-AUTH-13, AUTH-34)', async ({
   page,
 }) => {
-  const api = await useApi(page);
-  test.fixme(!api, 'Fixture records per department need a backend seeding hook (M1-02b).');
+  await useApi(page);
   await page.goto('/login');
   await page.getByRole('button', { name: 'Try Demo' }).click();
   await pickDepartment(page, 'Legal');
-  const demoUser = [...(api?.users.values() ?? [])][0];
-  const demoId = demoUser?.id;
+  const before = await me(page);
+  expect(before.kind).toBe('demo');
 
   const email = uniqueEmail('convert');
   await page.getByLabel('Email').fill(email);
@@ -135,7 +142,12 @@ test('Demo becomes Registered keeping the same identity (FE-AUTH-13, AUTH-34)', 
   await expect(page.getByTestId('registered-state')).toBeVisible();
   await expect(page.getByTestId('account-kind')).toContainText(email);
   await expect(page.getByTestId('active-department')).toHaveText('Legal');
-  expect(api?.userByEmail(email)?.id).toBe(demoId);
+  // Identity continuity (AUTH-34): same internal user, now Registered, same department. Dependent
+  // records are covered by the backend integration tests (no chat tables exist in M1).
+  const after = await me(page);
+  expect(after.user_id).toBe(before.user_id);
+  expect(after.kind).toBe('registered');
+  expect(after.email).toBe(email);
 });
 
 test('Demo cannot take an email that already has an account (FE-AUTH-13 collision)', async ({

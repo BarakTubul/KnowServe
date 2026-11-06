@@ -6,6 +6,9 @@ import { defineConfig } from '@playwright/test';
  * By default the API is a contract-faithful fake installed with page.route (tests/e2e/support/fake-api.ts).
  * With E2E_REAL_API=1 the specs call the real API through the Vite proxy (:8000) instead, and the specs
  * that need controls the API does not expose are marked fixme (see each spec).
+ * Isolation for the real API: use a FRESH database per run and start the API with
+ * KS_DEMO_START_LIMIT=1000, otherwise the 5-per-hour Demo limit of earlier runs (the counters
+ * persist) rate-limits later Try Demo starts. Commands: see tests/e2e/README.md.
  */
 const port = Number(process.env['E2E_AUTH_PORT'] ?? 5199);
 const emulator = process.env['E2E_FIREBASE_AUTH_EMULATOR_URL'] ?? 'http://localhost:9099';
