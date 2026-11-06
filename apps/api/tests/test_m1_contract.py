@@ -37,17 +37,19 @@ def test_m1_ac10_openapi_lists_every_m1_route(client: TestClient) -> None:
     assert M1_ROUTES <= found
 
 
-def test_m1_ac10_stubs_return_the_error_envelope_with_a_request_id(client: TestClient) -> None:
-    token = {"id_token": "x" * 40}
-    response = client.post("/v1/auth/session", json=token)
-    assert response.status_code == 501
+def test_m1_ac10_errors_use_the_envelope_with_a_request_id(client: TestClient) -> None:
+    # /v1/auth/session is implemented (M1-02b); an unauthenticated /me proves the envelope.
+    response = client.get("/v1/auth/me")
+    assert response.status_code == 401
     body = response.json()["error"]
-    assert body["code"] == "NOT_IMPLEMENTED"
+    assert body["code"] == "UNAUTHENTICATED"
     assert body["request_id"] == response.headers["X-Request-ID"]
 
 
 def test_m1_ac10_validation_errors_use_the_envelope(client: TestClient) -> None:
-    response = client.post("/v1/auth/session", json={"id_token": "short"})
+    response = client.post(
+        "/v1/auth/session", json={"id_token": "short"}, headers={"Origin": "http://localhost:5173"}
+    )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 

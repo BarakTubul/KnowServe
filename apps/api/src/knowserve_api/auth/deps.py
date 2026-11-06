@@ -109,12 +109,12 @@ async def require_active_department(
 
 
 def _normalize_origin(value: str) -> str:
-    return value.strip().rstrip("/")
+    return value.strip().rstrip("/").lower()
 
 
 def check_origin(request: Request, settings: Settings) -> None:
     """The ``Origin`` header must be one of ``KS_API_ALLOWED_ORIGINS``."""
-    origin = request.headers.get("origin")
+    origin = _normalize_origin(request.headers.get("origin") or "")
     allowed = {_normalize_origin(item) for item in settings.api_allowed_origins}
     if not origin or origin not in allowed:
         raise AppError(403, "ORIGIN_INVALID", "Request origin is not allowed")
