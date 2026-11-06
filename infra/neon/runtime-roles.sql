@@ -2,7 +2,7 @@
 -- PREPARED ONLY. Nothing here has been run. The Owner runs it, section by section, in the Neon SQL
 -- editor (or psql) against the production database, after reading each result.
 --
--- Names are examples. <DDL> is the role that owns the tables today (section 1 tells you which).
+-- DDL role = neondb_owner (Owner decision after the ownership check: it owns every public table). The runtime role is ks_runtime.
 -- Do not paste passwords into this file or into SQL history: create the runtime role in the Neon
 -- console (Roles -> New role, which generates a password), and copy the connection strings straight
 -- into Secret Manager (see infra/terraform/README.md, "Owner steps for the migration job").
@@ -10,7 +10,7 @@
 -- and is UNVERIFIED here; check each result.
 
 -- ============================================================================================
--- 1. READ-ONLY: who owns what today (run first; decides <DDL>)
+-- 1. READ-ONLY: who owns what today (run first; decides neondb_owner)
 -- ============================================================================================
 SELECT current_user, version();
 
@@ -32,13 +32,13 @@ WHERE rolname NOT LIKE 'pg\_%' ORDER BY rolname;
 SELECT version_num FROM alembic_version;   -- expected: 0001 before the first M1 migration
 
 -- Decision: if every table above has the same owner (the role in today's `database-url`),
--- REUSE that role as <DDL> (the migration job keeps working with ownership unchanged) and only
+-- REUSE that role as neondb_owner (the migration job keeps working with ownership unchanged) and only
 -- create the runtime role. If the owner is something else, stop and ask: another role cannot
 -- ALTER tables it does not own.
 
 -- ============================================================================================
 -- 2. Create the runtime role in the Neon console (generated password), named ks_runtime.
---    Then run the rest as <DDL> (the owner) or a Neon admin role.
+--    Then run the rest as neondb_owner (the owner) or a Neon admin role.
 -- ============================================================================================
 
 -- ============================================================================================
@@ -51,11 +51,11 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;          -- no role may create objec
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ks_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ks_runtime;
 
--- Objects created by FUTURE migrations (0002 creates users, sessions, ...) are owned by <DDL>;
+-- Objects created by FUTURE migrations (0002 creates users, sessions, ...) are owned by neondb_owner;
 -- without default privileges the runtime role could not see them.
-ALTER DEFAULT PRIVILEGES FOR ROLE <DDL> IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ks_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE <DDL> IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO ks_runtime;
 
 -- The runtime role does not need to touch Alembic's bookkeeping table.
@@ -77,7 +77,7 @@ ROLLBACK;
 --   SELECT * FROM alembic_version;
 --   TRUNCATE users;     -- only after migration 0002 exists; TRUNCATE is not granted
 
--- After the first M1 migration has run (as <DDL> through the migration job), re-run the
+-- After the first M1 migration has run (as neondb_owner through the migration job), re-run the
 -- BEGIN/INSERT/ROLLBACK smoke on the new tables, for example:
 --   BEGIN;
 --   SELECT count(*) FROM departments;                -- expected 5
@@ -86,7 +86,7 @@ ROLLBACK;
 -- ============================================================================================
 -- 5. Connection strings (copy into Secret Manager from stdin; never into the repo or CI)
 -- ============================================================================================
---   migration-database-url : <DDL> role, DIRECT host (not the "-pooler" host)
+--   migration-database-url : neondb_owner role, DIRECT host (not the "-pooler" host)
 --   database-url           : ks_runtime role, POOLED host ("-pooler")
 -- Do not disable the previous `database-url` version until M1-AC11 (the migration job run)
 -- has passed, so the runtime can be rolled back.
