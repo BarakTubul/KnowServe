@@ -32,7 +32,7 @@ The browser only talks to `https://<pages_project_name>.pages.dev`. Static files
 3. Enable the APIs Terraform itself needs: `serviceusage.googleapis.com`, `cloudresourcemanager.googleapis.com`, `iam.googleapis.com` (Terraform enables the rest).
 4. Provide an identity for the first apply with enough rights to create the above resources (user account via `gcloud auth application-default login`, or a short-lived impersonated account). Do not create JSON keys.
 5. Create a Cloudflare API token scoped to Pages; export it as `CLOUDFLARE_API_TOKEN` in the shell, never in files.
-6. Manual third-party setup (see below): Neon, Upstash QStash, Cloudflare R2, Resend.
+6. Manual third-party setup (see below): Neon, Upstash QStash, Cloudflare R2, Firebase Authentication (M1, manual until planned).
 7. WIF trust is created by this module (`gcp_github_wif.tf`); the first apply must run with the user's own credentials since CI cannot yet authenticate.
 
 ## Manual steps in order (the USER; nothing here has been run)
@@ -66,7 +66,7 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 - **Neon** (project, database, pgvector extension, connection string -> `database-url`): no provider resource authored; manual.
 - **Upstash QStash** (token, signing keys, region URL): no provider resource authored; manual. `qstash_url` variable is copied from the console.
 - **Cloudflare R2** bucket and credentials: not authored here (no M0 requirement in this task); manual until a later milestone.
-- **Resend**: manual, later milestone.
+- **Firebase Authentication**: manual in the Firebase console for M1 (providers, authorized domains, templates), see `docs/milestones/M1/plan.md`. Resend is no longer planned (OPEN-24).
 - **Custom domains:** none. The Cloud Run domain mapping, `api_custom_domain`, the Pages domain resource and `app_custom_domain` were removed (OPEN-21 route: pages.dev + Pages Function). No domain is required.
 - **Pages secret `PROXY_SHARED_SECRET`:** set manually with wrangler, never in Terraform (see below).
 - **GitHub** repository settings / secrets: outside this module.

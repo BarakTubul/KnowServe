@@ -33,7 +33,7 @@ Any user or visitor may choose any fictional department, so department membershi
 For this fictional demo the user approved a less strict historical-disclosure policy. Answer text generated while a user had access stays readable in that user's saved conversation after access is revoked, so information derived from the revoked document may remain visible there. Everything else is restricted immediately: the viewer, citation links/content, new retrieval and generation, and active streams. Historical answer text is not trusted context for new generation. This must not be reinterpreted as hiding or deleting old answers, nor presented as suitable for real confidential data.
 
 Related normative rules live elsewhere:
-- Session, CSRF + Origin check, password policy/hashing, Email OTP (password alternative, not MFA) and rate limits: `../backend/auth.md` (AUTH-03, AUTH-06, AUTH-10, AUTH-14, AUTH-15, AUTH-22..28).
+- Firebase Authentication as identity provider, the session exchange, opaque DB sessions, CSRF + Origin check, account linking, password reset and rate limits: `../backend/auth.md` (AUTH-03, AUTH-06, AUTH-10, AUTH-14, AUTH-15, AUTH-29..33). KnowServe stores no passwords.
 - Secrets and IAM: `../architecture/infrastructure.md` (INFRA-07).
 - Logging and audit: `../backend/monitoring.md` (MON-03 to MON-05).
 - Quotas and budget: `../architecture/infrastructure.md` (COST-02 to COST-04).

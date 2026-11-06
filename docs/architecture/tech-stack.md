@@ -17,8 +17,8 @@
 | STACK-10 | Python DB access | SQLAlchemy 2.x Async, raw SQL where justified | explicit permission-aware SQL | ARCH-02 |
 | STACK-11 | Migrations | Alembic | safe backward-compatible rollout | ARCH-11, M0-AC03 |
 | STACK-12 | Database | Neon PostgreSQL + pgvector | DB is the source of truth | M0-AC03 |
-| STACK-13 | Auth | focused FastAPI auth module | pwdlib Argon2id, hashed opaque DB session ids, session-bound CSRF token + Origin check, password and Email OTP login | AUTH-* |
-| STACK-14 | Email | Resend | email verification and Email OTP codes | AUTH-13, AUTH-22 |
+| STACK-13 | Auth | **Firebase Authentication** (Email/Password + Google) as identity provider, plus a focused FastAPI auth module | Firebase ID token verified once at the session exchange; hashed opaque DB session ids, session-bound CSRF token + Origin check; no custom password storage; own Try Demo visitors (OPEN-24) | AUTH-* |
+| STACK-14 | Email | Firebase Authentication's own mail (verification, password reset) | no application email provider in M1; Resend is no longer selected (OPEN-24) | AUTH-13, AUTH-33 |
 | STACK-15 | AI framework | LlamaIndex | used as library components, not as the central policy engine | CHAT-16 |
 | STACK-16 | Chat LLM | OpenRouter → initial OpenAI-family model | exact model chosen after a benchmark (OPEN-02) | CHAT-16 |
 | STACK-17 | Embeddings | OpenAI `text-embedding-3-small`, direct | independent of the chat gateway | ING-18 |
@@ -56,14 +56,14 @@ These are not part of the target and must not be introduced as new target stack:
 - Sentry / full distributed tracing
 - Reranker or hybrid retrieval
 - LangChain as the main RAG engine
-- Google OAuth and OCR in the MVP
+- OCR in the MVP (Google Sign-In through Firebase Authentication is in scope since OPEN-24)
 
 ## Not selected yet (implementation details)
 The following still need minimal, justified decisions, made in the milestone that needs them and recorded as an ADR when significant:
 - the exact OpenAI-family chat model (OPEN-02)
 - the HTTP client implementation
 - the CSRF library and token-delivery detail (the architecture is decided: session-bound token + Origin check, OPEN-04)
-- the password blocklist / compromised-password check mechanism (AUTH-03)
+- the Firebase password-policy mechanism and any Identity Platform upgrade (AUTH-03, D8 in `milestones/M1/plan.md`)
 - the OpenAPI → TS generator options (proposal: `openapi-typescript`)
 - the secret-scanning provider
 - the cloud metrics wiring
