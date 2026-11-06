@@ -5,3 +5,7 @@ packages:
 allowBuilds:
   esbuild: false
   workerd: false
+# firebase: @firebase/util's postinstall only seeds Node-side defaults and protobufjs's is a version
+# nag; the browser bundle needs neither (the Owner may revisit when re-locking at integration).
+  "@firebase/util": false
+  protobufjs: false
