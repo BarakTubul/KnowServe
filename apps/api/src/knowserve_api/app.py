@@ -161,12 +161,13 @@ def create_app(
     engine = engine or create_engine(settings.database_url)
 
     app_clock = clock or SystemClock()
+    owns_verifier = token_verifier is None
     app_token_verifier = token_verifier or FirebaseTokenVerifier(settings, app_clock)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        if isinstance(app_token_verifier, FirebaseTokenVerifier):
+        if owns_verifier and isinstance(app_token_verifier, FirebaseTokenVerifier):
             app_token_verifier.close()
         await engine.dispose()
 
