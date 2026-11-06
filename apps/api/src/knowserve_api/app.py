@@ -208,7 +208,7 @@ def create_app(
             allow_origins=settings.api_allowed_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Request-ID"],
+            allow_headers=["Content-Type", "X-Request-ID", "X-CSRF-Token"],
             expose_headers=["X-Request-ID"],
         )
     return app

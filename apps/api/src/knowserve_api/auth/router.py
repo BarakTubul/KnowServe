@@ -116,7 +116,7 @@ async def _check_token_rules(db: AsyncSession, verified: VerifiedToken, ip: str 
 @router.post(
     "/session",
     response_model=IdentityResponse,
-    responses=error_responses(401, 403, 429, 503),
+    responses=error_responses(401, 403, 503),
 )
 async def create_session(
     body: IdTokenRequest,

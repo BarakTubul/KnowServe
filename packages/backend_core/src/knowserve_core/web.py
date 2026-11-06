@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import request_context
@@ -107,6 +108,14 @@ def install_web(app: FastAPI) -> None:
             for err in exc.errors()
         ]
         return error_response(422, "VALIDATION_ERROR", "Invalid request data", details)
+
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(InterfaceError)
+    @app.exception_handler(ConnectionError)
+    async def _dependency_down(_: Request, exc: Exception) -> JSONResponse:
+        # A database outage fails closed with 503 (SEC-13), not a generic 500.
+        logger.error("dependency unavailable", extra={"error_type": type(exc).__name__})
+        return error_response(503, "DEPENDENCY_UNAVAILABLE", "A required service is unavailable")
 
     @app.exception_handler(Exception)
     async def _unhandled(_: Request, exc: Exception) -> JSONResponse:

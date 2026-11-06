@@ -28,7 +28,7 @@
 - AC04 token rules (forged, expired, audience, stale, wrong provider, key outage fails closed, emulator refused in production).
 - AC05 account-conflict rules (second uid with a used email refused, no merge); reset and Google-on-existing-password-account linking are component-tested only.
 - AC06 no tokens, cookies or CSRF values in logs or audit.
-- AC07 CSRF and Origin on every unsafe route (route-walk test); deploy smoke still needed.
+- AC07 CSRF and Origin on every unsafe route (route-walk test over the auth, demo and department unsafe routes; spike routes are off by default); deploy smoke still needed.
 - AC09 Admin guard, no escalation from email, provider or request fields; one Admin only.
 - AC10 error envelope; AC13 24 h absolute sessions, no extension, revoke-all and disable.
 - AC15 dependents: preservation of representative dependent rows in two departments, idempotence, lost-call recovery, conversion versus cleanup race.
@@ -43,7 +43,8 @@
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
-- **M1-08 final independent cross-cutting review has not been run.** Independent reviews done: M1-02a, M1-02b, M1-07 and M1-11 (no Critical or High findings; fixes applied).
+- **Independent reviews done, none with Critical or High findings:** M1-02a, M1-02b, M1-07, M1-11 and the final cross-cutting pass M1-08 (go for opening the Draft PR). M1-08 Mediums fixed: a database outage now returns 503 (SEC-13, tests added); the false 429 on `/v1/auth/session` was removed from the contract; static tests for AUTH-18 and AUTH-29 added; the Admin provisioning order and the unverified-email pitfall are in the infra README. Still open from that review: AUTH-19 (deploy smoke) and real Google OAuth for AUTH-31; `POST /v1/demo/start` does not revoke a session carried by the incoming cookie (not an escalation); audit rows store client IPs (confirm the retention policy); the review checked requirement ids by file-level search, not test by test.
+- **Admin first sign-in:** an Admin created with "Add user" in the Firebase console has an unverified email, and KnowServe returns 403 `EMAIL_NOT_VERIFIED` for it. Verify the email (console mail or a Google sign-in) before the first sign-in.
 - **Owner decisions (2026-11-06):** the deployer runs the migration job under the GitHub `production` approval gate and the restricted WIF trust, accepted as proportionate on the condition that the production cutover is completed and verified; the Admin seed job uses the DML-only runtime identity (API service account, `database-url`), not the DDL credential (done in `gcp_migration_job.tf`). Still open: React Hook Form and Zod are not used in the frontend (FE-ARCH-09).
 - **Known gaps (documented):** sessions are not ended by an external Firebase password reset or disable; signup reveals an existing email; the password blocklist is dropped; `/v1/auth/session` converts a Demo row past 24 h until cleanup; `users.email` is not refreshed from a changed Firebase email; `display_name` is not length-capped; audit IP differs slightly between auth and demo routes; keep Firebase's "link accounts that use the same email" setting off or document it.
 - Docker's engine did not start on this machine, so tests ran on a local PostgreSQL with pgvector and the emulator through `npx`; compose services are unexercised here. CI runs the repo's own database service.
