@@ -15,6 +15,7 @@ import {
   signInWithPopup,
   signOut,
   verifyPasswordResetCode,
+  type ActionCodeSettings,
   type AuthCredential,
   type User,
 } from 'firebase/auth';
@@ -23,6 +24,16 @@ import { AuthFlowError, type AuthGateway, type FirebaseUserInfo } from './gatewa
 
 export { AuthFlowError } from './gateway-types';
 export type { AuthFlowErrorKind, AuthGateway, FirebaseUserInfo } from './gateway-types';
+
+/**
+ * Firebase's default email action handler stays in use (no `handleCodeInApp`). The continue URL
+ * only gives its hosted page a Continue button back to KnowServe's login page. It comes from the
+ * running origin, so local, test and production environments each point to themselves. The origin
+ * must be an authorized domain in Firebase (FE-AUTH-07).
+ */
+export function actionCodeSettings(): ActionCodeSettings {
+  return { url: `${window.location.origin}/login` };
+}
 
 function info(user: User): FirebaseUserInfo {
   const last = user.metadata.lastSignInTime ? Date.parse(user.metadata.lastSignInTime) : NaN;
@@ -127,7 +138,7 @@ export function createFirebaseGateway(): AuthGateway {
     signUpWithPassword: (email, password) =>
       guard(async () => {
         const { user } = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
-        await sendEmailVerification(user);
+        await sendEmailVerification(user, actionCodeSettings());
         return info(user);
       }),
     signInWithGoogle: () =>
@@ -173,7 +184,8 @@ export function createFirebaseGateway(): AuthGateway {
       return info(user);
     },
     signOut: () => guard(() => signOut(getFirebaseAuth())),
-    resendVerification: () => guard(() => sendEmailVerification(requireUser())),
+    resendVerification: () =>
+      guard(() => sendEmailVerification(requireUser(), actionCodeSettings())),
     reauthenticateWithPassword: (password) =>
       guard(async () => {
         const user = requireUser();
@@ -187,7 +199,8 @@ export function createFirebaseGateway(): AuthGateway {
       guard(async () => {
         await reauthenticateWithPopup(requireUser(), new GoogleAuthProvider());
       }),
-    sendPasswordReset: (email) => guard(() => sendPasswordResetEmail(getFirebaseAuth(), email)),
+    sendPasswordReset: (email) =>
+      guard(() => sendPasswordResetEmail(getFirebaseAuth(), email, actionCodeSettings())),
     verifyResetCode: (code) => guard(() => verifyPasswordResetCode(getFirebaseAuth(), code)),
     confirmPasswordReset: (code, newPassword) =>
       guard(() => confirmPasswordReset(getFirebaseAuth(), code, newPassword)),
@@ -199,7 +212,7 @@ export function createFirebaseGateway(): AuthGateway {
           user,
           EmailAuthProvider.credential(email, password),
         );
-        await sendEmailVerification(linked.user);
+        await sendEmailVerification(linked.user, actionCodeSettings());
         return info(linked.user);
       }),
     linkGoogle: () =>

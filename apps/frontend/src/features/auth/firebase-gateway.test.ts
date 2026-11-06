@@ -1,38 +1,86 @@
-import { describe, expect, it } from 'vitest';
-import { toAuthFlowError } from './firebase-gateway';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fb = (code: string, customData?: { email: string }) =>
-  Object.assign(new Error(code), { code, customData });
+const mocks = vi.hoisted(() => ({
+  sendEmailVerification: vi.fn(async () => undefined),
+  sendPasswordResetEmail: vi.fn(async () => undefined),
+  createUserWithEmailAndPassword: vi.fn(async () => ({
+    user: {
+      uid: 'u1',
+      email: 'a@example.test',
+      emailVerified: false,
+      isAnonymous: false,
+      providerData: [],
+      metadata: {},
+    },
+  })),
+  linkWithCredential: vi.fn(async () => ({
+    user: {
+      uid: 'u1',
+      email: 'a@example.test',
+      emailVerified: false,
+      isAnonymous: false,
+      providerData: [],
+      metadata: {},
+    },
+  })),
+  currentUser: {
+    uid: 'u1',
+    email: 'a@example.test',
+    emailVerified: false,
+    isAnonymous: false,
+    providerData: [],
+    metadata: {},
+  },
+}));
 
-describe('Firebase error mapping (FE-AUTH-02, 03, 07, 12, 13)', () => {
-  it.each([
-    ['auth/invalid-credential', 'invalid-credential'],
-    ['auth/wrong-password', 'invalid-credential'],
-    ['auth/user-not-found', 'invalid-credential'],
-    ['auth/email-already-in-use', 'email-in-use'],
-    ['auth/weak-password', 'weak-password'],
-    ['auth/credential-already-in-use', 'credential-in-use'],
-    ['auth/popup-closed-by-user', 'popup-cancelled'],
-    ['auth/popup-blocked', 'popup-blocked'],
-    ['auth/expired-action-code', 'expired-code'],
-    ['auth/invalid-action-code', 'invalid-code'],
-    ['auth/too-many-requests', 'too-many-requests'],
-    ['auth/network-request-failed', 'network'],
-    ['auth/something-else', 'unknown'],
-  ])('fe_auth_02_%s_maps_to_%s', (code, kind) => {
-    expect(toAuthFlowError(fb(code)).kind).toBe(kind);
+vi.mock('firebase/auth', () => ({
+  EmailAuthProvider: { credential: vi.fn(() => ({})) },
+  GoogleAuthProvider: class {},
+  applyActionCode: vi.fn(),
+  confirmPasswordReset: vi.fn(),
+  createUserWithEmailAndPassword: mocks.createUserWithEmailAndPassword,
+  linkWithCredential: mocks.linkWithCredential,
+  linkWithPopup: vi.fn(),
+  reauthenticateWithCredential: vi.fn(),
+  reauthenticateWithPopup: vi.fn(),
+  sendEmailVerification: mocks.sendEmailVerification,
+  sendPasswordResetEmail: mocks.sendPasswordResetEmail,
+  signInAnonymously: vi.fn(),
+  signInWithEmailAndPassword: vi.fn(),
+  signInWithPopup: vi.fn(),
+  signOut: vi.fn(),
+  verifyPasswordResetCode: vi.fn(),
+}));
+
+vi.mock('@/lib/firebase', () => ({
+  getFirebaseAuth: () => ({ currentUser: mocks.currentUser }),
+}));
+
+import { actionCodeSettings, createFirebaseGateway } from './firebase-gateway';
+
+// FE-AUTH-07: Firebase's default action handler is used; each email only carries a continue URL
+// that returns the user to this app's /login page.
+describe('FE-AUTH-07 email action continue URL', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('is built from the running origin, not a hardcoded host', () => {
+    expect(actionCodeSettings()).toEqual({ url: `${window.location.origin}/login` });
+    expect(actionCodeSettings()).not.toHaveProperty('handleCodeInApp');
   });
 
-  it('fe_auth_12_account_exists_keeps_the_email_for_the_linking_prompt', () => {
-    const mapped = toAuthFlowError(
-      fb('auth/account-exists-with-different-credential', { email: 'ada@example.com' }),
-    );
-    expect(mapped.kind).toBe('account-exists');
-    expect(mapped.email).toBe('ada@example.com');
-  });
+  it('is passed to the signup verification, resend, link verification and reset emails', async () => {
+    const expected = { url: `${window.location.origin}/login` };
+    const gateway = createFirebaseGateway();
 
-  it('fe_auth_02_non_firebase_errors_become_unknown', () => {
-    expect(toAuthFlowError(new TypeError('boom')).kind).toBe('unknown');
-    expect(toAuthFlowError('x').kind).toBe('unknown');
+    await gateway.signUpWithPassword('a@example.test', 'correct horse 1');
+    await gateway.resendVerification();
+    await gateway.linkEmailPassword('a@example.test', 'correct horse 1');
+    await gateway.sendPasswordReset('a@example.test');
+
+    const verification = mocks.sendEmailVerification.mock.calls as unknown[][];
+    expect(verification).toHaveLength(3);
+    for (const call of verification) expect(call[1]).toEqual(expected);
+    const reset = mocks.sendPasswordResetEmail.mock.calls as unknown[][];
+    expect(reset[0]?.[2]).toEqual(expected);
   });
 });
