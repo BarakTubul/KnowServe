@@ -1,6 +1,6 @@
 # M1 handoff (WF-12), draft
 
-**Status (2026-11-06):** all M1 code is implemented and integrated **locally** on `m1/integration`. Nothing is pushed, deployed or applied to the cloud, and the milestone PR is not opened. M1 is **not** complete: the final independent review (M1-08), the cloud setup and the real-Firebase smoke are open (see sections 3 and 4). Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
+**Status (2026-11-06):** M1 is merged (PR #28, `045f463`) and **deployed to production** (`knowserve-m0-spike`) through the `production` GitHub Environment. The migration ran, the Admin is provisioned and the main auth flows were checked by the Owner on the live site. M1 is **not yet complete**: the daily Demo-cleanup schedule, removal of the one-time Admin seed job, and part of the real-Firebase smoke are open (section 3, last block). Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
 
 ## 1. What exists locally
 | Area | State |
@@ -36,10 +36,19 @@
 - AC17 quotas, global guard and kill switch as a mechanism; **chat-level evidence is an M4 criterion** (CHAT-18, CHAT-19), as is real chat-history preservation.
 - Time-dependent cases (expired Demo, stale sign-in window) are intentionally not in e2e.
 
-**Remaining real-Firebase / cloud checks (not done; need the Owner)**
-- AC02 Firebase password policy (minimum 8, no composition rules, `Require` mode) verified in the real console (N3); if it needs Identity Platform, report and ask.
-- AC03 real Google OAuth; AC05 verification and reset mail delivery and the "account exists" linking path on real Firebase; behavior of `/v1/auth/convert` after real credential linking (emulator showed the provider becomes `password`).
-- AC11 migration job applied and run (the Neon runtime role `ks_runtime` exists as a `NOLOGIN`, password-less, DML-only role, verified 2026-11-06; still to do: LOGIN and password, the real pooled-login test, and the `database-url` / `migration-database-url` secret versions at the cutover); AC12 deployed smoke through the Pages proxy; AC16 QStash schedule creation after confirming availability and quotas; Admin account creation and provisioning; the first production deploy through the `production` environment.
+**Verified on production (2026-11-06)**
+- Cutover and deploy: the deploy workflow targets the `production` Environment (PR #27); `auth-check` passed (run 42255581776: login works, the deployer cannot read secrets, the IAM policy or `migration-database-url`, and can see the migration job); `deploy` passed every step (run 42257551803): images built and pushed, **migration job run**, Cloud Run rolled, frontend deployed, API status through the Pages proxy, direct Cloud Run access denied, worker readiness and the deployed Playwright smoke (AC11, AC12).
+- Database: `alembic_version` is `0002`; the new tables exist; the five departments are seeded; `neondb_owner` owns every table. The runtime role `ks_runtime` (created by SQL, no privileged memberships) has SELECT/INSERT/UPDATE/DELETE on all tables except `alembic_version`, no TRUNCATE, and was tested by a real pooled login: DML in a rolled-back transaction passed; CREATE TABLE, ALTER and reading `alembic_version` were denied. `database-url` version 2 is the pooled `ks_runtime` URL (version 1, `neondb_owner`, is preserved); `migration-database-url` holds the direct `neondb_owner` URL. The live API revision `knowserve-api-00007` runs on the runtime credential, and `/health/live` and `/health/ready` return 200.
+- Admin (AC09): one `admin` row bound to the Firebase uid, provisioned once through the Cloud Run job `knowserve-admin-seed` under the runtime identity (outcome `promoted`, audit event `admin.provisioned`). The Owner confirmed `/v1/admin/ping` returns 200 for the Admin and 403 for another account.
+- Firebase (configuration read through the Identity Toolkit API): Email/Password, Google and Anonymous enabled; password policy enforced (minimum 8, no composition rules) and confirmed by the Owner's rejection of a short password (AC02); email enumeration protection on; `knowserve-m0-spike.pages.dev` is an authorized domain; Firebase's default mail handler and sender are in use. The Owner confirmed Try Demo, Google sign-in, password sign-in and sign-out, signup verification mail and password reset on the live site (AC01, AC03, AC14).
+- Finding: Firebase replaced the Admin's unverified console-created password credential when the same email signed in with Google (its built-in protection), so the Admin account is Google-only and verified. This is allowed (O1); password sign-in for the Admin can be added later.
+- Cleanup endpoint: unsigned requests to `/internal/maintenance/demo-cleanup` are rejected with 401, with and without a body (AC16, SEC-14). QStash accepts the token in the EU region and lists no schedules yet.
+
+**Remaining real-Firebase / cloud checks (not done)**
+- AC15 Demo to Registered conversion on real Firebase (the provider claim after linking was seen only on the emulator), "sign out everywhere", and the Google-on-existing-password-email linking prompt (AC05).
+- The Continue button on Firebase's hosted verification and reset pages returning to `/login` (the Owner reported the mail flows work; the return link was not separately confirmed).
+- AC16 the daily QStash cleanup schedule: create it (needs approval), then confirm one scheduled delivery is accepted.
+- Remove the one-time Admin seed job (set `enable_admin_seed_job = false`, plan, apply). Until then it is a standing job with a DML-only credential and no execution rights for CI.
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
@@ -52,7 +61,7 @@
 - The production cutover (spike to production Environment) runs in its own session; this handoff does not depend on it.
 
 ## 5. Next steps
-1. Run the M1-08 independent review on the integrated branch; fix findings.
-2. Owner actions in order: Firebase console setup and the password-policy check, `production` Environment secrets, migration job apply and Neon roles, Admin account, QStash schedule, first deploy.
-3. Real-Firebase smoke (Google, mail, convert), then fill the evidence into the traceability table.
-4. Open the milestone PR as a Draft (needs push approval), mark ready for approval after step 3.
+1. Remove the Admin seed job, then create the QStash daily cleanup schedule (each needs Owner approval).
+2. Finish the remaining real-Firebase checks above and fill the results into the traceability table.
+3. Decide whether to add password sign-in for the Admin, and close PR #26 (superseded).
+4. Record the M4 criteria that complete M1 evidence (CHAT-18, CHAT-19) when M4 starts.
