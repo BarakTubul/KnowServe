@@ -39,7 +39,7 @@
 **Remaining real-Firebase / cloud checks (not done; need the Owner)**
 - AC02 Firebase password policy (minimum 8, no composition rules, `Require` mode) verified in the real console (N3); if it needs Identity Platform, report and ask.
 - AC03 real Google OAuth; AC05 verification and reset mail delivery and the "account exists" linking path on real Firebase; behavior of `/v1/auth/convert` after real credential linking (emulator showed the provider becomes `password`).
-- AC11 migration job applied and run (needs the second Neon role and secrets); AC12 deployed smoke through the Pages proxy; AC16 QStash schedule creation after confirming availability and quotas; Admin account creation and provisioning; the first production deploy through the `production` environment.
+- AC11 migration job applied and run (the Neon runtime role `ks_runtime` exists as a `NOLOGIN`, password-less, DML-only role, verified 2026-11-06; still to do: LOGIN and password, the real pooled-login test, and the `database-url` / `migration-database-url` secret versions at the cutover); AC12 deployed smoke through the Pages proxy; AC16 QStash schedule creation after confirming availability and quotas; Admin account creation and provisioning; the first production deploy through the `production` environment.
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
