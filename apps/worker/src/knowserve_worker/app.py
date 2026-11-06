@@ -365,12 +365,16 @@ async def demo_cleanup_run(request: Request) -> dict[str, int | bool]:
     body = await _read_capped_body(request)
     if body is None:
         raise AppError(413, "PAYLOAD_TOO_LARGE", "Request body too large")
+    expected_url = _expected_url(settings, DEMO_CLEANUP_PATH)
+    if expected_url is None:
+        # Without the destination binding a signed job delivery could be replayed here.
+        raise _unauthenticated()
     try:
         verify_signature(
             token=request.headers.get(SIGNATURE_HEADER),
             body=body,
             signing_keys=_signing_keys(settings),
-            expected_url=_expected_url(settings, DEMO_CLEANUP_PATH),
+            expected_url=expected_url,
         )
     except SignatureError:
         logger.warning("rejected maintenance delivery with invalid signature")

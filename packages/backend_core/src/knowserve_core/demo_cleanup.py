@@ -105,10 +105,11 @@ async def _delete_one_batch(
             if batch.ids:
                 result = await session.execute(_DELETE_BATCH, {"ids": batch.ids})
                 batch.deleted = result.rowcount  # type: ignore[attr-defined]
-    except Exception:
+    except Exception as exc:
         batch.failed = True
         batch.deleted = 0
-        logger.error("demo cleanup batch failed", exc_info=True)
+        # No exc_info: driver errors embed the failing parameters (user ids). Type name only.
+        logger.error("demo cleanup batch failed", extra={"error_type": type(exc).__name__})
     return batch
 
 
@@ -146,6 +147,10 @@ async def run(
             break
 
     purged = await _purge_counters(session_factory, settings, now)
+    if purged is None:
+        # A broken purge must not stay silent: the run reports a failure and is retried.
+        failed += 1
+        purged = 0
     result = CleanupResult(
         deleted_users=deleted_users,
         batches=batches,
@@ -153,15 +158,17 @@ async def run(
         purged_rate_limit_counters=purged,
         capped=capped,
     )
-    async with session_factory() as session, session.begin():
-        await audit.record(session, AUDIT_EVENT, **result.as_dict())
+    if deleted_users or failed or purged:
+        # An all-zero run (for example a replayed delivery) writes no audit row.
+        async with session_factory() as session, session.begin():
+            await audit.record(session, AUDIT_EVENT, **result.as_dict())
     logger.info("demo cleanup run", extra=result.as_dict())
     return result
 
 
 async def _purge_counters(
     session_factory: async_sessionmaker[AsyncSession], settings: Settings, now: datetime
-) -> int:
+) -> int | None:
     window = timedelta(seconds=settings.demo_start_window_seconds)
     try:
         async with session_factory() as session, session.begin():
@@ -169,6 +176,6 @@ async def _purge_counters(
                 _PURGE_COUNTERS, {"cutoff": now - COUNTER_RETENTION - window}
             )
             return result.rowcount  # type: ignore[attr-defined]
-    except Exception:
-        logger.error("demo cleanup counter purge failed", exc_info=True)
-        return 0
+    except Exception as exc:
+        logger.error("demo cleanup counter purge failed", extra={"error_type": type(exc).__name__})
+        return None

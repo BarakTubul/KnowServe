@@ -144,7 +144,9 @@ async def test_sec14_auth35_valid_signature_runs_exactly_one_cleanup(
     }
     assert again.status_code == 200 and again.json()["deleted_users"] == 0
     assert await user_count(session_factory) == 1  # the registered user only
-    assert await audit_count(session_factory) == 2  # one audit event per run, counts only
+    # Only the run that changed something writes an audit event (counts only); an all-zero run
+    # such as a replayed delivery writes none (review finding F5).
+    assert await audit_count(session_factory) == 1
 
 
 async def test_sec14_cleanup_ignores_query_and_body_parameters(
@@ -219,3 +221,12 @@ async def test_sec14_only_one_maintenance_route_exists(
     )
     paths = set(app.openapi()["paths"])
     assert {p for p in paths if "maintenance" in p} == {PATH}
+
+
+async def test_sec14_unset_destination_url_fails_closed(
+    engine: AsyncEngine, database_url: str, clock: FakeClock
+) -> None:
+    """Review F2: without KS_WORKER_PUBLIC_URL the destination cannot be bound, so refuse."""
+    async with client_for(engine, database_url, clock, worker_public_url=None) as c:
+        response = await c.post(PATH, content=b"", headers=signed())
+    assert response.status_code == 401

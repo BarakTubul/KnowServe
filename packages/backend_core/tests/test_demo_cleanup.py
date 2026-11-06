@@ -170,7 +170,9 @@ async def test_auth35_failing_batch_rolls_back_alone_and_the_next_run_resumes(
     database_url: str,
     clock: FakeClock,
     make_user: Any,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
     # Oldest first: the first batch of 2 holds the poisoned user, the later batches are healthy.
     poisoned = await make_user("demo", created_at=clock.now() - timedelta(hours=90))
     buddy = await make_user("demo", created_at=clock.now() - timedelta(hours=89))
@@ -192,6 +194,14 @@ async def test_auth35_failing_batch_rolls_back_alone_and_the_next_run_resumes(
         first = await demo_cleanup.run(session_factory, settings, clock)
         # The poisoned batch (poisoned + buddy) rolled back as a whole; the healthy rows went.
         assert first.failed_batches == 1 and first.deleted_users == 3
+        # Review F1: the failure log names the error type only, never ids or driver parameters.
+        failure_logs = " ".join(
+            r.getMessage() + json.dumps(r.__dict__, default=str) + str(r.exc_info)
+            for r in caplog.records
+            if "failed" in r.getMessage()
+        )
+        assert failure_logs
+        assert str(poisoned.id) not in failure_logs and str(buddy.id) not in failure_logs
         assert await user_ids(session_factory) == {poisoned.id, buddy.id}
         assert {u.id for u in healthy}.isdisjoint(await user_ids(session_factory))
 
@@ -395,3 +405,32 @@ async def test_auth35_logs_and_audit_carry_counts_only(
         assert secret not in blob
     cleanup_logs = [r for r in caplog.records if r.name == "knowserve.demo_cleanup"]
     assert len(cleanup_logs) == 1 and cleanup_logs[0].__dict__["deleted_users"] == 1
+
+
+async def test_auth35_every_foreign_key_to_users_cascades_or_nulls_the_audit_trail(
+    engine: AsyncEngine,
+) -> None:
+    """Review F3: a dependent without ON DELETE CASCADE would make cleanup fail for its rows.
+
+    Only audit_events may use SET NULL (the trail must outlive a cleaned-up Demo user).
+    """
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT conrelid::regclass::text, confdeltype FROM pg_constraint "
+                    "WHERE contype = 'f' AND confrelid = 'users'::regclass"
+                )
+            )
+        ).all()
+    assert rows, "expected foreign keys to users"
+    allowed = {"c"}  # CASCADE
+    bad = [
+        (table, kind)
+        for table, kind in rows
+        if (kind.decode() if isinstance(kind, bytes) else kind) not in allowed
+        and not (
+            table == "audit_events" and (kind.decode() if isinstance(kind, bytes) else kind) == "n"
+        )
+    ]
+    assert bad == []
