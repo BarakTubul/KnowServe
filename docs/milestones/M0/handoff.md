@@ -1,6 +1,6 @@
 # M0 handoff (WF-12)
 
-**Status (2026-10-31):** M0 local implementation is complete, and a temporary, isolated cloud spike was built, tested live and cleaned up. **Update 2026-11-06:** PR #21 and PR #22 are merged, branch protection is on, `auth-check` and `deploy` ran on GitHub and passed (M0-AC07, AC08 and the OIDC part of AC12). **Formal M0 completion is still not claimed**: the negative auth runs are not done, M0-AC09 has no measured costs yet, and a full `terraform plan` was not re-run after the Workload Identity rename (only two resources were applied with `-target`). Everything is on `main`. Specs and contracts: `docs/contracts/`, `plan.md`, `test-plan.md`, `tasks.md`, `bootstrap-plan.md`, `spike-report.md`, `hosting-comparison.md`.
+**Status (2026-10-31):** M0 local implementation is complete, and a temporary, isolated cloud spike was built, tested live and cleaned up. **Update 2026-11-06:** PR #21 and PR #22 are merged, branch protection is on, `auth-check` and `deploy` ran on GitHub and passed (M0-AC07, AC08 and the OIDC part of AC12). **Formal M0 completion is still not claimed**: M0-AC09 has no measured costs yet. A full `terraform plan` after the Workload Identity rename shows no changes, and the negative auth runs for the branch cases passed. Everything is on `main`. Specs and contracts: `docs/contracts/`, `plan.md`, `test-plan.md`, `tasks.md`, `bootstrap-plan.md`, `spike-report.md`, `hosting-comparison.md`.
 
 ## What exists now
 | Layer | State |
@@ -15,13 +15,13 @@
 Proxy route on the real edge (SSE 30 s and 120 s incremental, cookie flags, real client IP, direct access 403, spoofed headers ignored); Google ID-token access control (6 cases); immediate QStash publish (done in 3.4 s); crash-after-commit recovery; QStash retries (4 deliveries over about 33 minutes), terminal failure with 500, DLQ, manual retry and recovery; retry rejections (409, 404).
 
 ## Not verified (do not claim)
-- GitHub Actions negative cases: runs from another branch, without the environment, and from another workflow file must fail to authenticate; not tried yet. The positive path is proven (2026-11-06, see `test-plan.md`).
+- GitHub Actions negative cases not isolated: a run on `main` without the environment and another workflow file on `main`. The branch cases and the positive path are proven (2026-11-06, see `test-plan.md`).
 - Costs: nothing measured. Check the billing report after a day or two of the idle project (Cloud Run, Artifact Registry, Secret Manager, logging) and Neon compute hours.
 - Pages Function behaviour beyond 120 s and its free quota fit; Cloudflare preview deployments (no `API_ORIGIN` in the preview environment).
 - Duplicate delivery against live QStash (covered locally only); batch dispatcher (optional, disabled, known lease gap documented).
 
 ## Decisions and open items for the owner
-1. **GitHub setup** (before any deploy workflow; the pre-push review, hardened workflows, `CODEOWNERS` and the first-run procedure are in `ci-and-branch-protection.md`; the GitHub Environment for this project is now `spike`, which needs the Terraform `github_environment` change applied first): push approval, `production` environment (required reviewer, `main` only), branch protection with the `ci-required` check, CODEOWNERS, Actions settings (`ci-and-branch-protection.md`). Then the first run verifies the Workload Identity claims; the debug step to use if it is rejected is documented there.
+1. **GitHub setup: done (2026-11-06).** Branch protection with `ci-required`, the `spike` environment (required reviewer, `main` only) and its variables are in place; `CLOUDFLARE_API_TOKEN` is an environment secret; Terraform `github_environment = "spike"` is applied; `auth-check` and `deploy` ran and passed. Still to decide later: a `production` environment (not needed for the spike), and OPEN-22 (CI/CD efficiency).
 2. **M1 migration permissions:** the deployer cannot read `database-url` on purpose, but `deploy.yml` reads it to migrate. Recommended: a Cloud Run job with its own account and a separate migration secret; not needed until the first schema change (Neon is at revision 0001).
 3. **Default Compute service account has `roles/editor`** on the project (created by Google when APIs were enabled). Nothing uses it; removing the binding is an IAM change that needs approval.
 4. **Remaining security-review items:** pin third-party GitHub Actions and Wrangler by digest; outbox max-attempts dead state and a sweeper for jobs QStash never finishes (M3); lease heartbeat (before M3); `last_error` content, certificate-fetch amplification, `KS_ENV` guard on Cloud Run (low).
