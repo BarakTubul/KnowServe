@@ -64,9 +64,9 @@ The Dockerfile needed no change. `apps/api/Dockerfile` already puts `alembic` (a
 5. **Evidence for M1-AC11.** The plan review; the job execution log (`gcloud run jobs executions list --job knowserve-migrate`, Cloud Logging); revision `0002` in `alembic_version` on the spike database; `gcloud secrets get-iam-policy migration-database-url` showing only `ks-migrate-runtime`; and the deployer's `auth-check` denial.
 
 ### Admin provisioning (D4, AUTH-04)
-The Admin is created by hand in the Firebase Console (Email/Password or Google) and bound by an idempotent command, `python -m knowserve_api.admin_seed`. Another agent writes that command; it is not part of this task. It runs through the same mechanism as the migrations: a Cloud Run job in the API image that uses `ks-migrate-runtime` and `migration-database-url`.
+The Admin is created by hand in the Firebase Console (Email/Password or Google) and bound by an idempotent command, `python -m knowserve_api.admin_seed`. Another agent writes that command; it is not part of this task. It runs through the same mechanism as the migrations: a Cloud Run job in the API image, but with the **runtime DML-only identity** (the API service account and `database-url`), because creating the Admin row needs no DDL (Owner decision, 2026-11-06).
 
-- Terraform: `enable_admin_seed_job = true` creates `knowserve-admin-seed` (command `python`, args `-m knowserve_api.admin_seed`). It is **off by default**, so no second job holds the DDL credential in normal operation. The deployer has no grant on it and CI never runs it.
+- Terraform: `enable_admin_seed_job = true` creates `knowserve-admin-seed` (command `python`, args `-m knowserve_api.admin_seed`). It is **off by default** and, when enabled, holds only the DML credential. The deployer has no grant on it and CI never runs it.
 - The Admin identity is passed at execution time, so it never enters Terraform state or the repository. No password is involved or stored anywhere:
   ```
   gcloud run jobs update knowserve-admin-seed --image <current API digest> --region europe-west1

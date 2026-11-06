@@ -88,8 +88,9 @@ resource "google_cloud_run_v2_job" "migrate" {
   ]
 }
 
-# Optional second job for the Owner-run Admin provisioning (D4). Same image, service account and
-# secret as the migration job; a different command. It is created only while
+# Optional second job for the Owner-run Admin provisioning (D4). Same image as the migration job but
+# the RUNTIME (DML-only) identity: the API service account and the `database-url` secret. Creating the
+# single Admin row needs INSERT/UPDATE on existing tables, never DDL (Owner decision, 2026-11-06). It is created only while
 # `enable_admin_seed_job` is true and is never executed by CI (the deployer has no grants on it).
 # KS_ADMIN_FIREBASE_UID and KS_ADMIN_EMAIL are passed by the Owner at execution time
 # (`--update-env-vars`), so they never enter Terraform state. No password is involved.
@@ -107,7 +108,7 @@ resource "google_cloud_run_v2_job" "admin_seed" {
     task_count  = 1
 
     template {
-      service_account = google_service_account.migrate.email
+      service_account = google_service_account.api.email
       max_retries     = 0
       timeout         = "300s"
 
@@ -133,7 +134,7 @@ resource "google_cloud_run_v2_job" "admin_seed" {
           name = "KS_DATABASE_URL"
           value_source {
             secret_key_ref {
-              secret  = google_secret_manager_secret.secrets["migration-database-url"].secret_id
+              secret  = google_secret_manager_secret.secrets["database-url"].secret_id
               version = "latest"
             }
           }
@@ -142,11 +143,11 @@ resource "google_cloud_run_v2_job" "admin_seed" {
     }
   }
 
+  # `env` is NOT ignored, so a change to the database secret reference shows up as drift.
+  # KS_ADMIN_* are passed per execution (`--update-env-vars`), not stored on the job.
   lifecycle {
     ignore_changes = [
       template[0].template[0].containers[0].image,
-      # The Owner adds KS_ADMIN_* at execution time; if set on the job instead, do not fight it.
-      template[0].template[0].containers[0].env,
       client,
       client_version,
     ]
@@ -154,7 +155,6 @@ resource "google_cloud_run_v2_job" "admin_seed" {
 
   depends_on = [
     google_project_service.apis,
-    google_secret_manager_secret_iam_member.migrate_access,
   ]
 }
 

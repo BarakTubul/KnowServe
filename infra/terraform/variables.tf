@@ -165,7 +165,7 @@ variable "worker_m1_settings" {
 
 variable "enable_admin_seed_job" {
   type        = bool
-  description = "Create the Cloud Run job knowserve-admin-seed that runs the idempotent Admin provisioning command (python -m knowserve_api.admin_seed) with the migration service account and secret. Default false: enable only for the Owner-run provisioning (D4), then set back to false and apply. KS_ADMIN_FIREBASE_UID / KS_ADMIN_EMAIL are never stored in Terraform; the Owner passes them when executing the job."
+  description = "Create the Cloud Run job knowserve-admin-seed that runs the idempotent Admin provisioning command (python -m knowserve_api.admin_seed) with the runtime (DML-only) service account and the `database-url` secret. Default false: enable only for the Owner-run provisioning (D4), then set back to false and apply. KS_ADMIN_FIREBASE_UID / KS_ADMIN_EMAIL are never stored in Terraform; the Owner passes them when executing the job."
   default     = false
 }
 
