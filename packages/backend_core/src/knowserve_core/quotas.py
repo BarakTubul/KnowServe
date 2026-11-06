@@ -44,8 +44,7 @@ def quota_error(decision: QuotaDecision) -> AppError | None:
 
     Graceful degradation (COST-03, INFRA-10): only AI work is refused. The kill switch and the
     global quota give 503 ``AI_UNAVAILABLE``; sign-in, the library and every other route keep
-    working. The per-user quota gives 429 ``QUOTA_EXCEEDED``. The retry hint is part of the
-    message because ``AppError`` carries no headers.
+    working. The per-user quota gives 429 ``QUOTA_EXCEEDED`` with a ``Retry-After`` header.
     """
     if decision.allowed:
         return None
@@ -54,5 +53,6 @@ def quota_error(decision: QuotaDecision) -> AppError | None:
             429,
             "QUOTA_EXCEEDED",
             f"Daily question limit reached. Try again in {decision.retry_after_seconds} seconds.",
+            headers={"Retry-After": str(max(1, decision.retry_after_seconds))},
         )
     return AppError(503, "AI_UNAVAILABLE", "AI features are temporarily unavailable")

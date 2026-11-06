@@ -89,6 +89,17 @@ async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 # --- M1 shared fixtures (Owner-written; slices import nothing from each other) ---
 
 
+@pytest.fixture(autouse=True)
+def _restore_firebase_emulator_env():
+    """The verifier exports FIREBASE_AUTH_EMULATOR_HOST process-wide; never leak it across tests."""
+    before = os.environ.get("FIREBASE_AUTH_EMULATOR_HOST")
+    yield
+    if before is None:
+        os.environ.pop("FIREBASE_AUTH_EMULATOR_HOST", None)
+    else:
+        os.environ["FIREBASE_AUTH_EMULATOR_HOST"] = before
+
+
 @pytest.fixture
 def clock() -> FakeClock:
     return FakeClock()
