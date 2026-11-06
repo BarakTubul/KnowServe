@@ -53,6 +53,7 @@ Name `KS_SESSION_COOKIE_NAME` (default `ks_session`); value is `secrets.token_ur
 | 429 | `RATE_LIMITED` | Demo creation above 5 per hour per IP |
 | 429 | `QUOTA_EXCEEDED` | a per-user daily AI quota is used up (chat, M4) |
 | 503 | `AI_UNAVAILABLE` | kill switch on or global daily quota reached (chat, M4) |
+| 429, 503 | (any) | carry a `Retry-After` header in seconds when a retry time is known (`AppError(headers=...)`) |
 | 501 | `NOT_IMPLEMENTED` | M1-01 stubs only; removed as each slice lands |
 
 ## Shared interfaces (`knowserve_core`)

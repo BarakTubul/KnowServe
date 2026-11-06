@@ -96,7 +96,12 @@ async def start_demo(
     if not decision.allowed:
         await audit.record(db, "demo.denied", ip=ip, reason="rate_limited")
         await db.commit()
-        raise AppError(429, "RATE_LIMITED", "Too many Demo sessions started. Try again later.")
+        raise AppError(
+            429,
+            "RATE_LIMITED",
+            "Too many Demo sessions started. Try again later.",
+            headers={"Retry-After": str(max(1, decision.retry_after_seconds))},
+        )
 
     now = clock.now()
     # Create-or-load in one statement pair; a concurrent start for the same uid is harmless.
