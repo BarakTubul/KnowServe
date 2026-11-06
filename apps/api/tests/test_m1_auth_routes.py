@@ -801,9 +801,7 @@ async def test_auth_14_every_unsafe_route_requires_csrf_except_the_session_creat
     app: FastAPI,
 ) -> None:
     exempt = {"/v1/auth/session", "/v1/demo/start"}
-    # Still an M1-01 stub on this branch (M1-04 owns it and must add require_csrf). Owner: delete
-    # this entry at integration; the test then guards the real route.
-    pending_stub = {"/v1/session/department"}
+    pending_stub: set[str] = set()  # M1-04 landed; the real route is guarded below
     checked = 0
     for route in _api_routes(app.routes):
         if not isinstance(route, APIRoute):

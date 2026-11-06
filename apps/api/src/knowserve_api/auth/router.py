@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from knowserve_core import audit
@@ -205,6 +206,10 @@ async def convert_demo(
         await deny(db, "demo_user_gone", unauthenticated(), ip=ip)
     if user.disabled_at is not None:
         await deny(db, "user_disabled", unauthenticated(), user_id=user.id, ip=ip)
+    # Re-check under the lock: a logout or sign-out-everywhere in another tab while this call was
+    # in flight must still count (review finding 2).
+    if await db.scalar(select(Session.revoked_at).where(Session.id == identity.session_id)):
+        await deny(db, "session_revoked", unauthenticated(), user_id=user.id, ip=ip)
     conflict = AppError(409, "CONFLICT", "This email is already in use")
     if user.kind == "demo":
         try:
@@ -212,10 +217,14 @@ async def convert_demo(
         except EmailTaken:
             await deny(db, "email_in_use", conflict, user_id=user.id, ip=ip)
         await audit.record(db, "auth.account.converted", user_id=user.id, ip=ip, via="convert")
+        await service.revoke_all_for_user(db, user.id)
     elif user.kind != "registered" or user.email != email:
         await deny(db, "convert_not_applicable", conflict, user_id=user.id, ip=ip)
+    else:
+        # A concurrent call already converted: revoke only this call's own Demo session, never
+        # the winner's new session (review finding 1).
+        await service.revoke_session(db, identity.session_id)
 
-    await service.revoke_all_for_user(db, user.id)
     return await _issue_session(
         db=db,
         service=service,
