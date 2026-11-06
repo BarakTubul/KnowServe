@@ -211,11 +211,11 @@ async def convert_demo(
             await convert_locked_demo_user(db, user, email, verified.name, clock.now())
         except EmailTaken:
             await deny(db, "email_in_use", conflict, user_id=user.id, ip=ip)
+        await audit.record(db, "auth.account.converted", user_id=user.id, ip=ip, via="convert")
     elif user.kind != "registered" or user.email != email:
         await deny(db, "convert_not_applicable", conflict, user_id=user.id, ip=ip)
 
     await service.revoke_all_for_user(db, user.id)
-    await audit.record(db, "auth.account.converted", user_id=user.id, ip=ip, via="convert")
     return await _issue_session(
         db=db,
         service=service,
