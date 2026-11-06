@@ -6,7 +6,7 @@
 | ID | Objective | Depends on | Workstream | Status |
 |---|---|---|---|---|
 | M1-00 | Owner decisions and approvals (OPEN-26) | none | User | done; cloud executions still need separate authorization |
-| M1-01 | Contracts, ADRs, schema migration `0002`, models, route stubs and OpenAPI, shared interfaces, fixtures, emulator setup | M1-00 | Owner | in progress |
+| M1-01 | Contracts, ADRs, schema migration `0002`, models, route stubs and OpenAPI, shared interfaces, fixtures, emulator setup | M1-00 | Owner | done locally (224 Python tests, ruff, pyright, check:api green) |
 | M1-02a | Session core: 24 h absolute sessions, identity dependency, cookie, CSRF + Origin, Postgres limiter, Firebase Admin token verifier | M1-01 | Backend-Auth | not started |
 | M1-02b | Session creation, `me`, logout, revoke-all, Demo → Registered conversion, `users` rows, provider and Admin rules, linking conflict guard, audit | M1-02a | Backend-Auth | not started |
 | M1-03 | *Retired (Email OTP removed by OPEN-24). The ID is not reused.* | n/a | n/a | retired |

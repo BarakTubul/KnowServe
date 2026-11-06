@@ -1,0 +1,41 @@
+"""Audit trail writer (AUTH-21, MON-04, MON-05).
+
+``record`` is the only way slices write ``audit_events``. Details pass through the same redaction
+as the logs, so a token, cookie or CSRF value can never be stored even by mistake. Only counts and
+ids belong in ``details``.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from . import request_context
+from .logging import redact
+from .models import AuditEvent
+
+logger = logging.getLogger("knowserve.audit")
+
+
+async def record(
+    session: AsyncSession,
+    event: str,
+    *,
+    user_id: uuid.UUID | None = None,
+    ip: str | None = None,
+    **details: Any,
+) -> None:
+    """Add an audit row to the caller's transaction (it commits or rolls back with it)."""
+    safe: dict[str, Any] = redact(details)
+    request_id = request_context.get_request_id()
+    session.add(
+        AuditEvent(event=event, user_id=user_id, request_id=request_id, ip=ip, details=safe)
+    )
+    await session.flush()
+    logger.info(
+        "audit event",
+        extra={"audit_event": event, "user_id": str(user_id) if user_id else None, **safe},
+    )

@@ -78,6 +78,33 @@ class Settings(BaseSettings):
     spike_operator_emails: Annotated[list[str], NoDecode] = Field(default_factory=list)
     spike_oidc_audience: str | None = None
 
+    # --- M1 auth and limits (docs/contracts/config-and-deploy.md; defaults are OPEN-25/26) ---
+    # Firebase project id the ID token audience must match. Locally the Auth Emulator uses a
+    # `demo-` project id.
+    firebase_project_id: str | None = None
+    # Host of the Firebase Auth Emulator (for example `localhost:9099`). Refused in production.
+    firebase_auth_emulator_host: str | None = None
+    session_cookie_name: str = "ks_session"
+    # Absolute lifetime of every session kind (AUTH-10). Never extended by use.
+    session_ttl_seconds: int = Field(default=24 * 3600, ge=60)
+    # A sign-in older than this cannot start a session (AUTH-30, ADR 0004).
+    auth_max_age_seconds: int = Field(default=300, ge=30)
+    # Unconverted Demo data is kept this long from creation (AUTH-35).
+    demo_retention_seconds: int = Field(default=48 * 3600, ge=3600)
+    demo_cleanup_batch_size: int = Field(default=500, ge=1)
+    demo_start_limit: int = Field(default=5, ge=1)
+    demo_start_window_seconds: int = Field(default=3600, ge=1)
+    # Daily AI question limits per user, counted per UTC day (AUTH-36); chat applies them in M4.
+    quota_demo_daily: int = Field(default=20, ge=0)
+    quota_registered_daily: int = Field(default=100, ge=0)
+    quota_admin_daily: int = Field(default=100, ge=0)
+    # Global usage guard, an operational guard and not a spending cap (OPEN-26 N1).
+    ai_global_daily_quota: int = Field(default=100, ge=0)
+    ai_kill_switch: bool = False
+    # One-time Admin provisioning (AUTH-04). Not secrets: the Firebase uid and email.
+    admin_firebase_uid: str | None = None
+    admin_email: str | None = None
+
     @field_validator("database_url")
     @classmethod
     def _normalize_url(cls, value: str) -> str:
@@ -121,6 +148,11 @@ class Settings(BaseSettings):
                 raise ValueError("KS_DISPATCHER_LOCAL_TOKEN must not be set when KS_ENV=production")
             if "*" in self.api_allowed_origins:
                 raise ValueError("KS_API_ALLOWED_ORIGINS must list explicit origins, not '*'")
+            # The emulator accepts unsigned tokens, so it must never be reachable in production.
+            if self.firebase_auth_emulator_host:
+                raise ValueError(
+                    "KS_FIREBASE_AUTH_EMULATOR_HOST must not be set when KS_ENV=production"
+                )
         return self
 
 

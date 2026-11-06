@@ -23,6 +23,10 @@ from knowserve_core.qstash import Publisher, build_publisher
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, ErrorEnvelope, install_web
 
+from .admin.router import router as admin_router
+from .auth.router import router as auth_router
+from .demo.router import router as demo_router
+from .departments.router import router as departments_router
 from .operator import router as operator_router
 from .proxy_guard import install_proxy_guard
 
@@ -143,6 +147,8 @@ def create_app(
     )
     if settings.env == "production" and not proxy_secret:
         raise RuntimeError("API refuses to start in production without KS_PROXY_SHARED_SECRET")
+    if settings.env == "production" and not settings.firebase_project_id:
+        raise RuntimeError("API refuses to start in production without KS_FIREBASE_PROJECT_ID")
     configure_logging("api", settings.log_level)
     engine = engine or create_engine(settings.database_url)
 
@@ -166,6 +172,9 @@ def create_app(
     )
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.include_router(router)
+    # M1 slice routers are registered once here so slices never edit the app factory.
+    for slice_router in (auth_router, demo_router, departments_router, admin_router):
+        app.include_router(slice_router)
     if settings.enable_spike_job_ops:
         app.include_router(operator_router)
     if settings.enable_spike_endpoints:
