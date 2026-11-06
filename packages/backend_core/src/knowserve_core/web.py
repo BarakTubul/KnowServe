@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import request_context
@@ -32,11 +33,19 @@ class ErrorEnvelope(BaseModel):
 class AppError(Exception):
     """Raise for expected, client-visible errors. ``code`` is a stable UPPER_SNAKE identifier."""
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        # Extra response headers, for example ``Retry-After`` on 429/503 (FE-AUTH-05).
+        self.headers = headers
 
 
 _STATUS_CODES = {
@@ -50,7 +59,11 @@ _STATUS_CODES = {
 
 
 def error_response(
-    status_code: int, code: str, message: str, details: list[dict[str, Any]] | None = None
+    status_code: int,
+    code: str,
+    message: str,
+    details: list[dict[str, Any]] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     request_id = request_context.get_request_id() or request_context.new_request_id()
     body = ErrorEnvelope(
@@ -59,7 +72,7 @@ def error_response(
     return JSONResponse(
         status_code=status_code,
         content=body.model_dump(exclude_none=True),
-        headers={REQUEST_ID_HEADER: request_id},
+        headers={**(headers or {}), REQUEST_ID_HEADER: request_id},
     )
 
 
@@ -81,7 +94,7 @@ def install_web(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
-        return error_response(exc.status_code, exc.code, exc.message)
+        return error_response(exc.status_code, exc.code, exc.message, headers=exc.headers)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -95,6 +108,14 @@ def install_web(app: FastAPI) -> None:
             for err in exc.errors()
         ]
         return error_response(422, "VALIDATION_ERROR", "Invalid request data", details)
+
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(InterfaceError)
+    @app.exception_handler(ConnectionError)
+    async def _dependency_down(_: Request, exc: Exception) -> JSONResponse:
+        # A database outage fails closed with 503 (SEC-13), not a generic 500.
+        logger.error("dependency unavailable", extra={"error_type": type(exc).__name__})
+        return error_response(503, "DEPENDENCY_UNAVAILABLE", "A required service is unavailable")
 
     @app.exception_handler(Exception)
     async def _unhandled(_: Request, exc: Exception) -> JSONResponse:

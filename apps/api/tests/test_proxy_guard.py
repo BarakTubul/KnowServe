@@ -135,7 +135,9 @@ def test_open21_production_refuses_to_start_without_the_proxy_secret() -> None:
 
 async def test_open21_production_starts_and_enforces_with_the_secret() -> None:
     app = create_app(
-        _settings(env="production", enable_spike_endpoints=False),
+        _settings(
+            env="production", enable_spike_endpoints=False, firebase_project_id="knowserve-test"
+        ),
         create_engine(DEAD_URL, null_pool=True),
     )
     async with _client(app) as client:

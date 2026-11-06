@@ -126,6 +126,49 @@ variable "spike_token_creator_emails" {
   }
 }
 
+variable "firebase_project_id" {
+  type        = string
+  description = "Firebase project id (KS_FIREBASE_PROJECT_ID, the audience of verified ID tokens). Not a secret. The permanent production project is knowserve-m0-spike (OPEN-26 D3). Required by the API when KS_ENV=production."
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.firebase_project_id))
+    error_message = "firebase_project_id must look like a Firebase/GCP project id (6-30 chars, lower-case letters, digits, dashes)."
+  }
+}
+
+variable "api_m1_settings" {
+  type        = map(string)
+  description = "Optional non-secret M1 settings for the API, as KEY = \"value\". Leave empty to keep the application defaults (docs/contracts/config-and-deploy.md). Only the keys in the allow-list are accepted; secrets can never be set here."
+  default     = {}
+
+  validation {
+    condition = alltrue([for k in keys(var.api_m1_settings) : contains([
+      "KS_SESSION_COOKIE_NAME", "KS_SESSION_TTL_SECONDS", "KS_AUTH_MAX_AGE_SECONDS",
+      "KS_DEMO_RETENTION_SECONDS", "KS_DEMO_START_LIMIT", "KS_DEMO_START_WINDOW_SECONDS",
+      "KS_QUOTA_DEMO_DAILY", "KS_QUOTA_REGISTERED_DAILY", "KS_QUOTA_ADMIN_DAILY",
+      "KS_AI_GLOBAL_DAILY_QUOTA", "KS_AI_KILL_SWITCH",
+    ], k)])
+    error_message = "api_m1_settings accepts only the documented non-secret M1 keys (see variables.tf)."
+  }
+}
+
+variable "worker_m1_settings" {
+  type        = map(string)
+  description = "Optional non-secret M1 settings for the Worker (Demo cleanup). Leave empty to keep the application defaults."
+  default     = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.worker_m1_settings) : contains(["KS_DEMO_RETENTION_SECONDS", "KS_DEMO_CLEANUP_BATCH_SIZE"], k)])
+    error_message = "worker_m1_settings accepts only KS_DEMO_RETENTION_SECONDS and KS_DEMO_CLEANUP_BATCH_SIZE."
+  }
+}
+
+variable "enable_admin_seed_job" {
+  type        = bool
+  description = "Create the Cloud Run job knowserve-admin-seed that runs the idempotent Admin provisioning command (python -m knowserve_api.admin_seed) with the runtime (DML-only) service account and the `database-url` secret. Default false: enable only for the Owner-run provisioning (D4), then set back to false and apply. KS_ADMIN_FIREBASE_UID / KS_ADMIN_EMAIL are never stored in Terraform; the Owner passes them when executing the job."
+  default     = false
+}
+
 variable "github_repository" {
   type        = string
   description = "GitHub repository (owner/name) trusted by Workload Identity Federation."

@@ -11,6 +11,9 @@ Requirements: ARCH-04, ARCH-05, ARCH-13, STACK-38, FE-ARCH-01, FE-ARCH-02.
 
 Product routes are all under `/v1`. M0 adds no others. There is **no public enqueue endpoint**: jobs are created in tests through `knowserve_core.jobs.enqueue_job`.
 
+### Endpoints added by M1
+The M1 routes (`/v1/auth/*`, `/v1/demo/start`, `/v1/departments`, `/v1/session/department`, `/v1/admin/ping`), their models, cookie, CSRF rules and error codes are fixed in `auth-session.md`. M1-01 registers them as `501 NOT_IMPLEMENTED` stubs so the OpenAPI snapshot and the TypeScript client exist before the slices implement them.
+
 ### Spike-only endpoints (M0-08)
 Registered **only** when `KS_ENABLE_SPIKE_ENDPOINTS=true`; otherwise they return the normal 404 envelope and are absent from the OpenAPI baseline.
 - `POST /v1/spike/cookie` sets a non-sensitive test cookie `ks_spike=1` with `Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=300` and **no `Domain` attribute** (host-only). Returns `204`.

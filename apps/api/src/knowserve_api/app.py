@@ -16,13 +16,22 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from knowserve_core.clock import Clock, SystemClock
 from knowserve_core.db import check_database, create_engine, create_session_factory
+from knowserve_core.firebase_tokens import TokenVerifier
+from knowserve_core.firebase_verifier import FirebaseTokenVerifier
 from knowserve_core.logging import configure_logging
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.qstash import Publisher, build_publisher
+from knowserve_core.ratelimit import RateLimiter
+from knowserve_core.ratelimit_pg import PostgresRateLimiter
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, ErrorEnvelope, install_web
 
+from .admin.router import router as admin_router
+from .auth.router import router as auth_router
+from .demo.router import router as demo_router
+from .departments.router import router as departments_router
 from .operator import router as operator_router
 from .proxy_guard import install_proxy_guard
 
@@ -136,6 +145,9 @@ def create_app(
     engine: AsyncEngine | None = None,
     publisher: Publisher | None = None,
     oidc_verifier: OidcVerifier | None = None,
+    token_verifier: TokenVerifier | None = None,
+    rate_limiter: RateLimiter | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     proxy_secret = (
@@ -143,12 +155,20 @@ def create_app(
     )
     if settings.env == "production" and not proxy_secret:
         raise RuntimeError("API refuses to start in production without KS_PROXY_SHARED_SECRET")
+    if settings.env == "production" and not settings.firebase_project_id:
+        raise RuntimeError("API refuses to start in production without KS_FIREBASE_PROJECT_ID")
     configure_logging("api", settings.log_level)
     engine = engine or create_engine(settings.database_url)
+
+    app_clock = clock or SystemClock()
+    owns_verifier = token_verifier is None
+    app_token_verifier = token_verifier or FirebaseTokenVerifier(settings, app_clock)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
+        if owns_verifier and isinstance(app_token_verifier, FirebaseTokenVerifier):
+            app_token_verifier.close()
         await engine.dispose()
 
     app = FastAPI(
@@ -165,7 +185,14 @@ def create_app(
         settings.qstash_url, token, settings.worker_public_url, settings.publish_timeout_seconds
     )
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
+    # M1 auth state (M1-02a): injectable for tests, real implementations otherwise.
+    app.state.clock = app_clock
+    app.state.token_verifier = app_token_verifier
+    app.state.rate_limiter = rate_limiter or PostgresRateLimiter(app_clock)
     app.include_router(router)
+    # M1 slice routers are registered once here so slices never edit the app factory.
+    for slice_router in (auth_router, demo_router, departments_router, admin_router):
+        app.include_router(slice_router)
     if settings.enable_spike_job_ops:
         app.include_router(operator_router)
     if settings.enable_spike_endpoints:
@@ -181,7 +208,7 @@ def create_app(
             allow_origins=settings.api_allowed_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Request-ID"],
+            allow_headers=["Content-Type", "X-Request-ID", "X-CSRF-Token"],
             expose_headers=["X-Request-ID"],
         )
     return app

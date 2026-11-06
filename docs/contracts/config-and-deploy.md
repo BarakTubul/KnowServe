@@ -30,6 +30,18 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_SPIKE_OPERATOR_EMAILS` | API | comma list of the identities allowed on the operator routes (non-secret). In the spike this is the operator **service account** `ks-spike-operator@<project>.iam.gserviceaccount.com` (Terraform sets it), never a human account |
 | `KS_SPIKE_OIDC_AUDIENCE` | API | audience the operator's Google OIDC ID token must carry (Terraform sets it to the API origin). Human accounts mint it by impersonating the operator service account (`jobs-outbox.md`) |
 | `KS_ENABLE_SPIKE_FAILURE_HOOKS` | API | default `false`; test-only `skip_publish` and job types `always_fail` and `fail_then_ok`, additionally require `KS_ENABLE_SPIKE_JOB_OPS=true`. Set only in the isolated spike environment |
+| `KS_FIREBASE_PROJECT_ID` | API | Firebase project id the ID token audience must match (the permanent production project). Required by the API when `KS_ENV=production`. Locally `demo-knowserve`. Not a secret. |
+| `KS_FIREBASE_AUTH_EMULATOR_HOST` | API | local/ci only, for example `localhost:9099`; the settings validator refuses it when `KS_ENV=production` |
+| `KS_SESSION_COOKIE_NAME` | API | default `ks_session` |
+| `KS_SESSION_TTL_SECONDS` | API | default `86400` (24 h, absolute, every session kind; OPEN-25) |
+| `KS_AUTH_MAX_AGE_SECONDS` | API | default `300`; a sign-in older than this cannot start a session (ADR 0004) |
+| `KS_DEMO_RETENTION_SECONDS` | API, Worker | default `172800` (48 h from Demo creation; AUTH-35) |
+| `KS_DEMO_CLEANUP_BATCH_SIZE` | Worker | default `500` rows per cleanup batch |
+| `KS_DEMO_START_LIMIT`, `KS_DEMO_START_WINDOW_SECONDS` | API | defaults `5` per `3600` s per IP |
+| `KS_QUOTA_DEMO_DAILY`, `KS_QUOTA_REGISTERED_DAILY`, `KS_QUOTA_ADMIN_DAILY` | API | defaults `20`, `100`, `100` AI questions per UTC day per user (AUTH-36; applied to chat in M4) |
+| `KS_AI_GLOBAL_DAILY_QUOTA`, `KS_AI_KILL_SWITCH` | API | default `100` questions per UTC day across KnowServe and `false`; an operational usage guard, not a spending cap (OPEN-26 N1) |
+| `KS_ADMIN_FIREBASE_UID`, `KS_ADMIN_EMAIL` | provisioning command | the one Admin (AUTH-04); neither is a secret; used only by the idempotent provisioning command |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_AUTH_EMULATOR_URL` | Frontend | public Firebase web config (not secrets, build-time); the emulator URL only in local/e2e builds |
 | `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |
 
 Production values come from Google Secret Manager through per-service service accounts. Terraform creates secret *containers* and access bindings only; values are entered by the user and never enter Terraform state.

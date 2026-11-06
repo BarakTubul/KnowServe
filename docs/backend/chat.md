@@ -51,6 +51,7 @@ Answer questions grounded only in documents the caller's active department may r
 | CHAT-16 | unit + review | LLM client configuration | chat calls go to the OpenRouter base URL with the configured model; no request parameter selects the model; no fallback provider configured |
 | CHAT-17 | integration | Kill switch on | no LLM call; clear message; library still 200 |
 | CHAT-18 | integration | Two visitors | no cross-visitor conversations |
+| CHAT-18 | e2e (emulator) | Demo with conversations in two departments converts to a Registered account (M1 AUTH-34 proves identity continuity on fixture records) | same conversations and departments, no merge into an existing account, none deleted by the Demo cleanup |
 | CHAT-19 | integration | Over quota / budget exhausted | refused before any LLM call |
 
 ## Current implementation (LEGACY, not migrated)
