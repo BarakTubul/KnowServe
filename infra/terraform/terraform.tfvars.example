@@ -30,6 +30,17 @@ worker_public_url = "https://worker.example.invalid"
 # scheduler_time_zone       = "Etc/UTC"                         # only if enabled
 # dispatcher_oidc_audience  = "https://worker.example.invalid"  # only if enabled
 
+# M1 authentication (OPEN-26 D3): the permanent production project hosts Firebase Authentication.
+# Public id, not a secret. Becomes KS_FIREBASE_PROJECT_ID on the API.
+firebase_project_id = "knowserve-m0-spike"
+
+# Optional non-secret M1 overrides. Leave empty to keep the application defaults.
+# api_m1_settings    = { KS_AI_GLOBAL_DAILY_QUOTA = "100" }
+# worker_m1_settings = { KS_DEMO_CLEANUP_BATCH_SIZE = "500" }
+
+# Admin provisioning job (D4): true only while the Owner runs it, then back to false and apply.
+# enable_admin_seed_job = false
+
 # Spike operator job routes (isolated spike environment only). Keep real emails in the
 # git-ignored terraform.tfvars, never in this file.
 # enable_spike_job_ops       = false

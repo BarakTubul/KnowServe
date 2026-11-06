@@ -42,3 +42,18 @@ output "spike_operator_service_account" {
   description = "Email of the role-less operator service account to impersonate for spike ID tokens (null unless enable_spike_job_ops)."
   value       = one(google_service_account.spike_operator[*].email)
 }
+
+output "migration_job" {
+  description = "Cloud Run job that runs `alembic upgrade head` (executed by the deploy workflow)."
+  value       = google_cloud_run_v2_job.migrate.name
+}
+
+output "migration_service_account" {
+  description = "Service account of the migration job (the only reader of the migration-database-url secret)."
+  value       = google_service_account.migrate.email
+}
+
+output "admin_seed_job" {
+  description = "Cloud Run job for the Owner-run Admin provisioning (null unless enable_admin_seed_job)."
+  value       = one(google_cloud_run_v2_job.admin_seed[*].name)
+}
