@@ -5,9 +5,9 @@ name: deploy
 #
 #   * Runs only through workflow_dispatch from `main`. The automatic `push: main` trigger is
 #     deliberately NOT enabled (security review M2); enabling it is a separate, later decision.
-#   * `target` selects a GitHub Environment (today only `spike` = project knowserve-m0-spike).
-#     Every project-specific value comes from that environment's variables and secrets, so the same
-#     workflow serves a future `production` environment (add it to the choice list then).
+#   * `target` selects a GitHub Environment: `production` = project knowserve-m0-spike, the permanent
+#     production project (OPEN-26). The environment's required reviewer must approve every run.
+#     Every project-specific value comes from that environment's variables and secrets.
 #   * `mode`:
 #       auth-check  WIF login and read-only checks only: no build, no push, no deploy. Run this
 #                   first; it proves the Workload Identity claims and least privilege.
@@ -34,7 +34,7 @@ on:
         required: true
         type: choice
         options:
-          - spike
+          - production
       mode:
         description: 'auth-check = login and read-only checks; deploy = build, push and roll out'
         required: true

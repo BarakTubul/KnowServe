@@ -19,7 +19,7 @@ Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fa
 Triggers: pull requests, pushes to `main`, pushes to `m0/**`. Permissions: `contents: read`. Superseded runs are cancelled.
 
 ## Deploy gating (INFRA-04)
-`deploy.yml` runs only on manual `workflow_dispatch` from `main`; the `push: main` trigger is deliberately disabled. Inputs: `target` (the GitHub Environment; today only `spike`), `mode` (`auth-check` or `deploy`), `debug_claims` and `confirm` (must equal `yes`). The `gate` job requires the `ci-required` check run of the same commit to be `success`; the `deploy` job `needs` the gate and runs in the chosen environment, so the environment's required reviewer must approve it. Merging to `main` requires the human-approved PR (branch protection below). `workflow_dispatch` is available only after `deploy.yml` exists on `main`.
+`deploy.yml` runs only on manual `workflow_dispatch` from `main`; the `push: main` trigger is deliberately disabled. Inputs: `target` (the GitHub Environment; `production` since the M1 cutover, OPEN-26), `mode` (`auth-check` or `deploy`), `debug_claims` and `confirm` (must equal `yes`). The `gate` job requires the `ci-required` check run of the same commit to be `success`; the `deploy` job `needs` the gate and runs in the chosen environment, so the environment's required reviewer must approve it. Merging to `main` requires the human-approved PR (branch protection below). `workflow_dispatch` is available only after `deploy.yml` exists on `main`.
 
 What each mode does (all values come from the environment's variables and secrets, so the same workflow can serve a future `production` environment by adding it to the `target` options):
 - **`auth-check`**: project consistency guard, optional claim print, WIF login, then read-only calls (describe the `knowserve-api` and `knowserve-worker` Cloud Run services, since the deployer has `run.developer` only on those two and no project-wide list permission, and list registry images) and two checks that MUST be denied (listing secrets, reading the project IAM policy). No build, no push, no deploy.
@@ -28,7 +28,7 @@ What each mode does (all values come from the environment's variables and secret
 - Migrations run only if the environment variable `RUN_MIGRATIONS` is `true`; leave it unset in M0 (the deployer cannot read the database secret by design; a separate migration job is an M1 decision).
 
 ## Target environments (user configures)
-One GitHub Environment per deployment target, with the **same variable names** and different values: `spike` now (project `knowserve-m0-spike`) and `production` later (project `knowserve-prod`). The name must equal Terraform's `github_environment` for that project, because the Workload Identity condition and subject include it. Settings, Environments, `spike`:
+One GitHub Environment per deployment target, with the **same variable names** and different values: `production` for the permanent project `knowserve-m0-spike` (OPEN-26; the `spike` environment is retired from the workflow and Workload Identity trusts only `production` after the cutover apply). The name must equal Terraform's `github_environment` for that project, because the Workload Identity condition and subject include it. Settings, Environments, `spike`:
 - Required reviewers: the user (so every deploy needs an explicit approval click).
 - Deployment branches: selected branches, `main` only.
 - Prevent self-review: on if a second reviewer exists; otherwise leave off.
@@ -87,7 +87,7 @@ JSON
 
 With a second maintainer, raise `required_approving_review_count` to 1 and add code-owner review. Merging the milestone PR is the user's approval point for WF-13.
 
-**Required before any deployment (security review H1/M2):** the target environment (`spike`) must have required reviewers and be restricted to `main`, and `main` must be protected. The Workload Identity condition in Terraform only trusts runs on `refs/heads/main` that declare the matching environment (`environment: spike` for the spike project), so these GitHub settings are part of the security boundary, not optional hardening. The automatic `push: main` deploy trigger stays disabled in `deploy.yml` until the user approves enabling it.
+**Required before any deployment (security review H1/M2):** the target environment (`production`) must have required reviewers and be restricted to `main`, and `main` must be protected. The Workload Identity condition in Terraform only trusts runs on `refs/heads/main` that declare the matching environment (`environment: production`), so these GitHub settings are part of the security boundary, not optional hardening. The automatic `push: main` deploy trigger stays disabled in `deploy.yml` until the user approves enabling it.
 
 Restrict the environment to `main`:
 
