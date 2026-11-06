@@ -66,7 +66,7 @@ Use the console or `gcloud secrets versions add <secret-id> --data-file=-` readi
 - **Neon** (project, database, pgvector extension, connection string -> `database-url`): no provider resource authored; manual.
 - **Upstash QStash** (token, signing keys, region URL): no provider resource authored; manual. `qstash_url` variable is copied from the console.
 - **Cloudflare R2** bucket and credentials: not authored here (no M0 requirement in this task); manual until a later milestone.
-- **Firebase Authentication**: manual in the Firebase console for M1 (providers, authorized domains, templates), see `docs/milestones/M1/plan.md`. Resend is no longer planned (OPEN-24).
+- **Firebase Authentication**: manual in the Firebase console for M1 (providers including Anonymous, authorized domains, templates), see `docs/milestones/M1/plan.md`. Resend is no longer planned (OPEN-24).
 - **Custom domains:** none. The Cloud Run domain mapping, `api_custom_domain`, the Pages domain resource and `app_custom_domain` were removed (OPEN-21 route: pages.dev + Pages Function). No domain is required.
 - **Pages secret `PROXY_SHARED_SECRET`:** set manually with wrangler, never in Terraform (see below).
 - **GitHub** repository settings / secrets: outside this module.

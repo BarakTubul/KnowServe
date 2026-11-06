@@ -17,7 +17,7 @@
 | STACK-10 | Python DB access | SQLAlchemy 2.x Async, raw SQL where justified | explicit permission-aware SQL | ARCH-02 |
 | STACK-11 | Migrations | Alembic | safe backward-compatible rollout | ARCH-11, M0-AC03 |
 | STACK-12 | Database | Neon PostgreSQL + pgvector | DB is the source of truth | M0-AC03 |
-| STACK-13 | Auth | **Firebase Authentication** (Email/Password + Google) as identity provider, plus a focused FastAPI auth module | Firebase ID token verified once at the session exchange; hashed opaque DB session ids, session-bound CSRF token + Origin check; no custom password storage; own Try Demo visitors (OPEN-24) | AUTH-* |
+| STACK-13 | Auth | **Firebase Authentication** (Email/Password + Google) as identity provider, plus a focused FastAPI auth module | Firebase ID token verified once at the session exchange; hashed opaque DB session ids, session-bound CSRF token + Origin check; no custom password storage; Firebase Anonymous Authentication for Try Demo with a KnowServe Demo identity (OPEN-24, OPEN-25) | AUTH-* |
 | STACK-14 | Email | Firebase Authentication's own mail (verification, password reset) | no application email provider in M1; Resend is no longer selected (OPEN-24) | AUTH-13, AUTH-33 |
 | STACK-15 | AI framework | LlamaIndex | used as library components, not as the central policy engine | CHAT-16 |
 | STACK-16 | Chat LLM | OpenRouter → initial OpenAI-family model | exact model chosen after a benchmark (OPEN-02) | CHAT-16 |
