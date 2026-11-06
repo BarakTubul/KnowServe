@@ -72,12 +72,12 @@ Read from the repository on 2026-11-06. Nothing was re-run for this document; "E
 |---|---|---|
 | Backend tests | Implemented: tests in `apps/api/tests`, `apps/worker/tests` and `packages/backend_core/tests`, run with `uv run pytest` against a real pgvector database | `ci.yml` job `python`; `../milestones/M0/test-plan.md` evidence table |
 | Frontend tests | Implemented: Vitest via `pnpm -r test` | `ci.yml` job `frontend` |
-| E2E | Partial: `tests/e2e/smoke.spec.ts`, `smoke.mocked.spec.ts`, `proxy.spec.ts`. The smoke runs in the deploy workflow against the deployed URL. Nothing in `ci.yml` runs Playwright on PRs | `deploy.yml` last step; `apps/frontend/playwright.config.ts` |
+| E2E | Partial: `tests/e2e/smoke.spec.ts`, `smoke.mocked.spec.ts`, `proxy.spec.ts`, and the M1 auth flows `auth.flows.spec.ts` (`pnpm --filter @knowserve/frontend e2e:auth`, default fake API, optional real API plus Firebase Auth Emulator, see `tests/e2e/README.md`). The smoke runs in the deploy workflow against the deployed URL. `ci.yml` does not run Playwright on PRs | `deploy.yml` last step; `tests/e2e/README.md`; `apps/frontend/package.json` |
 | CI | Implemented and run on GitHub: format, lint, pyright, pytest, OpenAPI drift, frontend, docker build, terraform validate, gitleaks, one `ci-required` check | `ci.yml`; test plan AC07 |
 | Branch protection | Implemented: PR and `ci-required` (strict) required, applies to administrators | test plan AC07 (verified live 2026-11-06) |
 | Deployment | Implemented as **manual** `workflow_dispatch` from `main`: gate (`ci-required` on the same commit), GitHub Environment approval, WIF login, image build and push by digest, Cloud Run roll, Pages deploy, smoke checks. The workflow targets `production` since PR #27; the recorded positive and negative runs (M0-AC08) used the earlier `spike` environment | `deploy.yml`; test plan AC08; `../contracts/ci-and-branch-protection.md` |
 | Post-deploy smoke | Implemented: Pages proxy `/api/v1/status`, direct API 403, Worker `/health/ready`, Playwright smoke | `deploy.yml` |
-| Migrations | Local and CI migration tests exist. The deploy workflow runs `alembic upgrade head` only when `RUN_MIGRATIONS=true`, and the deployer cannot read the database secret, so cloud migrations from CI are **not operational** | `ci-and-branch-protection.md`; `../milestones/M0/handoff.md` item 2 |
+| Migrations | Local and CI migration tests exist (`0001`, `0002_m1_identity`). `deploy.yml` on `main` now runs migrations through the dedicated Cloud Run job `knowserve-migrate` before rolling API and Worker (skipped only if `RUN_MIGRATIONS` is `false`); the deployer reads no database credential. The job, its secret and the Neon roles were **authored, not yet applied or exercised** (M1 handoff: owner actions still pending), so cloud migration from CI is not yet verified | `deploy.yml`; `infra/terraform/gcp_migration_job.tf`; `../milestones/M1/handoff.md`; OPEN-26 (D2) |
 | Rollback | Documented only (INFRA-05). No procedure is written down or exercised | `../architecture/infrastructure.md` |
 | RAG evaluation | Not implemented; first checks arrive with chat (M4) | `../cross-cutting/evaluation.md` |
 | Real-service tests | Only the M0 spike runs (QStash, Neon), recorded in the test plan | test plan evidence table |
@@ -88,10 +88,10 @@ Read from the repository on 2026-11-06. Nothing was re-run for this document; "E
 - **PostgreSQL version.** CI and Compose use `pgvector/pgvector:pg16` (ADR 0002). The Neon database verified in the M0 spike is PostgreSQL 18.6 with pgvector 0.8.6 (test plan AC03); the production version was not re-checked here. TEST-11 says to match production where practical. Moving CI and Compose to a PG 18 image is an Owner decision for the milestone that first adds a version-sensitive migration.
 
 ## Gaps for the current and next milestone
-Only what M1 (Authentication & Demo, `../milestones/M1/plan.md`) is likely to hit:
-1. **Auth security tests.** M1-AC04..AC09 need negative-case integration tests and log-capture tests named with requirement ids (TEST-07). They are M1 work and a hard gate.
-2. **First E2E core flow.** M1-AC01, AC03 and AC08 name Playwright E2E for signup/login and department switching. Decide in M1 whether the smoke runs in `ci` or stays a deploy-time check; do not add a larger suite.
-3. **Migration path to the cloud.** The first M1 schema change needs the separate migration job and secret the M0 handoff recommends, with human approval (TEST-14). Until then a cloud migration is manual and owner-run.
+Only what M1 (Authentication & Demo, `../milestones/M1/plan.md`, `tasks.md`, `handoff.md`) still has open. The M1 handoff reports its backend and frontend auth tests as written and passing locally; the milestone PR review decides whether the criteria are met.
+1. **Auth security evidence.** The M1 hard-gate tests (token verification, CSRF/Origin, authorization, log hygiene) exist on `main`. Their results at the milestone PR are the evidence (TEST-03 table); this document does not restate them.
+2. **E2E placement.** The auth Playwright flows exist but are not run by `ci.yml`. Decide whether they join the PR gate or stay a local and release-time check (TEST-13); do not add a larger suite. Real-Firebase smoke (Google, mail delivery, password policy) is a one-time pre-release real-service test (TEST-12, OPEN-25).
+3. **Migration job verification.** Apply the migration job, secret and Neon roles (Owner approval, TEST-14), then record one verified run before the first production migration. Until then treat cloud migration as unproven.
 4. **Rollback note.** Write a short Cloud Run revision-rollback procedure, including the check that the previous revision works with the current schema, before the first migration reaches production.
 5. **Auto-deploy decision.** OPEN-27, together with OPEN-22, before the deploy trigger changes.
 
