@@ -155,8 +155,10 @@ jobs:
         if: ${{ inputs.mode == 'auth-check' }}
         run: |
           echo "Active identity:"; gcloud auth list --filter=status:ACTIVE --format='value(account)'
-          echo "Cloud Run services (expected: knowserve-api, knowserve-worker):"
-          gcloud run services list --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(metadata.name)'
+          echo "Cloud Run services (describe each; the deployer has no project-wide list permission):"
+          for svc in knowserve-api knowserve-worker; do
+            echo "  $svc:"; gcloud run services describe "$svc" --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(metadata.name)'
+          done
           echo "Registry images:"
           gcloud artifacts docker images list "${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}" --format='value(package)' --limit=5
           echo "Least privilege (each of these MUST be denied):"
