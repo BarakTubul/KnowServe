@@ -119,6 +119,10 @@ jobs:
       GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
       IMAGE_TAG: ${{ github.sha }}
       MIGRATION_JOB: knowserve-migrate
+      # Public Firebase web config (not secrets); checked before anything is built or rolled out.
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
       PAGES_URL: ${{ vars.E2E_BASE_URL != '' && vars.E2E_BASE_URL || format('https://{0}.pages.dev', vars.CLOUDFLARE_PAGES_PROJECT) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -129,6 +133,11 @@ jobs:
           [ -n "${GCP_PROJECT_ID}" ] || fail "GCP_PROJECT_ID is not set for this environment."
           [ -n "${GCP_REGION}" ] || fail "GCP_REGION is not set for this environment."
           [ -n "${GAR_REPOSITORY}" ] || fail "GAR_REPOSITORY is not set for this environment."
+          if [ "${{ inputs.mode }}" = "deploy" ]; then
+            for v in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID; do
+              [ -n "${!v}" ] || fail "Environment variable $v is not set; the deployed app could not sign in."
+            done
+          fi
           case "${GCP_SERVICE_ACCOUNT}" in
             *"@${GCP_PROJECT_ID}.iam.gserviceaccount.com") ;;
             *) fail "GCP_SERVICE_ACCOUNT must end with @${GCP_PROJECT_ID}.iam.gserviceaccount.com (project mismatch)." ;;

@@ -34,6 +34,9 @@ resource "google_cloud_run_v2_job" "migrate" {
   name     = "knowserve-migrate"
   location = var.region
 
+  # Provider 6.x may default this to true (M0 spike report F6); an intentional replace must work.
+  deletion_protection = false
+
   template {
     parallelism = 1
     task_count  = 1
@@ -95,6 +98,9 @@ resource "google_cloud_run_v2_job" "admin_seed" {
   project  = var.project_id
   name     = "knowserve-admin-seed"
   location = var.region
+
+  # Removing the job (enable_admin_seed_job=false) must actually delete it; confirm in terraform plan.
+  deletion_protection = false
 
   template {
     parallelism = 1
