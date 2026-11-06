@@ -1,6 +1,6 @@
 # M0 handoff (WF-12)
 
-**Status (2026-10-31):** M0 local implementation is complete, and a temporary, isolated cloud spike was built, tested live and cleaned up. **Formal M0 completion is not claimed**: the GitHub-dependent criteria have not run (M0-AC07 branch protection, M0-AC08 deploy workflow, the rest of M0-AC12) and M0-AC09 has no measured costs yet. Branch `m0/integration` holds everything; nothing was pushed or merged. Specs and contracts: `docs/contracts/`, `plan.md`, `test-plan.md`, `tasks.md`, `bootstrap-plan.md`, `spike-report.md`, `hosting-comparison.md`.
+**Status (2026-10-31):** M0 local implementation is complete, and a temporary, isolated cloud spike was built, tested live and cleaned up. **Update 2026-11-06:** PR #21 and PR #22 are merged, branch protection is on, `auth-check` and `deploy` ran on GitHub and passed (M0-AC07, AC08 and the OIDC part of AC12). **Formal M0 completion is still not claimed**: the negative auth runs are not done, M0-AC09 has no measured costs yet, and a full `terraform plan` was not re-run after the Workload Identity rename (only two resources were applied with `-target`). Everything is on `main`. Specs and contracts: `docs/contracts/`, `plan.md`, `test-plan.md`, `tasks.md`, `bootstrap-plan.md`, `spike-report.md`, `hosting-comparison.md`.
 
 ## What exists now
 | Layer | State |
@@ -15,7 +15,7 @@
 Proxy route on the real edge (SSE 30 s and 120 s incremental, cookie flags, real client IP, direct access 403, spoofed headers ignored); Google ID-token access control (6 cases); immediate QStash publish (done in 3.4 s); crash-after-commit recovery; QStash retries (4 deliveries over about 33 minutes), terminal failure with 500, DLQ, manual retry and recovery; retry rejections (409, 404).
 
 ## Not verified (do not claim)
-- GitHub Actions: CI and `deploy.yml` have never run; the Workload Identity claims (`repository_id`, `repository_owner_id`, `environment`, `workflow_ref`, `sub`) are unproven until a real run; GitHub `production` environment and branch protection do not exist yet.
+- GitHub Actions negative cases: runs from another branch, without the environment, and from another workflow file must fail to authenticate; not tried yet. The positive path is proven (2026-11-06, see `test-plan.md`).
 - Costs: nothing measured. Check the billing report after a day or two of the idle project (Cloud Run, Artifact Registry, Secret Manager, logging) and Neon compute hours.
 - Pages Function behaviour beyond 120 s and its free quota fit; Cloudflare preview deployments (no `API_ORIGIN` in the preview environment).
 - Duplicate delivery against live QStash (covered locally only); batch dispatcher (optional, disabled, known lease gap documented).
