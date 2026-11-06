@@ -1,6 +1,6 @@
 # M1 handoff (WF-12), draft
 
-**Status (2026-11-06):** M1 is merged (PR #28, `045f463`) and **deployed to production** (`knowserve-m0-spike`) through the `production` GitHub Environment. The migration ran, the Admin is provisioned and the main auth flows were checked by the Owner on the live site. M1 is **not yet complete**: the daily Demo-cleanup schedule, removal of the one-time Admin seed job, and part of the real-Firebase smoke are open (section 3, last block). Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
+**Status (2026-11-06):** M1 is merged (PR #28, `045f463`), deployed to production (`knowserve-m0-spike`) through the `production` GitHub Environment, and closed by the Owner with **one accepted gap**: the Demo to Registered conversion was not run on real Firebase (section 3). The migration ran, the Admin is provisioned, the daily Demo-cleanup schedule exists, and the other real-Firebase checks passed. Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
 
 ## 1. What exists locally
 | Area | State |
@@ -42,13 +42,16 @@
 - Admin (AC09): one `admin` row bound to the Firebase uid, provisioned once through the Cloud Run job `knowserve-admin-seed` under the runtime identity (outcome `promoted`, audit event `admin.provisioned`). The Owner confirmed `/v1/admin/ping` returns 200 for the Admin and 403 for another account.
 - Firebase (configuration read through the Identity Toolkit API): Email/Password, Google and Anonymous enabled; password policy enforced (minimum 8, no composition rules) and confirmed by the Owner's rejection of a short password (AC02); email enumeration protection on; `knowserve-m0-spike.pages.dev` is an authorized domain; Firebase's default mail handler and sender are in use. The Owner confirmed Try Demo, Google sign-in, password sign-in and sign-out, signup verification mail and password reset on the live site (AC01, AC03, AC14).
 - Finding: Firebase replaced the Admin's unverified console-created password credential when the same email signed in with Google (its built-in protection), so the Admin account is Google-only and verified. This is allowed (O1); password sign-in for the Admin can be added later.
-- Cleanup endpoint: unsigned requests to `/internal/maintenance/demo-cleanup` are rejected with 401, with and without a body (AC16, SEC-14). QStash accepts the token in the EU region and lists no schedules yet.
+- Cleanup endpoint: unsigned requests to `/internal/maintenance/demo-cleanup` are rejected with 401, with and without a body (AC16, SEC-14). The daily QStash schedule `knowserve-demo-cleanup` (`CRON_TZ=UTC 0 3 * * *`, POST, no body, 3 retries) was created on 2026-11-06 and read back; the first scheduled delivery (03:00 UTC) has not been observed yet. The one-time Admin seed job was removed after use (Terraform apply: 1 destroyed), and Terraform matches the configuration.
 
-**Remaining real-Firebase / cloud checks (not done)**
-- AC15 Demo to Registered conversion on real Firebase (the provider claim after linking was seen only on the emulator), "sign out everywhere", and the Google-on-existing-password-email linking prompt (AC05).
-- The Continue button on Firebase's hosted verification and reset pages returning to `/login` (the Owner reported the mail flows work; the return link was not separately confirmed).
-- AC16 the daily QStash cleanup schedule: create it (needs approval), then confirm one scheduled delivery is accepted.
-- Remove the one-time Admin seed job (set `enable_admin_seed_job = false`, plan, apply). Until then it is a standing job with a DML-only credential and no execution rights for CI.
+**Real-Firebase checks run by the Owner on the live site (2026-11-06)**
+- Passed: sign out everywhere (sessions revoked, the other browser signed out), Google sign-in on an email that already has a password account (link prompt, no silent merge), and the Continue button on Firebase's hosted verification and reset pages returning to `/login` (AC05, AC07).
+
+**Accepted gap (Owner decision, 2026-11-06)**
+- AC15 Demo to Registered conversion was **not run on real Firebase**. The Owner closed M1 without it. What covers it instead: the backend integration tests (same `users.id` and uid, fixture records in two departments, lost-call recovery, the cleanup race) and the real-API end-to-end flow against the Firebase Auth Emulator. What stays unproven on real Firebase is that the token's provider claim becomes `password` after linking, as it did on the emulator. If conversion fails on production, `/v1/auth/convert` fails closed (401) and the Demo session stays valid; the lost-call path (a normal sign-in completes the conversion) still works.
+
+**Still to observe**
+- The first scheduled Demo cleanup (03:00 UTC): a signed QStash delivery must be accepted by the Worker (only locally signed tokens and the unsigned rejection were tested). Check the Worker log and the `demo.cleanup.run` audit event.
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
@@ -61,7 +64,7 @@
 - The production cutover (spike to production Environment) runs in its own session; this handoff does not depend on it.
 
 ## 5. Next steps
-1. Remove the Admin seed job, then create the QStash daily cleanup schedule (each needs Owner approval).
-2. Finish the remaining real-Firebase checks above and fill the results into the traceability table.
-3. Decide whether to add password sign-in for the Admin, and close PR #26 (superseded).
-4. Record the M4 criteria that complete M1 evidence (CHAT-18, CHAT-19) when M4 starts.
+1. Observe the first scheduled Demo cleanup and record the result.
+2. Run the Demo to Registered conversion on real Firebase when convenient, to close the accepted gap.
+3. Decide whether to add password sign-in for the Admin, and close PR #26 (superseded by #28).
+4. Carry the M4 criteria that complete M1 evidence (CHAT-18, CHAT-19) into the M4 plan.
