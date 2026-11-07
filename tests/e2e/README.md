@@ -11,3 +11,7 @@ The default `pnpm --filter @knowserve/frontend e2e:auth` run uses a contract-fai
 4. `E2E_REAL_API=1 pnpm --filter @knowserve/frontend e2e:auth`
 
 Two flows stay `fixme` in real mode on purpose: an expired Demo (needs clock control) and the late-verification window (needs a 2-second `KS_AUTH_MAX_AGE_SECONDS`, which would break the other flows). Both are covered by backend integration tests (AUTH-16, AUTH-30).
+
+# Library flow (M2), mocked API
+
+`pnpm --filter @knowserve/frontend e2e:library` runs `library.mocked.spec.ts` in Chromium against a `page.route` fake of the documents API, with a committed seed PDF rendered by the real pdf.js. It needs no Firebase Emulator, no Java and no database. It is not backend evidence and does not test sign-in: real authentication is covered by the M1 auth flows (above) and the backend tests. It stays out of the PR gate (`ci-cd-proposals.md`); run it locally and before the milestone PR.

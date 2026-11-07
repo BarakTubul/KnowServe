@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '../../tests/e2e',
   // The auth flows have their own config (playwright.auth.config.ts, `pnpm e2e:auth`).
-  testIgnore: 'auth.*.spec.ts',
+  testIgnore: ['auth.*.spec.ts', 'library.*.spec.ts'],
   fullyParallel: true,
   retries: 0,
   reporter: [['list']],
