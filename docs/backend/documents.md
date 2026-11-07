@@ -1,6 +1,6 @@
 # Backend documents (user-facing library and PDF access)
 
-**Status:** Target spec (M2). Not implemented: the legacy code serves PDFs from local disk with JWT department checks.
+**Status:** Target spec (M2). Metadata and bytes routes (DOC-04, 05, 09, 10, 11) are implemented locally in M2-03 (not deployed, no R2 end-to-end evidence); the library list (DOC-01, 03, 07, 08) is M2-02. The legacy code serves PDFs from local disk with JWT department checks.
 
 ## Purpose
 User-facing read paths: the document library, metadata, and protected PDF bytes for the viewer. Admin management is in `admin-docs.md`; visibility rules are SEC-04 to SEC-09.
@@ -56,7 +56,10 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 - There is no `ready`/current-revision concept: `status` is a free string `pending`/`ingested`/`failed`. There is no soft delete and no revisions.
 
 ## Known gaps
-Every DOC requirement is unimplemented on the target (R2, revisions, active department, 404 semantics).
+- DOC-01, DOC-03, DOC-07 and DOC-08 (library list) are M2-02.
+- DOC-04, 05, 09, 10, 11 are implemented in M2-03 and tested against `FakeObjectStore` and a mock R2 transport. The R2 path is unverified against a real bucket until M2-00c, and streaming limits of Cloud Run and the Pages Function are unmeasured.
+- A range request that is multiple, malformed or of another unit is answered with the full body (200) instead of an error.
+- A stream that fails after the headers are sent ends early (short read); the client retries.
 
 ## Related docs
 `admin-docs.md`, `ingestion.md`, `../cross-cutting/security-and-permissions.md`, `../cross-cutting/document-lifecycle.md`, `../frontend/my-documents.md`

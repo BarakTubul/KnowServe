@@ -24,6 +24,9 @@ const FORWARD_REQUEST_HEADERS = [
   'x-request-id',
 ];
 
+// Forwarded on GET only: single byte ranges for the protected PDF (M2-03, DOC-11).
+const FORWARD_GET_HEADERS = ['range', 'if-range'];
+
 const DROP_RESPONSE_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -123,6 +126,12 @@ export async function handle(
   for (const name of FORWARD_REQUEST_HEADERS) {
     const value = request.headers.get(name);
     if (value !== null) headers.set(name, value);
+  }
+  if (method === 'GET') {
+    for (const name of FORWARD_GET_HEADERS) {
+      const value = request.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
   }
   headers.set('x-request-id', requestId);
   headers.set('x-ks-proxy-secret', secret);
