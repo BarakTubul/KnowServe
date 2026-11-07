@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|
 | M2-00a | Demo Cleanup 401 fix. Cause found (QStash schedule destination host differed from the Worker's `KS_WORKER_PUBLIC_URL`); fixed in production. Handoff update is PR #31 (other session). Remaining: read-only verification of the 2026-11-08 03:00 UTC run (05:00 Israel time) | none | Owner | small | Pending Verification |
 | M2-00b | M0-AC09 cost evidence: billing report for the idle project and Neon compute hours | none | Owner (user) | small | not started |
-| M2-00c | R2 bucket (created manually, Q10), scoped access token, Secret Manager container, Terraform wiring of Cloud Run environment and secrets (existing Terraform) | none | Owner (user) | small to medium | not started; gates the deployed smoke and the production seed |
+| M2-00c | R2 bucket (created manually, Q10), scoped access token, Secret Manager container, Terraform wiring of Cloud Run environment and secrets (existing Terraform) | none | Owner (user) | small to medium | not started; gates the deployed smoke and the production seed; read-only review 2026-11-07: the code is complete, Terraform has no R2 or pepper wiring yet (see Remaining actions below) |
 | M2-00d | Owner decisions Q1 to Q12 | none | Owner (user) | small | done 2026-11-07 (OPEN-28); Q13 decided (OPEN-29), Q14 deferred and non-blocking (OPEN-30) |
 | M2-PG | CI and Compose to a PostgreSQL 18 pgvector image; run `0001`, `0002`; affected tests; ADR | none (first task, Q11) | Infra-PG | small to medium | done locally: PostgreSQL 18.6 + pgvector 0.8.6, migrations `0001`/`0002` and 434 tests pass; merged into `m2/integration`; GitHub CI passed on the PostgreSQL 18 image (draft PR 32, all 8 checks, M2-AC17) |
 | M2-CI | OPEN-22 decision, OPEN-27 proposal, E2E placement (docs only) | none | Owner | small | done as docs only (`docs/architecture/ci-cd-proposals.md`): OPEN-22 recommendation, OPEN-27 proposal, E2E placement; nothing decided or changed, the user decides |
@@ -21,6 +21,17 @@
 | M2-05 | Deterministic PDF generator, committed small fictional PDFs, idempotent seed command, and the Cloud Run Job configuration (prepared for review, not applied) | M2-01 | Backend-Seed | small to medium | implemented locally on `claude/m2-05-seed-221b39`, awaiting integration; the production job is a proposal only |
 | M2-06 | Integration, SEC hard gates, route walk, Playwright flow, independent review, traceability table, then deployed smoke and production seed | M2-02..05, M2-PG; smoke needs M2-00c and the migration approval | Owner + Review Agent | medium | in progress: route-walk test (AC06), TEST-03 table (`traceability.md`) and CP1/CP2 reviews done; draft PR 32 CI green; open: Playwright flow (after Q13 and M2-PRIV are integrated; the Auth Emulator needs Java/Firebase CLI, not installed on this machine), deployed smoke and production seed (need M2-00c and the migration approval) |
 | M2-07 | Handoff and the milestone PR | M2-06, M2-CI, M2-RB, M2-00a | Owner | small | not started |
+
+### M2-00c remaining actions (read-only review, 2026-11-07)
+Nothing below has been done. Terraform code changes can be written by Claude Code for review; every apply, secret value, IAM change and deploy needs the owner's separate approval.
+1. **User, by hand (Cloudflare, Q10):** create the private R2 bucket and an API token scoped to that bucket only, with object read and write. Note the account id, bucket name, access key id and secret.
+2. **Claude Code, code change for review:** in `infra/terraform/gcp_foundation.tf` add secret containers `r2-access-key-id` and `r2-secret-access-key` (and one for the M2-PRIV pepper, for example `ip-hash-pepper`) to `secret_ids`, with `{ api = true, worker = false }` in `secret_readers`. Apply needs approval.
+3. **User, by hand:** enter the secret values as secret versions (R2 keys; a random pepper of at least 16 characters). Terraform never holds values.
+4. **Claude Code, code change for review:** in `infra/terraform/gcp_cloud_run.tf` map the secrets to `KS_R2_ACCESS_KEY_ID`, `KS_R2_SECRET_ACCESS_KEY`, `KS_IP_HASH_PEPPER` and add plain env `KS_OBJECT_STORE=r2`, `KS_R2_ENDPOINT`, `KS_R2_BUCKET` through new variables `r2_endpoint` and `r2_bucket` (and `terraform.tfvars.example`). `KS_ENV=production` is already set on the API (`gcp_cloud_run.tf:35`). Apply needs approval.
+5. **Order:** apply Terraform and enter the values before the M2 image rolls out. The M2 API refuses to start in production without the four R2 values and the pepper. The `0003` migration job and the deploy workflow are separately approval-gated.
+6. **Later:** move the seed job from `infra/terraform/proposed/m2-05-document-seed-job.tf.txt` into live Terraform with its own IAM approval (do not duplicate `r2_endpoint` and `r2_bucket`); fix its stale note about `r2` arriving with M2-03. Worker R2 access is not needed until M3.
+7. **After all of the above:** the production seed and the deployed smoke (M2-AC16).
+R2 endpoint format the code expects: `https://<account_id>.r2.cloudflarestorage.com` (https required, no bucket in the URL, no trailing slash); region `auto` is fixed in code.
 
 ## Dependency graph
 See the Mermaid graph in `plan.md` section 10.
