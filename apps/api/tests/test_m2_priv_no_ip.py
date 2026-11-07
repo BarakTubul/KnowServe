@@ -28,7 +28,7 @@ from knowserve_core.clock import FakeClock
 from knowserve_core.firebase_verifier import EMULATOR_ENV_VAR
 from knowserve_core.logging import JsonFormatter, redact
 from knowserve_core.ratelimit import client_bucket_key
-from knowserve_core.ratelimit_pg import PostgresRateLimiter
+from knowserve_core.ratelimit_pg import EXPIRY_GRACE_SECONDS, PostgresRateLimiter
 from knowserve_core.settings import Settings
 from knowserve_core.testing import DEFAULT_PROJECT_ID, mint_emulator_token
 
@@ -199,12 +199,17 @@ async def test_sec_18_old_counter_rows_for_a_key_expire_after_their_window(
     app = make_app(engine, clock, demo_start_window_seconds=60)
     async with http(app) as c:
         await post(c, "/v1/demo/start", {"id_token": token("e1", "anonymous", clock)})
-        clock.advance(seconds=120)
+        clock.advance(seconds=120)  # window over, inside the 15-minute grace: row is kept
         await post(c, "/v1/demo/start", {"id_token": token("e2", "anonymous", clock)})
+        async with AsyncSession(engine) as db:
+            kept = (await db.execute(text("SELECT count(*) FROM rate_limit_counters"))).scalar_one()
+        assert kept == 2
+        clock.advance(seconds=EXPIRY_GRACE_SECONDS + 60)
+        await post(c, "/v1/demo/start", {"id_token": token("e3", "anonymous", clock)})
     app.state.token_verifier.close()
     async with AsyncSession(engine) as db:
         count = (await db.execute(text("SELECT count(*) FROM rate_limit_counters"))).scalar_one()
-    assert count == 1
+    assert count == 1  # both older rows expired; only the current window's row remains
 
 
 def test_sec_18_bucket_key_is_keyed_and_contains_no_address() -> None:
