@@ -10,8 +10,8 @@ Structured logs, correlation ids, audit events, basic metrics and AI usage recor
 |---|---|---|
 | MON-02 | AI usage is recorded per request: identity type, identity, department, model, tokens in/out, estimated cost, outcome (done/aborted/error) and latency. These records feed the quotas and the budget (COST-02, COST-03). | M4 |
 | MON-03 | Both services log structured JSON to stdout/stderr, which goes to Google Cloud Logging. Every log line carries a request/correlation id, which is propagated from the API through the outbox and the job to the Worker phases. | M0 |
-| MON-04 | Audit events are recorded for auth, admin and security actions: signup, verification, login success/failure (by method), Demo start and conversion outcome, quota refusals, Demo cleanup runs, logout, admin document actions, permission changes, and rejected Worker signatures. | M1/M3 |
-| MON-05 | Logs never contain passwords, Firebase ID tokens, CSRF or session tokens, cookies, API keys, or full document or chat content. | M0 |
+| MON-04 | Audit events are recorded for auth, admin and security actions: signup, verification, login success/failure (by method), Demo start and conversion outcome, quota refusals, Demo cleanup runs, logout, admin document actions, permission changes, and rejected Worker signatures. Audit events carry no client IP (SEC-18); they keep actor id, event type, timestamp, result and request id. | M1/M3 |
+| MON-05 | Logs never contain passwords, Firebase ID tokens, CSRF or session tokens, cookies, API keys, full document or chat content, client IP addresses or the forwarded client-IP header (SEC-18). | M0 |
 | MON-06 | Basic Cloud Monitoring metrics and alerts cover error rate, job failures and stuck outbox rows, plus provider billing alerts (COST-04). | M0/M3 |
 
 ### Retired IDs (do not reuse)
@@ -34,7 +34,7 @@ Structured logs, correlation ids, audit events, basic metrics and AI usage recor
 - `services/chat_service.py` and `agent/llama_tools.py` print tool outputs, which include document content (this contradicts MON-05).
 
 ## Known gaps
-Every MON requirement is unimplemented.
+Every MON requirement is unimplemented, except that M2-PRIV applies SEC-18 to MON-04 and MON-05 in the current code: no `ip` in audit events, no address or forwarded header in logs, and `redact` masks address-like keys (`apps/api/tests/test_m2_priv_no_ip.py`). `audit_events.ip` stays as an always-NULL column until a later contract migration drops it.
 
 ## Related docs
 `architecture.md`, `../architecture/infrastructure.md`, `chat.md`

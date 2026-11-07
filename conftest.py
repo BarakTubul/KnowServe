@@ -75,7 +75,7 @@ async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
             await conn.execute(
                 text(
                     "TRUNCATE outbox, jobs, spike_vector_probe, users, audit_events, "
-                    "rate_limit_counters, ai_usage_daily RESTART IDENTITY CASCADE"
+                    "rate_limit_counters, ai_usage_daily, documents RESTART IDENTITY CASCADE"
                 )
             )
         await eng.dispose()

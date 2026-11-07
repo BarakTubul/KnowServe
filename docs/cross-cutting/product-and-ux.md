@@ -20,6 +20,7 @@ What KnowServe is, who uses it, and which product-level rules every feature must
 | PROD-10 | The public demo stays usable when the AI budget is exhausted: permitted documents, the viewer and history still work. Optional pre-verified sample conversations are clearly labeled and respect active-department permissions (COST-05). | M4/M6 |
 | PROD-11 | Out of MVP scope unless newly approved: organization management, user admin, OCR, a user model chooser. | all |
 | PROD-12 | Curating the fictional document corpus is **deferred** (DEF-01). It is not designed in this phase. | — |
+| PROD-13 | Every user-facing error is understandable and non-technical and is shown in the user's selected interface language. The API keeps stable machine-readable error codes; the frontend maps each code to a localized, friendly message. Raw stack traces, database errors, internal service details and technical exception messages are never shown to users. Diagnostic detail stays in internal logs without secrets or sensitive data (MON-05). Applies to the whole product, not only documents. The set of supported languages, the default and the language selector are not defined yet (see `../milestones/M2/plan.md`, open question Q13). | M2 (new and changed flows), all later Supported languages are English (default) and Hebrew (OPEN-29, decided 2026-11-07); the choice is kept in the browser, not the account. For now only the M2 interfaces are localized; other existing screens are a listed gap, and a product-wide rewrite is out of scope. |
 
 Route paths other than the viewer deep link (`/documents/:id?page=N`) are fixed in the frontend route contract of M1/M2. They are not invented here.
 
@@ -33,6 +34,7 @@ Route paths other than the viewer deep link (`/documents/:id?page=N`) are fixed 
 | PROD-05 | e2e | Registered user vs Admin | admin controls are shown only to the Admin |
 | PROD-06..09 | — | Covered by FE-DOC-*, FE-CHAT-*, FE-ADM-* and the backend specs | — |
 | PROD-11/12 | review | Milestone PR scope check | no out-of-scope features (OAuth, OCR, model chooser, org/user admin); no corpus design work |
+| PROD-13 | component + review | Trigger each error code a flow can return (401, 403, 404, 409, 422, 429, 503, network failure) | a friendly localized message is shown; no technical text, stack trace or raw `error.message` is rendered; the log keeps the request id |
 | PROD-10 | e2e | Kill switch on (COST-04) | chat input shows the disabled state; documents and history still load |
 
 ## Current implementation (LEGACY)

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     )
     enable_spike_endpoints: bool = False
     proxy_shared_secret: SecretStr | None = None
+    # Pepper for the keyed hash of the client address in rate-limit keys (SEC-18, OPEN-28 Q9).
+    # Optional here so the Worker needs no value; the API requires it when KS_ENV=production and
+    # uses a random per-process pepper otherwise.
+    ip_hash_pepper: SecretStr | None = None
 
     qstash_url: str = "https://qstash.upstash.io"
     qstash_token: SecretStr | None = None
@@ -104,6 +108,18 @@ class Settings(BaseSettings):
     # One-time Admin provisioning (AUTH-04). Not secrets: the Firebase uid and email.
     admin_firebase_uid: str | None = None
     admin_email: str | None = None
+
+    # --- M2 documents (docs/contracts/config-and-deploy.md) ---
+    # `filesystem` for local development, `fake` for tests, `r2` in production (Q6).
+    object_store: Literal["filesystem", "fake", "r2"] = "filesystem"
+    object_store_path: str = ".local/objects"
+    r2_endpoint: str | None = None
+    r2_bucket: str | None = None
+    r2_access_key_id: SecretStr | None = None
+    r2_secret_access_key: SecretStr | None = None
+    # Library list page size (DOC-01, Q3).
+    documents_page_default: int = Field(default=20, ge=1)
+    documents_page_max: int = Field(default=50, ge=1)
 
     @field_validator("database_url")
     @classmethod

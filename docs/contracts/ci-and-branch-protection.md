@@ -9,7 +9,7 @@ Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fa
 
 | Job | What it runs |
 |---|---|
-| `python` | `uv sync --frozen`, `ruff format --check`, `ruff check`, `pyright`, `pytest -q` against a `pgvector/pgvector:pg16` service container (database `knowserve_test`, `KS_TEST_DATABASE_URL`) |
+| `python` | `uv sync --frozen`, `ruff format --check`, `ruff check`, `pyright`, `pytest -q` against a `pgvector/pgvector:0.8.6-pg18` service container (PostgreSQL 18, as production, ADR 0002) (database `knowserve_test`, `KS_TEST_DATABASE_URL`) |
 | `openapi-drift` | regenerates the OpenAPI document and fails on any diff against `docs/contracts/openapi.json` |
 | `frontend` | frozen pnpm install, lint, format:check, typecheck, test, build, `check:api` (Node 22) |
 | `docker-build` (api, worker) | builds both images from the repository root, no push |

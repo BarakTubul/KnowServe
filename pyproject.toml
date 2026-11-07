@@ -51,6 +51,8 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "m0: tests covering M0 acceptance criteria",
     "m1: tests covering M1 acceptance criteria",
+    "m2: tests covering M2 acceptance criteria",
+    "documents: document library and access tests",
     "api: API service tests",
     "worker: Worker service tests",
     "integration: needs the local PostgreSQL+pgvector database (compose db service)",

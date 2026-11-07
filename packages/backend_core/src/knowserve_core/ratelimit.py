@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,6 +16,17 @@ class RateDecision:
     limit: int
     remaining: int
     retry_after_seconds: int
+
+
+def client_bucket_key(address: str, pepper: bytes) -> str:
+    """Limiter key for a client address: a keyed hash, never the address (SEC-18, OPEN-28 Q9).
+
+    HMAC-SHA256 with a secret pepper, so a counter row cannot be reversed to an address by anyone
+    who reads the database without the pepper. The key is stable while the pepper is, which the
+    fixed-window limit needs.
+    """
+    digest = hmac.new(pepper, address.encode(), hashlib.sha256).hexdigest()
+    return f"demo:client:{digest}"
 
 
 class RateLimiter(Protocol):

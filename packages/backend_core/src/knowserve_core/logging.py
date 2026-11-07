@@ -13,7 +13,8 @@ from . import request_context
 
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEY = re.compile(
-    r"pass(word)?|secret|token|authorization|cookie|api[_-]?key|signing[_-]?key|otp|csrf|signature|session",
+    r"pass(word)?|secret|token|authorization|cookie|api[_-]?key|signing[_-]?key|otp|csrf|signature|session"
+    r"|^ip$|_ip$|^ip_|client[_-]?ip|forwarded|remote[_-]?addr",
     re.IGNORECASE,
 )
 _BEARER = re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
@@ -57,6 +58,13 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+def quiet_http_clients() -> None:
+    """httpx logs every request URL at INFO. Object-store URLs carry the bucket host and the
+    storage key, so client libraries log only warnings and errors (MON-05, DOC-04)."""
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def configure_logging(service: str, level: str = "INFO", stream: Any = None) -> None:
     """Replace root handlers with one JSON handler writing to stdout (Cloud Logging picks it up)."""
     handler = logging.StreamHandler(stream or sys.stdout)
@@ -67,3 +75,4 @@ def configure_logging(service: str, level: str = "INFO", stream: Any = None) -> 
     access = logging.getLogger("uvicorn.access")
     access.handlers[:] = []
     access.propagate = False
+    quiet_http_clients()

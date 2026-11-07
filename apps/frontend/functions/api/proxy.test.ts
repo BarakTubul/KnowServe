@@ -137,6 +137,63 @@ describe('open21 request headers', () => {
     expect(h.get('cookie')).toBe('ks_session=abc');
   });
 
+  it('doc11_forwards_range_and_if_range_on_get', async () => {
+    const f = upstreamOk();
+    await handle(
+      req('/api/v1/documents/abc/content', {
+        headers: { range: 'bytes=0-99', 'if-range': '"rev1"' },
+      }),
+      ENV,
+      f,
+    );
+    const h = f.mock.calls[0]?.[0].headers as Headers;
+    expect(h.get('range')).toBe('bytes=0-99');
+    expect(h.get('if-range')).toBe('"rev1"');
+  });
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('doc11_does_not_forward_range_on_%s', async (m) => {
+    const f = upstreamOk();
+    await handle(
+      req('/api/v1/x', { method: m, body: '{}', headers: { range: 'bytes=0-1', 'if-range': 'x' } }),
+      ENV,
+      f,
+    );
+    const h = f.mock.calls[0]?.[0].headers as Headers;
+    expect(h.has('range')).toBe(false);
+    expect(h.has('if-range')).toBe(false);
+  });
+
+  it('doc11_passes_206_content_range_and_416_through_unchanged', async () => {
+    const partial = await handle(
+      req('/api/v1/documents/abc/content', { headers: { range: 'bytes=0-3' } }),
+      ENV,
+      upstreamOk({
+        status: 206,
+        body: '%PDF',
+        headers: {
+          'content-range': 'bytes 0-3/100',
+          'content-length': '4',
+          'accept-ranges': 'bytes',
+          'content-type': 'application/pdf',
+          'cache-control': 'private, no-store',
+        },
+      }),
+    );
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get('content-range')).toBe('bytes 0-3/100');
+    expect(partial.headers.get('accept-ranges')).toBe('bytes');
+    expect(partial.headers.get('cache-control')).toBe('private, no-store');
+    expect(await partial.text()).toBe('%PDF');
+
+    const unsatisfiable = await handle(
+      req('/api/v1/documents/abc/content', { headers: { range: 'bytes=500-' } }),
+      ENV,
+      upstreamOk({ status: 416, headers: { 'content-range': 'bytes */100' } }),
+    );
+    expect(unsatisfiable.status).toBe(416);
+    expect(unsatisfiable.headers.get('content-range')).toBe('bytes */100');
+  });
+
   it('open21_spoofed_client_ip_is_not_forwarded_when_cf_header_absent', async () => {
     const f = upstreamOk();
     await handle(req('/api/v1/x', { headers: { 'x-ks-client-ip': '6.6.6.6' } }), ENV, f);
