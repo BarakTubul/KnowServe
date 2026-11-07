@@ -1,5 +1,7 @@
 # M1 handoff (WF-12), draft
 
+**BLOCKED (2026-11-07): Demo Cleanup signature verification defect.** The first scheduled cleanup (03:00 UTC, 2026-11-07) was rejected with 401 on all four deliveries. The cause is found and the schedule is corrected (section 3, "Demo Cleanup defect"), and a manual QStash delivery returned 200. The M1 production handoff stays blocked, and M1 is not closed, until a successful **scheduled** cleanup (next: 2026-11-08 03:00 UTC) is evidenced here. The block covers M1 closure and anything that depends on Demo cleanup; it does not block unrelated planning.
+
 **Status (2026-11-06):** M1 is merged (PR #28, `045f463`), deployed to production (`knowserve-m0-spike`) through the `production` GitHub Environment, and closed by the Owner with **one accepted gap**: the Demo to Registered conversion was not run on real Firebase (section 3). The migration ran, the Admin is provisioned, the daily Demo-cleanup schedule exists, and the other real-Firebase checks passed. Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
 
 ## 1. What exists locally
@@ -44,6 +46,14 @@
 - Finding: Firebase replaced the Admin's unverified console-created password credential when the same email signed in with Google (its built-in protection), so the Admin account is Google-only and verified. This is allowed (O1); password sign-in for the Admin can be added later.
 - Cleanup endpoint: unsigned requests to `/internal/maintenance/demo-cleanup` are rejected with 401, with and without a body (AC16, SEC-14). The daily QStash schedule `knowserve-demo-cleanup` (`CRON_TZ=UTC 0 3 * * *`, POST, no body, 3 retries) was created on 2026-11-06 and read back; the first scheduled delivery (03:00 UTC) has not been observed yet. The one-time Admin seed job was removed after use (Terraform apply: 1 destroyed), and Terraform matches the configuration.
 
+**Demo Cleanup defect (2026-11-07), BLOCKING**
+- Symptom: four QStash deliveries (03:00:00, 03:00:22, 03:02:54, 03:30:14 UTC) reached the Worker and all returned 401, log line `rejected maintenance delivery with invalid signature`. No cleanup ran.
+- Root cause: the schedule destination was `https://knowserve-worker-ql7pu53csa-ew.a.run.app/internal/maintenance/demo-cleanup`, but the Worker's `KS_WORKER_PUBLIC_URL` (revision `knowserve-worker-00006-sk8`) is `https://knowserve-worker-866929656529.europe-west1.run.app`. QStash signs the destination it called into the `sub` claim; the Worker requires `sub` to equal its configured URL plus the path, so the destination check failed. Both hosts are aliases of the same Cloud Run service, which is why requests still arrived. The signing keys were not the cause: they have one enabled version each (created 2026-10-31), and the corrected delivery verified with them. The error log does not say which check failed (deferred improvement below).
+- Fix (cloud only, Owner approved in chat, 2026-11-07 ~09:06 UTC): `infra/qstash/demo-cleanup-schedule.sh create` was re-run with `WORKER_PUBLIC_URL=https://knowserve-worker-866929656529.europe-west1.run.app` and the same schedule id, which updates the schedule in place (no delete, so no gap and no duplicate). The listing afterwards shows exactly one schedule `knowserve-demo-cleanup`, the corrected destination, `CRON_TZ=UTC 0 3 * * *`, POST, 3 retries, not paused. No secret, Worker configuration or application code changed.
+- Manual verification: one test message published through QStash to the corrected destination (09:07:03 UTC, no retries) returned 200 at 09:07:04; the Worker logged `demo cleanup run` with `deleted_users` 0, `failed_batches` 0, `batches` 0 (nothing was expired, so this proves authentication and a clean run, not a deletion).
+- Still required before closing: the next scheduled run (2026-11-08 03:00 UTC) accepted with 200 and a `demo cleanup run` log line, recorded here.
+- Deferred follow-ups (Owner asked to wait): distinct signature failure reasons in the Worker log (destination mismatch, bad signature, body hash), regression tests for a validly signed but wrong-host delivery, and a check in the script and README that the destination equals the deployed `KS_WORKER_PUBLIC_URL` (use the Cloud Run env value, not the service URL).
+
 **Real-Firebase checks run by the Owner on the live site (2026-11-06)**
 - Passed: sign out everywhere (sessions revoked, the other browser signed out), Google sign-in on an email that already has a password account (link prompt, no silent merge), and the Continue button on Firebase's hosted verification and reset pages returning to `/login` (AC05, AC07).
 
@@ -51,7 +61,7 @@
 - AC15 Demo to Registered conversion was **not run on real Firebase**. The Owner closed M1 without it. What covers it instead: the backend integration tests (same `users.id` and uid, fixture records in two departments, lost-call recovery, the cleanup race) and the real-API end-to-end flow against the Firebase Auth Emulator. What stays unproven on real Firebase is that the token's provider claim becomes `password` after linking, as it did on the emulator. If conversion fails on production, `/v1/auth/convert` fails closed (401) and the Demo session stays valid; the lost-call path (a normal sign-in completes the conversion) still works.
 
 **Still to observe**
-- The first scheduled Demo cleanup (03:00 UTC): a signed QStash delivery must be accepted by the Worker (only locally signed tokens and the unsigned rejection were tested). Check the Worker log and the `demo.cleanup.run` audit event.
+- The first **successful scheduled** Demo cleanup (next: 2026-11-08 03:00 UTC; the 2026-11-07 run failed, see "Demo Cleanup defect"). A manually published signed delivery was accepted on 2026-11-07. Check the Worker log and the `demo.cleanup.run` audit event.
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
@@ -64,7 +74,7 @@
 - The production cutover (spike to production Environment) runs in its own session; this handoff does not depend on it.
 
 ## 5. Next steps
-1. Observe the first scheduled Demo cleanup and record the result.
+1. Observe the next scheduled Demo cleanup (2026-11-08 03:00 UTC), record the result and remove the BLOCKED banner only if it succeeded.
 2. Run the Demo to Registered conversion on real Firebase when convenient, to close the accepted gap.
 3. Decide whether to add password sign-in for the Admin, and close PR #26 (superseded by #28).
 4. Carry the M4 criteria that complete M1 evidence (CHAT-18, CHAT-19) into the M4 plan.
