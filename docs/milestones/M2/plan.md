@@ -1,6 +1,6 @@
 # M2: Documents Library and Access
 
-Status: approved by the Owner on 2026-11-07 (decisions Q1 to Q12, recorded as OPEN-28 in `../../open-decisions.md`). Only M2-PG is authorized for local implementation so far; the next checkpoint is M2-01. Nothing here authorizes cloud actions, `git push`, a merge, a deployment or a production data change; each needs separate approval. The task board is `tasks.md`. Normative requirements stay in the specs; this plan adds the scope, acceptance criteria, contracts, access model, schema, risks and owner actions. The roadmap section is `../ROADMAP.md` (section 4); where this plan and the roadmap table differ, this plan owns the final allocation (A2).
+Status: approved by the Owner on 2026-11-07 (decisions Q1 to Q12, recorded as OPEN-28 in `../../open-decisions.md`). Local implementation of M2-PG, M2-01 to M2-05, M2-PRIV and Q13 is authorized and done or in progress (status in `tasks.md`). Q13 was decided on 2026-11-07 (OPEN-29): English and Hebrew, English default, selector, choice kept in the browser. Q14 is deferred and non-blocking (OPEN-30). Nothing here authorizes cloud actions, `git push`, a merge, a deployment or a production data change; each needs separate approval. The task board is `tasks.md`. Normative requirements stay in the specs; this plan adds the scope, acceptance criteria, contracts, access model, schema, risks and owner actions. The roadmap section is `../ROADMAP.md` (section 4); where this plan and the roadmap table differ, this plan owns the final allocation (A2).
 
 Anything I inferred and did not find in the specs is marked "Assumption" and collected in section 13. Approved decisions and the questions that remain are in section 12.
 
@@ -251,20 +251,20 @@ Binding. The normative text is in `../../open-decisions.md` (OPEN-28) and the sp
 ### 12.2 Questions that remain
 | # | Question | Needed | Recommended default |
 |---|---|---|---|
-| Q13 (OPEN-29) | PROD-13 asks for messages in "the user's selected interface language". No language selector or message catalog exists. Which languages are supported, which is the default, where does the user choose, and is the choice kept in the browser or the account? | Before the first localized message ships (M2-04a, M2-04b) | English default, one catalog keyed by error code with a generic fallback, language kept in the browser, more languages added as catalog files. You name the languages. Not a product-wide rewrite. |
-| Q14 | Q9 remediation for production: approve a read-only count of `audit_events.ip` and the `demo:ip:` keys in `rate_limit_counters`, then (separately) a scrub? The proposed steps are in M2-PRIV. | After M2-PRIV code lands | Yes to the read-only count; the scrub only after you see the count. |
+| Q13 (OPEN-29) | **Decided 2026-11-07.** Languages: English and Hebrew. English is the default. A language selector exists; the choice is kept in the browser, not the account. Applies to M2 interfaces and user-facing messages only for now. Messages come from catalogs keyed by error code, friendly and non-technical, with a safe fallback. No product-wide rewrite. | done | Implemented in the Q13 task (see `tasks.md`). |
+| Q14 | **Deferred 2026-11-07, non-blocking for M2 (OPEN-30).** No production queries, IP counts, scrubbing or deletions are authorized. M2-PRIV code stops future IP persistence. Historical-data verification is a follow-up before real users are onboarded. Existing production IP data is not claimed to be clean. | before real users | Read-only count first, scrub only with a separate approval. |
 
 Everything else in the earlier question list is answered above. Nothing blocks M2-PG. M2-01 can start after M2-PG; Q13 is needed only before localized messages ship.
 
 ### 12.3 OPEN items touched
 | ID | Status in M2 |
 |---|---|
-| OPEN-22 | Decide in M2-CI (D2). My recommendation is (a) plus a path-aware `changes` job for docs-only PRs, with `ci-required` still failing on failed or cancelled jobs. The user approves any branch protection or `ci-required` change. |
-| OPEN-27 | Proposal only (D2). Implementation needs separate approval. |
+| OPEN-22 | Partly decided 2026-11-07: optimize CI for docs-only PRs only, keep every gate for code changes, no change to GitHub Actions or branch protection without separate approval. Nothing implemented. |
+| OPEN-27 | Approved in principle 2026-11-07 (design only): approval-gated workflow, migration before deployment through `needs`, WIF conditions unchanged. No workflow change; implementation needs separate approval. |
 | OPEN-10 | M0-AC09 billing evidence is an owner action in M2-00b. |
 | OPEN-05 | Not touched by M2. |
 | OPEN-28 | Resolved on 2026-11-07 (Q1 to Q12). |
-| OPEN-29 | New, still open (Q13). |
+| OPEN-29 | Resolved 2026-11-07 (Q13). |
 
 ## 13. Assumptions made in this plan
 
@@ -299,14 +299,14 @@ Everything else in the earlier question list is answered above. Nothing blocks M
 | Migration `0003` runs after the API revision that expects it, or the reverse | Errors on the library routes | `0003` is additive; the deploy runs the job first (TEST-14); the rollback note covers it. |
 | Two frontend workstreams edit shared files | Merge conflicts | The Owner registers routes and API client types in M2-01; each workstream owns a feature directory. |
 | Demo cleanup fix not yet proven | AC19 stays open | Does not block code; watched tomorrow. |
-| Existing IP data in production | SEC-18 is breached by data already stored | Read-only count first, scrub only with approval (M2-PRIV). No production change in this task. |
-| Language support undefined (Q13) | Localized messages cannot ship in more than one language | English default and a catalog structure; the owner names languages. |
+| Existing IP data in production | SEC-18 is breached by data already stored | Deferred (Q14, OPEN-30). No production query or change is authorized; M2-PRIV stops future persistence. The follow-up is verification before real users are onboarded; existing data is not claimed clean. |
+| Localization scope (Q13) | Only the M2 screens are localized; auth, dashboard and other screens stay English | Decided: English and Hebrew for M2 only; the other screens are listed as a gap in the frontend spec. |
 
 ## 15. Owner actions by hand
 
 Each needs separate approval; this plan authorizes none of them.
 
-1. Answer Q13 and Q14.
+1. Q13 is answered (English and Hebrew). Q14 is deferred (OPEN-30).
 2. Confirm tomorrow's 03:00 UTC Demo cleanup run (M2-00a).
 3. Create the private R2 bucket by hand with a scoped token (Q10), store the token in Secret Manager, and approve the Terraform change that wires it into Cloud Run (M2-00c).
 4. Approve the production migration `0003` under the `production` environment.

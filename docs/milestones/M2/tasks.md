@@ -8,7 +8,7 @@
 | M2-00a | Demo Cleanup 401 fix. Cause found (QStash schedule destination host differed from the Worker's `KS_WORKER_PUBLIC_URL`); fixed in production. Handoff update is PR #31 (other session). Remaining: read-only verification of the 2026-11-08 03:00 UTC run (05:00 Israel time) | none | Owner | small | Pending Verification |
 | M2-00b | M0-AC09 cost evidence: billing report for the idle project and Neon compute hours | none | Owner (user) | small | not started |
 | M2-00c | R2 bucket (created manually, Q10), scoped access token, Secret Manager container, Terraform wiring of Cloud Run environment and secrets (existing Terraform) | none | Owner (user) | small to medium | not started; gates the deployed smoke and the production seed |
-| M2-00d | Owner decisions Q1 to Q12 | none | Owner (user) | small | done 2026-11-07 (OPEN-28); Q13 and Q14 remain |
+| M2-00d | Owner decisions Q1 to Q12 | none | Owner (user) | small | done 2026-11-07 (OPEN-28); Q13 decided (OPEN-29), Q14 deferred and non-blocking (OPEN-30) |
 | M2-PG | CI and Compose to a PostgreSQL 18 pgvector image; run `0001`, `0002`; affected tests; ADR | none (first task, Q11) | Infra-PG | small to medium | done locally: PostgreSQL 18.6 + pgvector 0.8.6, migrations `0001`/`0002` and 434 tests pass; merged into `m2/integration`; GitHub CI passed on the PostgreSQL 18 image (draft PR 32, all 8 checks, M2-AC17) |
 | M2-CI | OPEN-22 decision, OPEN-27 proposal, E2E placement (docs only) | none | Owner | small | done as docs only (`docs/architecture/ci-cd-proposals.md`): OPEN-22 recommendation, OPEN-27 proposal, E2E placement; nothing decided or changed, the user decides |
 | M2-RB | Cloud Run rollback note including the `0003` compatibility check | M2-01 (schema known) | Owner | small | written (`docs/architecture/rollback.md`); not exercised; `0003` downgrade tested on a disposable database |
@@ -40,7 +40,7 @@ Blocked until an answer arrives:
 | Task | Blocked on |
 |---|---|
 | M2-01 | M2-PG merged |
-| M2-04a, M2-04b (localized messages) | Q13 (languages) |
+| M2-04a, M2-04b (localized messages) | Q13 decided: English and Hebrew; implemented in the Q13 task |
 | M2-PRIV | the owner's go-ahead; production count and scrub need separate approval |
 | M2-05 production run | IAM approval for the seed job, R2 token, migration `0003` approval |
 | Deployed smoke and production seed | M2-00c (Q10), production migration approval |
@@ -87,7 +87,7 @@ Conflict rules: lockfiles and `openapi.json` are never hand-merged (rebase and r
 
 ### M2-00d Owner answers
 - **Objective:** answer Q1 to Q12.
-- **State:** done 2026-11-07, recorded as OPEN-28 in `open-decisions.md`. Q13 (languages, OPEN-29) and Q14 (production IP count) remain.
+- **State:** done 2026-11-07, recorded as OPEN-28 in `open-decisions.md`. Q13 (languages, OPEN-29) was decided on 2026-11-07 (English and Hebrew); Q14 (production IP count) is deferred and non-blocking (OPEN-30).
 
 ### M2-PG PostgreSQL 18 for CI and Compose
 - **Objective:** match production's major version (D5, Q11).
