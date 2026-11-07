@@ -61,11 +61,21 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 - Redis caches are keyed by department, and empty results are never cached.
 - There is no `ready`/current-revision concept: `status` is a free string `pending`/`ingested`/`failed`. There is no soft delete and no revisions.
 
+## Seed (M2-05, M2-AC15)
+Implemented on the target: `apps/api/src/knowserve_api/seed/`.
+- `pdf.py` is a small deterministic PDF generator (no timestamps or random ids; same input, same bytes). `python -m knowserve_api.seed.pdf` rewrites the four committed files in `seed/data/`; a test fails if they differ from the generator.
+- `specs.py` holds the shapes (organization-wide, two-department, owner-not-a-reader, single-department) and the ids: uuid5 over the fixed `SEED_NAMESPACE` plus the slug. Never change the namespace or a slug. Titles and text are placeholders; DEF-01 is not expanded. The optional larger file for Range checks (A7) was not added.
+- `documents.py` is the command: `uv run python -m knowserve_api.seed.documents` with `KS_DATABASE_URL` and the object store keys (`KS_OBJECT_STORE`, `KS_OBJECT_STORE_PATH`; `r2` needs the M2-03 adapter and refuses until then). Locally run `docker compose up -d db`, migrate, then the command; the second run prints `unchanged` for every document.
+- Rules: an existing document is never updated, and its access rows are never added or removed. An existing object is never overwritten (a different size is reported as `object_conflict`, exit 1). The object is written before the rows, so a failed run is repaired by the next. Revisions are `ready` with a page count, with no chunks and no jobs (Q8).
+- Production: the Cloud Run Job is prepared as a proposal in `infra/terraform/proposed/m2-05-document-seed-job.tf.txt` (not loaded by Terraform, not planned, not applied). It runs the API image with its own service account and read access to only `database-url` and the two R2 credential secrets. IAM, R2 credentials (M2-00c), apply and the single execution are Owner steps.
+
 ## Known gaps
 - DOC-01, DOC-03, DOC-07 and DOC-08 (library list) are M2-02.
 - DOC-04, 05, 09, 10, 11 are implemented in M2-03 and tested against `FakeObjectStore` and a mock R2 transport. The R2 path is unverified against a real bucket until M2-00c, and streaming limits of Cloud Run and the Pages Function are unmeasured.
 - A range request that is multiple, malformed or of another unit is answered with the full body (200) instead of an error.
 - A stream that fails after the headers are sent ends early (short read); the client retries.
+The seed's `r2` path is untested until M2-03 and M2-00c exist; the production seed has not run.
+Every DOC requirement is unimplemented on the target (R2, revisions, active department, 404 semantics).
 
 ## Related docs
 `admin-docs.md`, `ingestion.md`, `../cross-cutting/security-and-permissions.md`, `../cross-cutting/document-lifecycle.md`, `../frontend/my-documents.md`
