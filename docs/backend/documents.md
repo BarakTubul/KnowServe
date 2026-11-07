@@ -16,7 +16,7 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 ## Target requirements
 | ID | Requirement | Milestone |
 |---|---|---|
-| DOC-01 | The library endpoint returns only documents visible to the caller's **active department** per SEC-07. Each item has id, title/filename, owner department and the fields the UI needs. | M2 |
+| DOC-01 | The library endpoint returns only documents visible to the caller's **active department** per SEC-07. Each item has id, title/filename, owner department and the fields the UI needs. The list is cursor-paginated: query `limit` and an opaque `cursor`; the response has `items`, `next_cursor` and `has_more`. Search, owner filter and the visibility predicate apply before pagination, and the order is stable and deterministic (OPEN-28 Q3). No total count. | M2 |
 | DOC-03 | A request without an active department returns **409 `ACTIVE_DEPARTMENT_REQUIRED`** and no documents (OPEN-14). The API never falls back to "all documents", including for the Admin (SEC-17). | M2 |
 | DOC-04 | A PDF bytes endpoint streams the current ready revision from private R2 **through the API** after a per-request access check (SEC-06). No R2 or public URL is ever returned. Responses are not publicly cacheable. | M2 |
 | DOC-05 | Status codes: no session → 401 (SEC-01); forbidden, unknown, not ready or deleted → identical 404 (SEC-02). | M2 |
@@ -24,6 +24,7 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 | DOC-08 | The library supports filename search and filtering by owner department, both within the visible set. | M2 |
 | DOC-09 | A metadata endpoint used by the viewer and by citation deep links (`/documents/:id?page=N`) returns filename and page count under the same checks as DOC-04. A page outside the range returns a validation error. | M2/M4 |
 | DOC-10 | Revocation or soft delete is effective on the very next request to every endpoint here (SEC-09). There is no server cache that can serve stale access. | M2 |
+| DOC-11 | The bytes endpoint supports a single byte range (`Range`, with `If-Range`): a valid range returns 206 with `Content-Range`, an unsatisfiable one 416, and the document authorization is rechecked on every request including each range request. Multiple ranges are not supported (OPEN-28 Q2). | M2 |
 
 ### Retired IDs (do not reuse)
 | ID | Was | Reason |
@@ -42,6 +43,8 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 | DOC-08 | integration | Search "hand" + owner filter | intersection, within the visible set only |
 | DOC-09 | integration | Valid page / page 0 / page > count / forbidden doc | 200 / 422 / 422 / 404 |
 | DOC-10 | integration | Revoke, then immediately request the list and the bytes | absent / 404 |
+| DOC-01 | integration | 5 visible docs, `limit=2`, follow `next_cursor` to the end, with a search term and an owner filter | each document exactly once in a stable order; `has_more` false on the last page; filtered-out and forbidden documents never appear on any page |
+| DOC-11 | integration | Valid range / unsatisfiable range / range on a forbidden or revoked doc / revoke between two range requests | 206 with `Content-Range` / 416 / 404 / second request 404 |
 
 ## Current implementation (LEGACY, not migrated)
 - `routers/docs.py` exposes `/documents/my/access`, `/my/owned` and `/my/{id}/download`. The controller lives in `controllers/docs_controller.py` and the logic in `services/docs_service.py`.

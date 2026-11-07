@@ -6,7 +6,7 @@
 | ID | Requirement | Milestone |
 |---|---|---|
 | FE-DOC-01 | The library is fetched with TanStack Query, keyed by identity + active department (FE-ARCH-04), and refetched after a switch or invalidation. It never reuses another department's data. | M2 |
-| FE-DOC-02 | The library shows loading, empty ("no documents available in this department") and error states. Errors are actually rendered. | M2 |
+| FE-DOC-02 | The library shows loading, empty ("no documents available in this department") and error states. Errors are actually rendered as friendly localized messages (PROD-13, FE-ARCH-14). | M2 |
 | FE-DOC-03 | Filename search and an **owner department** filter. Filter options come from the API, not from hard-coded ids. | M2 |
 | FE-DOC-04 | Each item shows filename/title and owner department. The UI does not imply that ownership grants access (PROD-06). | M2 |
 | FE-DOC-05 | Each listed document (all of them are ready and authorized) opens in the protected viewer at `/documents/:id`. | M2 |
@@ -14,6 +14,7 @@
 | FE-DOC-07 | The **PDF viewer** uses React-PDF and loads bytes only from the API bytes endpoint (DOC-04) with credentials. It never uses a storage or public URL. | M2 |
 | FE-DOC-08 | The viewer has a custom toolbar with page navigation and zoom. The `?page=N` query parameter opens that page and stays in sync with navigation. The header shows the filename + page. | M2 |
 | FE-DOC-09 | A 404 from the metadata or bytes endpoint shows a neutral "not found or not available" view that does not reveal whether the document exists (SEC-02). A revoked document that is already open stops loading new pages on the next request. | M2 |
+| FE-DOC-10 | The library loads one page of results and offers a "Load more" button while the API reports `has_more`. It follows the opaque `next_cursor`, appends items, and resets the cursor when the search, owner filter, identity or active department changes (OPEN-28 Q3). | M2 |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
@@ -27,6 +28,7 @@
 | FE-DOC-07 | component | Viewer load | requests only the API bytes URL, with credentials |
 | FE-DOC-08 | component + e2e | Open `?page=3`; click next | page 3 shown; URL becomes `?page=4` |
 | FE-DOC-09 | component | Bytes 404 | neutral not-found view |
+| FE-DOC-10 | component | 3 items with a page size of 2; click "Load more"; change the filter afterwards | second click appends the third item and the button disappears; a filter change restarts from the first page |
 
 ### Retired IDs (do not reuse)
 None. FE-DOC-01..06 are kept with updated meaning.

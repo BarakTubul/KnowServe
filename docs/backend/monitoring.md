@@ -10,8 +10,8 @@ Structured logs, correlation ids, audit events, basic metrics and AI usage recor
 |---|---|---|
 | MON-02 | AI usage is recorded per request: identity type, identity, department, model, tokens in/out, estimated cost, outcome (done/aborted/error) and latency. These records feed the quotas and the budget (COST-02, COST-03). | M4 |
 | MON-03 | Both services log structured JSON to stdout/stderr, which goes to Google Cloud Logging. Every log line carries a request/correlation id, which is propagated from the API through the outbox and the job to the Worker phases. | M0 |
-| MON-04 | Audit events are recorded for auth, admin and security actions: signup, verification, login success/failure (by method), Demo start and conversion outcome, quota refusals, Demo cleanup runs, logout, admin document actions, permission changes, and rejected Worker signatures. | M1/M3 |
-| MON-05 | Logs never contain passwords, Firebase ID tokens, CSRF or session tokens, cookies, API keys, or full document or chat content. | M0 |
+| MON-04 | Audit events are recorded for auth, admin and security actions: signup, verification, login success/failure (by method), Demo start and conversion outcome, quota refusals, Demo cleanup runs, logout, admin document actions, permission changes, and rejected Worker signatures. Audit events carry no client IP (SEC-18); they keep actor id, event type, timestamp, result and request id. | M1/M3 |
+| MON-05 | Logs never contain passwords, Firebase ID tokens, CSRF or session tokens, cookies, API keys, full document or chat content, client IP addresses or the forwarded client-IP header (SEC-18). | M0 |
 | MON-06 | Basic Cloud Monitoring metrics and alerts cover error rate, job failures and stuck outbox rows, plus provider billing alerts (COST-04). | M0/M3 |
 
 ### Retired IDs (do not reuse)

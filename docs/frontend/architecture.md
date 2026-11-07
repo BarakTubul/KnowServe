@@ -7,7 +7,7 @@
 |---|---|---|
 | FE-ARCH-01 | All HTTP goes through one typed API client whose types are **generated from the approved OpenAPI contract** (STACK-38). Components never call `fetch` ad hoc; the SSE chat stream helper is part of the client. | M0 |
 | FE-ARCH-02 | Requests use `credentials: 'include'` (session cookie, AUTH-06) and send the session-bound CSRF token on mutations (AUTH-14). The API base URL is `/api` in every environment: the Vite dev server and the production Pages Function both forward it to the API, so the browser always talks to one origin (AUTH-19, INFRA-11); `VITE_API_BASE_URL` may override it. The frontend never reads the session cookie. | M0/M1 |
-| FE-ARCH-03 | API errors are parsed from the standard envelope (`error.code`, `error.message`, `error.request_id`, ARCH-05) into one typed error. A 401 sends the user to the session-expired/login flow and clears identity-scoped caches. A 404 on a document shows a neutral "not found or not available" view (SEC-02). A 409 `ACTIVE_DEPARTMENT_REQUIRED` prompts department selection (FE-AUTH-09). A 503 shows a "temporarily unavailable" state. Error views may show the `request_id` for support. | M1/M2 |
+| FE-ARCH-03 | API errors are parsed from the standard envelope (`error.code`, `error.message`, `error.request_id`, ARCH-05) into one typed error. A 401 sends the user to the session-expired/login flow and clears identity-scoped caches. A 404 on a document shows a neutral "not found or not available" view (SEC-02). A 409 `ACTIVE_DEPARTMENT_REQUIRED` prompts department selection (FE-AUTH-09). A 503 shows a "temporarily unavailable" state. Error views may show the `request_id` for support. Messages shown to users come from the localized catalog described in FE-ARCH-14, never from `error.message` directly. | M1/M2 |
 | FE-ARCH-04 | Server data uses **TanStack Query**, with query keys that include the identity and the **active department**. All identity- and department-scoped queries are cleared on logout and on department switch (SEC-10). Local state uses `useState`/`useReducer`, with Context limited to session and active department. There is no Redux or Zustand. | M0/M1 |
 | FE-ARCH-05 | TypeScript `strict`. Folder layout is fixed in M0 as part of the monorepo transition (target: `apps/frontend/src/{app,features,components,lib}`, OPEN-18, `../milestones/M0/plan.md`). Pages and features are grouped by feature. | M0 |
 | FE-ARCH-06 | Routing uses React Router (declarative). Route paths follow the product spec (PROD-05 to PROD-08); the viewer deep link is `/documents/:id?page=N`. Protected routes redirect to login without a session. | M0/M1 |
@@ -18,6 +18,7 @@
 | FE-ARCH-11 | Tests use Vitest + React Testing Library for components and Playwright for e2e (TEST-06). | M0 |
 | FE-ARCH-12 | The dashboard shows the active department, Ask AI, a library preview and recent chats. The sidebar has Dashboard / Chat / Documents (+ Admin for the Admin) (PROD-05). A Demo Mode indicator is always visible (PROD-01). | M1/M2 |
 | FE-ARCH-13 | Departments always come from the API (AUTH-20). No department ids are hard-coded. | M1 |
+| FE-ARCH-14 | One frontend error-message catalog maps each stable API error `code` (and network failure) to a friendly, non-technical message in the user's selected interface language, with a generic fallback for unknown codes. Components render catalog messages and never `error.message`, stack traces or raw exceptions (PROD-13). New and changed flows use the catalog from M2; existing flows are listed as gaps and migrated by risk, not in one rewrite. | M2 |
 
 ## Required tests
 | Req | Level | Scenario | Expected |
@@ -34,6 +35,7 @@
 | FE-ARCH-10 | CI | Lint, format or type error | check fails (M0-AC07) |
 | FE-ARCH-12 | component | Dashboard render | department, Ask AI, library preview, recent chats, Demo Mode |
 | FE-ARCH-13 | CI | Grep for literal department-id arrays | none |
+| FE-ARCH-14 | component | Render each flow with every code it can receive, including an unknown code | friendly catalog message or the generic fallback; no technical text |
 
 ## Current implementation (LEGACY, not migrated)
 - JS/JSX and npm. The Vite proxy forwards `/api` to `localhost:8000`.

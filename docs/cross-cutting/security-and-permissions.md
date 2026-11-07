@@ -25,6 +25,7 @@ This is the single normative source for access-control rules, HTTP status semant
 | SEC-15 | Frontend route hiding and admin-control hiding are UX only. All authorization is enforced by the backend. | M1 |
 | SEC-16 | Try Demo users (Firebase anonymous uid with a KnowServe Demo identity) are isolated from registered users, from each other, and per department. A Demo conversion keeps the same internal identity and grants no additional document or Admin permission (AUTH-34). Demo users never reach Admin operations. | M1 |
 | SEC-17 | The Admin's elevated permissions apply **only** to dedicated Admin endpoints and UI (ADM-*). In the regular library, PDF viewer and RAG chat the Admin follows exactly the same active-department rules (SEC-07) as any user; there is **no global Admin bypass** (OPEN-13). | M1/M2/M4 |
+| SEC-18 | KnowServe does not persist client IP addresses in the application-managed database (audit events, rate-limit counters or any other table) or in application and Worker logs, and does not log the forwarded client-IP header. Audit events keep non-IP data: actor id, event type, timestamp, result and request id. Rate limiting (for example Demo creation per hour) keeps working without an application-managed persistent IP history. Cloudflare and Google Cloud may process or retain IP data under their own policies; this requirement does not claim to remove provider-level processing (OPEN-28, Q9). | M2 (policy and remediation), see `../milestones/M2/plan.md` |
 
 ### Demo authorization model (OPEN-12)
 Any user or visitor may choose any fictional department, so department membership is self-selected. This is a demonstration model, clearly labeled Demo Mode (PROD-01), and not a claim that it suits a real enterprise. The guarantees that **are** enforced: per-request authorization by the active department, and no leakage of another department's conversations or documents across a switch (SEC-10).
@@ -74,6 +75,7 @@ All errors use the envelope `{"error": {"code", "message", "request_id"}}` defin
 | SEC-15 | e2e | Non-admin navigates to an admin URL | UI blocks it and the API returns 403 |
 | SEC-16 | integration | Two demo visitors; one visitor in two departments | no cross-visitor or cross-department history or data |
 | SEC-17 | integration | Admin with active department A requests the library, bytes and chat retrieval for a doc shared only with B | not listed / 404 / not retrieved; the same doc is visible via the Admin list endpoint |
+| SEC-18 | integration + review | Run Demo start, session creation, denial and revocation; read `audit_events`, `rate_limit_counters` and captured logs | no row or log line contains a client IP or the forwarded IP header value; the rate limit still returns 429 after the configured count |
 
 ## Current implementation (LEGACY, not migrated)
 - `backend/app/utils/auth.py`: a JWT is read from a cookie or `Authorization: Bearer`. The department comes from the token, not from a server-side active department.
