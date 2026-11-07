@@ -1,5 +1,5 @@
 locals {
-  api_secret_env    = ["database-url", "qstash-token", "proxy-shared-secret"]
+  api_secret_env    = ["database-url", "qstash-token", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key", "ip-hash-pepper"]
   worker_secret_env = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key"]
 
   # Secret id -> environment variable name (names fixed by docs/contracts/config-and-deploy.md).
@@ -9,6 +9,9 @@ locals {
     "qstash-current-signing-key" = "KS_QSTASH_CURRENT_SIGNING_KEY"
     "qstash-next-signing-key"    = "KS_QSTASH_NEXT_SIGNING_KEY"
     "proxy-shared-secret"        = "KS_PROXY_SHARED_SECRET"
+    "r2-access-key-id"           = "KS_R2_ACCESS_KEY_ID"
+    "r2-secret-access-key"       = "KS_R2_SECRET_ACCESS_KEY"
+    "ip-hash-pepper"             = "KS_IP_HASH_PEPPER"
   }
 }
 
@@ -59,6 +62,20 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "KS_FIREBASE_PROJECT_ID"
         value = var.firebase_project_id
+      }
+      # M2 document object store (docs/contracts/config-and-deploy.md): Cloudflare R2 over the S3 API.
+      # The credentials and the pepper arrive as secret references below; endpoint and bucket are not secrets.
+      env {
+        name  = "KS_OBJECT_STORE"
+        value = "r2"
+      }
+      env {
+        name  = "KS_R2_ENDPOINT"
+        value = var.r2_endpoint
+      }
+      env {
+        name  = "KS_R2_BUCKET"
+        value = var.r2_bucket
       }
       # Optional non-secret M1 overrides; empty map = application defaults.
       dynamic "env" {

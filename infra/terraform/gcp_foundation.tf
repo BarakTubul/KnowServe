@@ -92,7 +92,7 @@ locals {
   # `migration-database-url` (M1, OPEN-26 D2) holds the DDL-role connection string used only by the
   # migration job. It has no entry in secret_readers on purpose: the API, the Worker and the deployer
   # never read it. Its single accessor binding is in gcp_migration_job.tf.
-  secret_ids = ["database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret"]
+  secret_ids = ["database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key", "ip-hash-pepper"]
 
   # Which runtime account may read which secret.
   secret_readers = {
@@ -101,6 +101,11 @@ locals {
     "qstash-current-signing-key" = { api = false, worker = true }
     "qstash-next-signing-key"    = { api = false, worker = true }
     "proxy-shared-secret"        = { api = true, worker = false } # docs/contracts/proxy.md
+    # M2: R2 credentials for the document object store and the pepper for the keyed hash of the
+    # client address in rate-limit keys (SEC-18). API only; the Worker needs R2 from M3.
+    "r2-access-key-id"     = { api = true, worker = false }
+    "r2-secret-access-key" = { api = true, worker = false }
+    "ip-hash-pepper"       = { api = true, worker = false }
   }
 }
 

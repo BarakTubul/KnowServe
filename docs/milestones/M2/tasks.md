@@ -23,7 +23,7 @@
 | M2-07 | Handoff and the milestone PR | M2-06, M2-CI, M2-RB, M2-00a | Owner | small | not started |
 
 ### M2-00c remaining actions (read-only review, 2026-11-07)
-Nothing below has been done. Terraform code changes can be written by Claude Code for review; every apply, secret value, IAM change and deploy needs the owner's separate approval.
+Status 2026-11-07: steps 2 and 4 are now written as Terraform code in the working tree (`infra/terraform/`: `gcp_foundation.tf`, `gcp_cloud_run.tf`, `variables.tf`, `terraform.tfvars.example`, README section M2 additions), validated with `terraform fmt -check` and `terraform validate` only; no plan, no apply. The rest below has not been done. Terraform code changes can be written by Claude Code for review; every apply, secret value, IAM change and deploy needs the owner's separate approval.
 1. **User, by hand (Cloudflare, Q10):** create the private R2 bucket and an API token scoped to that bucket only, with object read and write. Note the account id, bucket name, access key id and secret.
 2. **Claude Code, code change for review:** in `infra/terraform/gcp_foundation.tf` add secret containers `r2-access-key-id` and `r2-secret-access-key` (and one for the M2-PRIV pepper, for example `ip-hash-pepper`) to `secret_ids`, with `{ api = true, worker = false }` in `secret_readers`. Apply needs approval.
 3. **User, by hand:** enter the secret values as secret versions (R2 keys; a random pepper of at least 16 characters). Terraform never holds values.

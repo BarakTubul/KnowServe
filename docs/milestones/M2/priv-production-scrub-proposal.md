@@ -45,8 +45,10 @@ Re-run the Step 1 counts afterwards; both must be 0.
   and may retain client IPs under their own policies. KnowServe does not claim to remove that.
 - While a Demo window is open, the keyed hash `demo:client:<hex>` is stored in `rate_limit_counters`
   so the limit can work. It is pseudonymous (HMAC-SHA256 with a secret pepper), lives for the window
-  plus 15 minutes, and is never logged, audited or shown. With the default 1 h window a row lives up
-  to about 1 h 15 min.
+  plus 15 minutes before it becomes eligible for deletion, and is never logged, audited or shown.
+  With the default 1 h window a row is eligible for deletion about 1 h 15 min after it was written.
+  This is a cleanup-eligibility rule, not a hard 75-minute retention guarantee: deletion is lazy (see
+  below), so a row can outlive that time on an idle system. Approved by the user on 2026-11-07.
 - Anyone holding both the database and the pepper could test a guessed address against a key.
 - Rows are removed on the next Demo start after expiry, and by the Demo cleanup sweep, not by a
   timer, so an idle system keeps its last rows until then.

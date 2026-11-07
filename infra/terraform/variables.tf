@@ -136,6 +136,26 @@ variable "firebase_project_id" {
   }
 }
 
+variable "r2_endpoint" {
+  type        = string
+  description = "S3 endpoint of the Cloudflare R2 account for the document object store (KS_R2_ENDPOINT), https://<account_id>.r2.cloudflarestorage.com. No bucket in the URL, no trailing slash. Not a secret."
+
+  validation {
+    condition     = can(regex("^https://[a-z0-9-]+\\.r2\\.cloudflarestorage\\.com$", var.r2_endpoint))
+    error_message = "r2_endpoint must look like https://<account_id>.r2.cloudflarestorage.com (no path, no trailing slash)."
+  }
+}
+
+variable "r2_bucket" {
+  type        = string
+  description = "Name of the private R2 bucket created by hand (KS_R2_BUCKET, Q10). Not a secret."
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.r2_bucket))
+    error_message = "r2_bucket must be a valid R2 bucket name (3-63 chars, lower-case letters, digits, dashes)."
+  }
+}
+
 variable "api_m1_settings" {
   type        = map(string)
   description = "Optional non-secret M1 settings for the API, as KEY = \"value\". Leave empty to keep the application defaults (docs/contracts/config-and-deploy.md). Only the keys in the allow-list are accepted; secrets can never be set here."

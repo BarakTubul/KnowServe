@@ -21,6 +21,11 @@ pages_production_branch = "REPLACE_BRANCH"
 # Cloud Run API URL (plain Pages variable API_ORIGIN). Placeholder until the first apply shows output api_url.
 api_origin = "https://api.example.invalid"
 
+# M2 document storage: the private R2 bucket is created by hand (Q10). Endpoint and bucket are not secrets;
+# the R2 token and the IP-hash pepper are secret VERSIONS entered by hand, never here.
+r2_endpoint = "https://REPLACE_R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+r2_bucket   = "REPLACE_R2_BUCKET"
+
 # Required: the Worker's public https URL (QStash destination).
 worker_public_url = "https://worker.example.invalid"
 
