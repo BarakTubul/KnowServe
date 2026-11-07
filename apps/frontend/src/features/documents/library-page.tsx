@@ -8,6 +8,8 @@ import { departmentKey, identityKey, useAuth } from '@/features/auth/auth-contex
 import { DepartmentSelectorDialog } from '@/features/departments/department-selector';
 import { RequireDepartment } from '@/features/departments/require-department';
 import { listDepartments } from '@/lib/api/client';
+import { useLanguage } from '@/lib/i18n/language-context';
+import { LanguageSelector } from '@/lib/i18n/language-selector';
 import { listDocuments } from './library-api';
 import { libraryCatalog, libraryErrorMessage } from './library-messages';
 
@@ -25,7 +27,8 @@ function useDebounced(value: string, delayMs: number): string {
 /** Document library (FE-DOC-01..06, FE-DOC-10): permissioned list, search, owner filter, cursor paging. */
 export function LibraryPage() {
   const { identity, openDepartmentSelector } = useAuth();
-  const text = libraryCatalog();
+  const { language } = useLanguage();
+  const text = libraryCatalog(language);
   const [search, setSearch] = useState('');
   const [owner, setOwner] = useState('');
   const q = useDebounced(search.trim(), SEARCH_DEBOUNCE_MS);
@@ -54,6 +57,7 @@ export function LibraryPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{text.title}</h1>
         <div className="flex flex-wrap items-center gap-3">
+          <LanguageSelector />
           <Link to="/dashboard" className="text-sm underline">
             {text.backToDashboard}
           </Link>
@@ -112,10 +116,12 @@ export function LibraryPage() {
               <li key={item.id}>
                 <Link
                   to={`/documents/${item.id}`}
-                  className="flex flex-col gap-1 rounded-md border border-border p-3 hover:bg-muted"
+                  className="flex flex-col items-start gap-1 rounded-md border border-border p-3 hover:bg-muted"
                 >
-                  <span className="font-medium">{item.title}</span>
-                  <span className="text-sm text-muted-foreground">{item.filename}</span>
+                  <span className="font-medium" dir="auto">
+                    {item.title}
+                  </span>
+                  <bdi className="text-sm text-muted-foreground">{item.filename}</bdi>
                   <span className="text-sm text-muted-foreground">
                     {text.ownerDepartment(item.owner_department.name)} ·{' '}
                     {text.pages(item.page_count)}

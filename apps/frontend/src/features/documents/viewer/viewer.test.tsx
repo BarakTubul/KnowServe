@@ -9,7 +9,11 @@ import {
   DEPARTMENTS,
 } from '@/test/fake-api';
 import { renderApp } from '@/test/render';
-import { NOT_AVAILABLE_TITLE, viewerMessage, GENERIC_MESSAGE } from './messages';
+import { viewerCatalog, viewerMessage } from './messages';
+
+const EN = viewerCatalog('en');
+const NOT_AVAILABLE_TITLE = EN.notAvailableTitle;
+const GENERIC_MESSAGE = EN.errors.generic;
 
 const ID = '44444444-4444-4444-8444-444444444444';
 const META = 'GET /v1/documents/' + ID;

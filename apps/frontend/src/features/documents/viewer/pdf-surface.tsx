@@ -1,5 +1,7 @@
 import { Document, Page, pdfjs } from 'react-pdf';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { documentContentUrl } from './api';
+import { viewerCatalog } from './messages';
 
 // Vite emits the worker as a hashed static asset next to the bundle (same origin, no CDN).
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -21,6 +23,7 @@ interface Props {
 
 /** React-PDF with bytes from the API endpoint only, sending the session cookie (FE-DOC-07). */
 export default function PdfSurface({ documentId, page, scale, onLoaded, onError }: Props) {
+  const text = viewerCatalog(useLanguage().language);
   return (
     <Document
       file={{ url: documentContentUrl(documentId) }}
@@ -28,7 +31,7 @@ export default function PdfSurface({ documentId, page, scale, onLoaded, onError 
       onLoadSuccess={(pdf) => onLoaded(pdf.numPages)}
       onLoadError={onError}
       onSourceError={onError}
-      loading={<p className="p-6 text-sm text-muted-foreground">Loading document…</p>}
+      loading={<p className="p-6 text-sm text-muted-foreground">{text.loadingDocument}</p>}
       error={null}
       noData={null}
     >
