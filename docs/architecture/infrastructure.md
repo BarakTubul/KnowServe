@@ -43,4 +43,4 @@
 None of this exists. The legacy app runs locally only: `uvicorn` plus a Celery worker, and it needs local Postgres and Redis. CORS allows `localhost:5173` and `knowserve.vercel.app` (`backend/app/main.py`), which conflicts with INFRA-02 (Pages, not Vercel).
 
 ## Related docs
-`tech-stack.md`, `../backend/monitoring.md`, `../milestones/M0/plan.md`, `../open-decisions.md`
+`tech-stack.md`, `rollback.md`, `ci-cd-proposals.md`, `../backend/monitoring.md`, `../milestones/M0/plan.md`, `../open-decisions.md`
