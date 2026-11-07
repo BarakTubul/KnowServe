@@ -5,8 +5,10 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { departmentKey, useAuth } from '@/features/auth/auth-context';
 import { ApiError } from '@/lib/api/errors';
+import { useLanguage } from '@/lib/i18n/language-context';
+import { LanguageSelector } from '@/lib/i18n/language-selector';
 import { getDocumentMetadata, pdfLoadError, reportApiError } from './viewer/api';
-import { NOT_AVAILABLE_BODY, NOT_AVAILABLE_TITLE, viewerMessage } from './viewer/messages';
+import { viewerCatalog, viewerMessage } from './viewer/messages';
 
 // pdf.js is loaded only when a document is opened, so the rest of the app stays small.
 const PdfSurface = lazy(() => import('./viewer/pdf-surface'));
@@ -20,18 +22,20 @@ function parsePage(raw: string | null): number | null {
 }
 
 function BackLink() {
+  const text = viewerCatalog(useLanguage().language);
   return (
     <Button asChild variant="outline" size="sm" className="mt-4">
-      <Link to="/documents">Back to documents</Link>
+      <Link to="/documents">{text.backToDocuments}</Link>
     </Button>
   );
 }
 
 function NotAvailable() {
+  const text = viewerCatalog(useLanguage().language);
   return (
     <main className="mx-auto max-w-3xl p-6" data-testid="viewer-not-available">
-      <h1 className="text-xl font-semibold">{NOT_AVAILABLE_TITLE}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{NOT_AVAILABLE_BODY}</p>
+      <h1 className="text-xl font-semibold">{text.notAvailableTitle}</h1>
+      <p className="mt-2 text-sm text-muted-foreground">{text.notAvailableBody}</p>
       <BackLink />
     </main>
   );
@@ -41,6 +45,7 @@ function NotAvailable() {
 export function ViewerPage() {
   const { id = '' } = useParams();
   const { identity } = useAuth();
+  const text = viewerCatalog(useLanguage().language);
   const [searchParams, setSearchParams] = useSearchParams();
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM);
   const [loadedPages, setLoadedPages] = useState<number | null>(null);
@@ -55,7 +60,7 @@ export function ViewerPage() {
   if (metadata.isPending) {
     return (
       <main className="mx-auto max-w-3xl p-6" data-testid="viewer-loading">
-        <p className="text-sm text-muted-foreground">Loading document…</p>
+        <p className="text-sm text-muted-foreground">{text.loadingDocument}</p>
       </main>
     );
   }
@@ -66,7 +71,7 @@ export function ViewerPage() {
     if (apiError.status === 404) return <NotAvailable />;
     return (
       <main className="mx-auto max-w-3xl p-6" data-testid="viewer-error">
-        <Alert variant="error">{viewerMessage(apiError.code)}</Alert>
+        <Alert variant="error">{viewerMessage(apiError.code, text)}</Alert>
         <BackLink />
       </main>
     );
@@ -90,44 +95,49 @@ export function ViewerPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <Link to="/documents" className="text-sm text-muted-foreground underline">
-            Documents
+            {text.documentsLink}
           </Link>
-          <h1 className="truncate text-xl font-semibold" data-testid="viewer-filename">
-            {doc.filename}
+          <h1 className="truncate text-start text-xl font-semibold" data-testid="viewer-filename">
+            <bdi>{doc.filename}</bdi>
           </h1>
           <p className="text-sm text-muted-foreground" data-testid="viewer-header-page">
-            Page {page} of {total}
+            {text.pageOf(page, total)}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="PDF viewer">
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="toolbar"
+          aria-label={text.toolbarLabel}
+        >
+          <LanguageSelector />
           <Button
             variant="outline"
             size="sm"
             onClick={() => goTo(page - 1)}
             disabled={page <= 1}
-            aria-label="Previous page"
+            aria-label={text.previousLabel}
           >
-            Previous
+            {text.previous}
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => goTo(page + 1)}
             disabled={page >= total}
-            aria-label="Next page"
+            aria-label={text.nextLabel}
           >
-            Next
+            {text.next}
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setZoomIndex((i) => Math.max(i - 1, 0))}
             disabled={zoomIndex <= 0}
-            aria-label="Zoom out"
+            aria-label={text.zoomOutLabel}
           >
             −
           </Button>
-          <span className="w-12 text-center text-sm" data-testid="viewer-zoom">
+          <span className="w-12 text-center text-sm" dir="ltr" data-testid="viewer-zoom">
             {Math.round(scale * 100)}%
           </span>
           <Button
@@ -135,7 +145,7 @@ export function ViewerPage() {
             size="sm"
             onClick={() => setZoomIndex((i) => Math.min(i + 1, ZOOM_STEPS.length - 1))}
             disabled={zoomIndex >= ZOOM_STEPS.length - 1}
-            aria-label="Zoom in"
+            aria-label={text.zoomInLabel}
           >
             +
           </Button>
@@ -143,11 +153,14 @@ export function ViewerPage() {
       </header>
       {outOfRange && (
         <Alert variant="info" data-testid="viewer-page-notice">
-          That page does not exist in this document. Showing page {page} instead.
+          {text.pageMissing(page)}
         </Alert>
       )}
-      <div className="overflow-auto rounded-md border bg-muted p-2">
-        <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">Loading viewer…</p>}>
+      {/* The PDF canvas stays left-to-right whatever the interface language. */}
+      <div dir="ltr" className="overflow-auto rounded-md border bg-muted p-2">
+        <Suspense
+          fallback={<p className="p-6 text-sm text-muted-foreground">{text.loadingViewer}</p>}
+        >
           <PdfSurface
             documentId={id}
             page={page}

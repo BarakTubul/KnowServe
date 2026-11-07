@@ -45,8 +45,13 @@
 - Departments 1–5 are hard-coded. Styling is raw CSS plus many inline styles.
 - There are no tests and no TypeScript. `frontend/README.md` is the unmodified Vite template.
 
+## Current implementation (target, FE-ARCH-14, M2)
+- `apps/frontend/src/lib/i18n/`: `languages.ts` (`en` default, `he`; `readStoredLanguage`/`storeLanguage` on `localStorage['knowserve.locale']`, every access in try/catch; `messageForCode` = selected language, then English, then generic), `language-provider.tsx` (state, updates `<html lang dir>`, `rtl` for Hebrew), `language-context.ts` (`useLanguage`, English without a provider) and `language-selector.tsx`. No i18n library was added. `App` and the test `renderApp` wrap the tree in `LanguageProvider`.
+- Per-language catalogs live next to their feature: `features/documents/library-messages.ts` and `viewer/messages.ts` (UI strings and error codes, both languages, generic fallback). Tests: `lib/i18n/i18n.test.tsx`.
+- Scope is the M2 library and viewer only. Auth, department selector, dashboard and `describeApiError` are not on the catalog (gap below).
+
 ## Known gaps
-Every FE-ARCH requirement is unimplemented. Migrating to TypeScript, pnpm, Tailwind and TanStack Query is M0/M1 work.
+Every FE-ARCH requirement except FE-ARCH-14 for the M2 screens (see above) is unimplemented. FE-ARCH-14 for auth, department selector, dashboard and later screens is open and is migrated by risk. Migrating to TypeScript, pnpm, Tailwind and TanStack Query is M0/M1 work.
 
 ## Related docs
 `auth.md`, `chat.md`, `my-documents.md`, `admin-upload.md`, `../architecture/tech-stack.md`, `../cross-cutting/product-and-ux.md`, `../cross-cutting/security-and-permissions.md`
