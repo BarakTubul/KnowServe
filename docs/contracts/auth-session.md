@@ -57,7 +57,7 @@ Name `KS_SESSION_COOKIE_NAME` (default `ks_session`); value is `secrets.token_ur
 | 501 | `NOT_IMPLEMENTED` | M1-01 stubs only; removed as each slice lands |
 
 ## Shared interfaces (`knowserve_core`)
-`audit.record(session, event, user_id=, ip=, **details)` (redacts), `TokenVerifier` and `FakeTokenVerifier`, `RateLimiter` (PostgreSQL fixed-window counters, M1-02a), `QuotaService` (M1-10), `Clock`/`FakeClock`, `security` (token and CSRF helpers), `testing.mint_emulator_token`. Test fixtures in the root `conftest.py`: `make_user`, `make_session`, `make_token`, `clock`.
+`audit.record(session, event, user_id=, **details)` (redacts; no `ip` parameter since M2-PRIV, SEC-18), `TokenVerifier` and `FakeTokenVerifier`, `RateLimiter` (PostgreSQL fixed-window counters, M1-02a), `QuotaService` (M1-10), `Clock`/`FakeClock`, `security` (token and CSRF helpers), `testing.mint_emulator_token`. Test fixtures in the root `conftest.py`: `make_user`, `make_session`, `make_token`, `clock`.
 
 ## Rules for dependents of a user
 Later tables (conversations, messages, ...) reference `users.id` with `ON DELETE CASCADE` and store department as a column; they never store the Firebase uid or email. This makes conversion keep history and Demo cleanup delete it (ADR 0005).

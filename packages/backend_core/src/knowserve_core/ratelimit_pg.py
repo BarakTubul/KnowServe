@@ -22,6 +22,10 @@ from .clock import Clock, SystemClock
 from .models import RateLimitCounter
 from .ratelimit import RateDecision
 
+# A counter row must live for its window to limit anything. After the window ends it is kept this
+# long and then deleted by the next hit of any key in the same family (SEC-18, OPEN-28 Q9).
+EXPIRY_GRACE_SECONDS = 15 * 60
+
 
 class PostgresRateLimiter:
     def __init__(self, clock: Clock | None = None) -> None:
@@ -45,12 +49,22 @@ class PostgresRateLimiter:
             )
             .returning(RateLimitCounter.count)
         )
+        # Expire dead rows of the key family (everything before the last ``:``, so all hashed Demo
+        # keys share one family and one window length): a row goes 15 minutes after its window ends.
+        family = key.rsplit(":", 1)[0] + ":"
+        cutoff = datetime.fromtimestamp(start_epoch - EXPIRY_GRACE_SECONDS, UTC)
+        expire = delete(RateLimitCounter).where(
+            RateLimitCounter.key.startswith(family, autoescape=True),
+            RateLimitCounter.window_start < cutoff,
+        )
         bind = session.bind
         if isinstance(bind, AsyncEngine):
             async with bind.begin() as conn:
                 count = (await conn.execute(stmt)).scalar_one()
+                await conn.execute(expire)
         else:
             count = (await session.execute(stmt)).scalar_one()
+            await session.execute(expire)
         allowed = count <= limit
         retry_after = (
             0 if allowed else max(1, math.ceil(start_epoch + window_seconds - now.timestamp()))

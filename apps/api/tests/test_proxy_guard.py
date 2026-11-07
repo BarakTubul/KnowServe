@@ -137,6 +137,7 @@ async def test_open21_production_starts_and_enforces_with_the_secret() -> None:
     app = create_app(
         _settings(
             env="production",
+            ip_hash_pepper="pepper-for-tests-0123456789",
             enable_spike_endpoints=False,
             firebase_project_id="knowserve-test",
             object_store="r2",
