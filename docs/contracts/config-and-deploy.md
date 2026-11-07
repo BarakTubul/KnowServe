@@ -41,6 +41,10 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_QUOTA_DEMO_DAILY`, `KS_QUOTA_REGISTERED_DAILY`, `KS_QUOTA_ADMIN_DAILY` | API | defaults `20`, `100`, `100` AI questions per UTC day per user (AUTH-36; applied to chat in M4) |
 | `KS_AI_GLOBAL_DAILY_QUOTA`, `KS_AI_KILL_SWITCH` | API | default `100` questions per UTC day across KnowServe and `false`; an operational usage guard, not a spending cap (OPEN-26 N1) |
 | `KS_ADMIN_FIREBASE_UID`, `KS_ADMIN_EMAIL` | provisioning command | the one Admin (AUTH-04); neither is a secret; used only by the idempotent provisioning command |
+| `KS_OBJECT_STORE`, `KS_OBJECT_STORE_PATH` | API (Worker from M3) | `filesystem` (default, local), `fake` (tests) or `r2` (production). `fake` and `filesystem` are refused by the store factory when `KS_ENV=production` (Q6). `KS_OBJECT_STORE_PATH` is the filesystem root, default `.local/objects` |
+| `KS_R2_ENDPOINT`, `KS_R2_BUCKET` | API | R2 S3 endpoint and bucket; not secrets. Used by `R2ObjectStore` (M2-03) |
+| `KS_R2_ACCESS_KEY_ID`, `KS_R2_SECRET_ACCESS_KEY` | API | secrets, Secret Manager only; values never enter the repo or Terraform state |
+| `KS_DOCUMENTS_PAGE_DEFAULT`, `KS_DOCUMENTS_PAGE_MAX` | API | library page size, defaults `20` and `50` (Q3). The route stub currently fixes the same constants |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_AUTH_EMULATOR_URL` | Frontend | public Firebase web config (not secrets, build-time); the emulator URL only in local/e2e builds |
 | `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |
 

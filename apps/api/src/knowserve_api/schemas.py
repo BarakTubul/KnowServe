@@ -63,3 +63,31 @@ def error_responses(*statuses: int) -> dict[int | str, dict[str, Any]]:
 def not_implemented() -> AppError:
     """M1-01 stubs return this until the owning slice implements the route."""
     return AppError(501, "NOT_IMPLEMENTED", "This endpoint is not implemented yet")
+
+
+# --- M2 documents (docs/milestones/M2/plan.md 6.3; Owner-written in M2-01) ----------------------
+
+
+class DocumentOwnerDepartment(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class DocumentListItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    filename: str
+    owner_department: DocumentOwnerDepartment
+    page_count: int
+
+
+class DocumentListResponse(BaseModel):
+    """Cursor page (Q3). ``next_cursor`` is opaque; there is no total count."""
+
+    items: list[DocumentListItem]
+    next_cursor: str | None = None
+    has_more: bool
+
+
+class DocumentMetadata(DocumentListItem):
+    """Metadata of one visible document; shares the list item shape."""

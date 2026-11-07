@@ -105,6 +105,18 @@ class Settings(BaseSettings):
     admin_firebase_uid: str | None = None
     admin_email: str | None = None
 
+    # --- M2 documents (docs/contracts/config-and-deploy.md) ---
+    # `filesystem` for local development, `fake` for tests, `r2` in production (Q6).
+    object_store: Literal["filesystem", "fake", "r2"] = "filesystem"
+    object_store_path: str = ".local/objects"
+    r2_endpoint: str | None = None
+    r2_bucket: str | None = None
+    r2_access_key_id: SecretStr | None = None
+    r2_secret_access_key: SecretStr | None = None
+    # Library list page size (DOC-01, Q3).
+    documents_page_default: int = Field(default=20, ge=1)
+    documents_page_max: int = Field(default=50, ge=1)
+
     @field_validator("database_url")
     @classmethod
     def _normalize_url(cls, value: str) -> str:
