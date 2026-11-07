@@ -1,0 +1,154 @@
+# M2-05 PROPOSAL, FOR REVIEW ONLY. NOT loaded by Terraform (the .txt extension and the
+# `proposed/` directory keep it out of every plan). Nothing here has been planned or applied.
+# To adopt it the Owner moves it to infra/terraform/gcp_document_seed_job.tf and applies the
+# variables and secret containers below (M2-00c), after approving the IAM.
+#
+# What it adds, as the smallest extension of gcp_migration_job.tf (same pattern as admin_seed):
+#   * ONE optional Cloud Run job `knowserve-document-seed`, count = enable_document_seed_job (false).
+#   * ONE new service account `ks-seed-runtime` (plan decision 16: separate, narrow identity).
+#   * Secret accessor on exactly three secrets: `database-url` (DML-only runtime role: the seed only
+#     inserts into documents, document_revisions, document_department_access), and the two R2
+#     credential secrets. It cannot read the migration (DDL) secret, QStash or proxy secrets.
+#   * No deployer grants: CI never executes or updates this job. The Owner updates the image to the
+#     current API digest and executes it by hand, once, as for admin_seed.
+#   * It reuses the API image (the seed ships in `knowserve_api`, PDFs included as package data).
+#
+# The R2 credential secrets are created by M2-00c; they are declared here only as the names this
+# job expects. Terraform creates containers only, never versions (values are set by the Owner).
+# The R2 token should be scoped to the one bucket with object read+write (seed needs head and put).
+#
+# Prerequisite not provided by this change: `r2` in build_object_store (M2-03). Until that adapter
+# exists the command exits 2 with "R2ObjectStore arrives with M2-03" and writes nothing.
+#
+# Owner steps (each needs your explicit approval):
+#   1. M2-00c: create the R2 bucket and scoped token, create the two secret containers and versions.
+#   2. Approve and apply the IAM in this file (service account and three secretAccessor bindings).
+#   3. Update the job image to the deployed API digest, then run once:
+#        gcloud run jobs execute knowserve-document-seed --region <region> --wait
+#      Reruns are safe: existing documents and objects are never changed.
+#   4. Set enable_document_seed_job back to false and apply (the job and its identity are removed).
+
+variable "enable_document_seed_job" {
+  type        = bool
+  description = "Create the Cloud Run job knowserve-document-seed (python -m knowserve_api.seed.documents). Default false: enable only for the Owner-run production seed (M2-05), then set back to false and apply."
+  default     = false
+}
+
+variable "r2_endpoint" {
+  type        = string
+  description = "R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com). Not a secret."
+  default     = ""
+}
+
+variable "r2_bucket" {
+  type        = string
+  description = "R2 bucket name for document objects. Not a secret."
+  default     = ""
+}
+
+# Containers created by M2-00c (names are the contract; values are set by the Owner).
+#   google_secret_manager_secret.secrets["r2-access-key-id"]
+#   google_secret_manager_secret.secrets["r2-secret-access-key"]
+
+resource "google_service_account" "seed" {
+  count        = var.enable_document_seed_job ? 1 : 0
+  project      = var.project_id
+  account_id   = "ks-seed-runtime"
+  display_name = "KnowServe document seed job runtime"
+  depends_on   = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_iam_member" "seed_access" {
+  for_each  = var.enable_document_seed_job ? toset(["database-url", "r2-access-key-id", "r2-secret-access-key"]) : toset([])
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.secrets[each.key].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.seed[0].email}"
+}
+
+resource "google_cloud_run_v2_job" "document_seed" {
+  count    = var.enable_document_seed_job ? 1 : 0
+  project  = var.project_id
+  name     = "knowserve-document-seed"
+  location = var.region
+
+  deletion_protection = false
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = google_service_account.seed[0].email
+      max_retries     = 0
+      timeout         = "300s"
+
+      containers {
+        image   = var.api_image
+        command = ["python"]
+        args    = ["-m", "knowserve_api.seed.documents"]
+
+        env {
+          name  = "KS_ENV"
+          value = "production"
+        }
+        env {
+          name  = "KS_LOG_LEVEL"
+          value = var.log_level
+        }
+        env {
+          name  = "KS_OBJECT_STORE"
+          value = "r2"
+        }
+        env {
+          name  = "KS_R2_ENDPOINT"
+          value = var.r2_endpoint
+        }
+        env {
+          name  = "KS_R2_BUCKET"
+          value = var.r2_bucket
+        }
+        env {
+          name = "KS_DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.secrets["database-url"].secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "KS_R2_ACCESS_KEY_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.secrets["r2-access-key-id"].secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "KS_R2_SECRET_ACCESS_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.secrets["r2-secret-access-key"].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_iam_member.seed_access,
+  ]
+}

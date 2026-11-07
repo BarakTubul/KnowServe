@@ -18,7 +18,7 @@
 | M2-03 | Bytes and metadata endpoints, `R2ObjectStore`, single-range 206/416, headers, proxy forwarding of `Range` and `If-Range`, production guard for store selection | M2-01 | Backend-Content | medium | not started |
 | M2-04a | Frontend library page: list, search, owner filter, "Load more" cursor paging, states with friendly localized messages, department-keyed cache | M2-01 (mocks); M2-02 for e2e; Q13 | Frontend-Library | medium | not started |
 | M2-04b | Frontend viewer: React-PDF, toolbar, `?page=`, neutral 404 view, friendly localized messages | M2-01 (mocks); M2-03 for e2e; Q13 | Frontend-Viewer | medium | not started |
-| M2-05 | Deterministic PDF generator, committed small fictional PDFs, idempotent seed command, and the Cloud Run Job configuration (prepared for review, not applied) | M2-01 | Backend-Seed | small to medium | not started |
+| M2-05 | Deterministic PDF generator, committed small fictional PDFs, idempotent seed command, and the Cloud Run Job configuration (prepared for review, not applied) | M2-01 | Backend-Seed | small to medium | implemented locally on `claude/m2-05-seed-221b39`, awaiting integration; the production job is a proposal only |
 | M2-06 | Integration, SEC hard gates, route walk, Playwright flow, independent review, traceability table, then deployed smoke and production seed | M2-02..05, M2-PG; smoke needs M2-00c and the migration approval | Owner + Review Agent | medium | not started |
 | M2-07 | Handoff and the milestone PR | M2-06, M2-CI, M2-RB, M2-00a | Owner | small | not started |
 

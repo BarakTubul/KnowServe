@@ -1,0 +1,2 @@
+# Seed PDFs are compared byte for byte against the generator output (M2-05).
+apps/api/src/knowserve_api/seed/data/*.pdf binary
