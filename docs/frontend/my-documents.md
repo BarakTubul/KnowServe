@@ -47,11 +47,19 @@ None. FE-DOC-01..06 are kept with updated meaning.
 - The `error` state is never rendered.
 - "View PDF" opens `/api/documents/my/{id}/download` in a new tab. There is no viewer, page deep links or zoom.
 
+## Current implementation (target, M2-04b)
+- `apps/frontend/src/features/documents/viewer-page.tsx` (`ViewerPage`, route `/documents/:id`) plus `viewer/` (`api.ts`, `messages.ts`, `pdf-surface.tsx`). Covers FE-DOC-07, 08 and 09; evidence in `viewer/viewer.test.tsx` (component level, `react-pdf` mocked). The e2e half of FE-DOC-08 is open.
+- Metadata comes from `GET /v1/documents/{id}`; bytes load through React-PDF 11.0.0 (`pdfjs-dist` 6.3.289) from `/api/v1/documents/{id}/content` with `withCredentials`. pdf.js is lazy-loaded and its worker is a same-origin build asset.
+- Toolbar: previous/next, zoom 50% to 200%. `?page=N` is the source of truth (next pushes `?page=N+1`). An out-of-range or non-numeric page shows an inline notice and the nearest page.
+- A 404 from metadata or bytes renders one identical neutral view. Other errors map from the error code to a catalog message (`viewer/messages.ts`, Q13 recommended default: English, generic fallback); `error.message` is never rendered.
+- Range requests: pdf.js asks for ranges; until the Pages proxy forwards `Range` (M2-03/Owner, Q2) the API answers 200 with the full body, which pdf.js accepts.
+
 ## Known gaps
 - FE-DOC-07..09 (viewer) are unimplemented (M2-04b).
 - Existing flows (auth, department selector, dashboard text, `describeApiError`) still use hard-coded English and some technical text (e.g. a "reference <request id>" fallback); they are not on the catalog yet (PROD-13/FE-ARCH-14 gap, migrate by risk).
 - Only English exists until the owner answers Q13; there is no language selector.
 - No e2e/Playwright run against the real M2-02 API yet.
+FE-DOC-01 to 06 and 10 (the library, M2-04a) are unimplemented. FE-DOC-07 to 09 are implemented locally; no Playwright run and no check against a real PDF yet.
 
 ## Related docs
 `architecture.md`, `chat.md`, `../backend/documents.md`, `../cross-cutting/security-and-permissions.md`, `../cross-cutting/product-and-ux.md`
