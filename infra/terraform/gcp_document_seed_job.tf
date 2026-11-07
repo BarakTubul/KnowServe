@@ -1,31 +1,30 @@
-# M2-05 PROPOSAL, FOR REVIEW ONLY. NOT loaded by Terraform (the .txt extension and the
-# `proposed/` directory keep it out of every plan). Nothing here has been planned or applied.
-# To adopt it the Owner moves it to infra/terraform/gcp_document_seed_job.tf and applies the
-# variables and secret containers below (M2-00c), after approving the IAM.
+# M2-05 / M2-00c: the Owner-run production document seed (Cloud Run job `knowserve-document-seed`).
 #
-# What it adds, as the smallest extension of gcp_migration_job.tf (same pattern as admin_seed):
-#   * ONE optional Cloud Run job `knowserve-document-seed`, count = enable_document_seed_job (false).
-#   * ONE new service account `ks-seed-runtime` (plan decision 16: separate, narrow identity).
-#   * Secret accessor on exactly three secrets: `database-url` (DML-only runtime role: the seed only
-#     inserts into documents, document_revisions, document_department_access), and the two R2
-#     credential secrets. It cannot read the migration (DDL) secret, QStash or proxy secrets.
-#   * No deployer grants: CI never executes or updates this job. The Owner updates the image to the
-#     current API digest and executes it by hand, once, as for admin_seed.
-#   * It reuses the API image (the seed ships in `knowserve_api`, PDFs included as package data).
+# Smallest extension of gcp_migration_job.tf (same pattern as `knowserve-admin-seed`):
+#   * ONE optional job, count = enable_document_seed_job (default false: nothing is created).
+#   * ONE dedicated service account `ks-seed-runtime` (plan decision 16). The API account is not
+#     reused because it can also read the QStash token, the proxy secret and the IP-hash pepper,
+#     which the seed does not need.
+#   * secretAccessor on exactly three secrets: `database-url` (the DML-only runtime role: the seed
+#     only inserts into documents, document_revisions and document_department_access) and the two R2
+#     credential secrets. It cannot read the migration (DDL) secret, QStash, proxy or the pepper.
+#   * No deployer grants: CI never updates or executes this job, and deploy.yml does not mention
+#     it. The Owner updates its image to the deployed API digest and executes it by hand.
+#   * It runs `python -m knowserve_api.seed.documents` from the API image (the committed seed PDFs
+#     ship in the wheel). The command refuses to run (exit 2, nothing written) until migration
+#     0003 has created the document tables, and is idempotent: existing documents and objects are
+#     never changed, a partial row is reported as `incomplete` (non-zero exit).
 #
-# The R2 credential secrets are created by M2-00c; they are declared here only as the names this
-# job expects. Terraform creates containers only, never versions (values are set by the Owner).
-# The R2 token should be scoped to the one bucket with object read+write (seed needs head and put).
-#
-# Prerequisite not provided by this change: `r2` in build_object_store (M2-03). Until that adapter
-# exists the command exits 2 with "R2ObjectStore arrives with M2-03" and writes nothing.
+# The R2 containers, the pepper and the r2_endpoint / r2_bucket variables come from M2-00c
+# (gcp_foundation.tf, variables.tf). Terraform creates containers only, never versions.
 #
 # Owner steps (each needs your explicit approval):
-#   1. M2-00c: create the R2 bucket and scoped token, create the two secret containers and versions.
-#   2. Approve and apply the IAM in this file (service account and three secretAccessor bindings).
-#   3. Update the job image to the deployed API digest, then run once:
+#   1. Merge PR #32 and run the deploy workflow: it runs migration 0003 and rolls the M2 API image.
+#   2. Set enable_document_seed_job = true and apply (service account, three bindings, the job).
+#   3. Update the job to the deployed API image digest, then run it once:
+#        gcloud run jobs update knowserve-document-seed --image <API_IMAGE_DIGEST> --region <region>
 #        gcloud run jobs execute knowserve-document-seed --region <region> --wait
-#      Reruns are safe: existing documents and objects are never changed.
+#      Reruns are safe. The job prints counts and slugs only.
 #   4. Set enable_document_seed_job back to false and apply (the job and its identity are removed).
 
 variable "enable_document_seed_job" {
@@ -33,22 +32,6 @@ variable "enable_document_seed_job" {
   description = "Create the Cloud Run job knowserve-document-seed (python -m knowserve_api.seed.documents). Default false: enable only for the Owner-run production seed (M2-05), then set back to false and apply."
   default     = false
 }
-
-variable "r2_endpoint" {
-  type        = string
-  description = "R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com). Not a secret."
-  default     = ""
-}
-
-variable "r2_bucket" {
-  type        = string
-  description = "R2 bucket name for document objects. Not a secret."
-  default     = ""
-}
-
-# Containers created by M2-00c (names are the contract; values are set by the Owner).
-#   google_secret_manager_secret.secrets["r2-access-key-id"]
-#   google_secret_manager_secret.secrets["r2-secret-access-key"]
 
 resource "google_service_account" "seed" {
   count        = var.enable_document_seed_job ? 1 : 0

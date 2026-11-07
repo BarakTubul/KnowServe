@@ -3,9 +3,12 @@
     python -m knowserve_api.seed.documents
 
 Reads ``KS_DATABASE_URL``, ``KS_ENV`` (default ``local``), ``KS_OBJECT_STORE`` (default
-``filesystem``) and ``KS_OBJECT_STORE_PATH``; for ``r2`` it will also read the ``KS_R2_*`` keys once
-the adapter exists (M2-03). Nothing else, so it runs in a job without the API, proxy or QStash
-settings.
+``filesystem``) and ``KS_OBJECT_STORE_PATH``; for ``r2`` it also reads ``KS_R2_ENDPOINT``,
+``KS_R2_BUCKET``, ``KS_R2_ACCESS_KEY_ID`` and ``KS_R2_SECRET_ACCESS_KEY``. Nothing else, so it runs
+in a job without the API, proxy or QStash settings.
+
+It refuses to run (exit 2, nothing written) until migration ``0003`` has created the document
+tables, so the production job cannot seed ahead of the migration.
 
 Safety rules:
 
@@ -33,13 +36,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from knowserve_core.db import create_engine, create_session_factory
 from knowserve_core.models import Department, Document, DocumentDepartmentAccess, DocumentRevision
-from knowserve_core.object_store import ObjectNotFound, ObjectStore, build_object_store
+from knowserve_core.object_store import ObjectNotFound, ObjectStore, R2Config, build_object_store
 from knowserve_core.settings import normalize_database_url
 
 from .specs import SEED_DOCUMENTS, SeedDocument
@@ -165,6 +168,28 @@ async def seed_documents(
     return {spec.slug: await _seed_one(factory, store, spec, data_dir) for spec in specs}
 
 
+def r2_config_from_env() -> R2Config:
+    """The R2 settings from the job's environment. Values are never printed."""
+    return R2Config(
+        endpoint=os.environ.get("KS_R2_ENDPOINT") or None,
+        bucket=os.environ.get("KS_R2_BUCKET") or None,
+        access_key_id=os.environ.get("KS_R2_ACCESS_KEY_ID") or None,
+        secret_access_key=os.environ.get("KS_R2_SECRET_ACCESS_KEY") or None,
+    )
+
+
+async def schema_ready(engine: AsyncEngine) -> bool:
+    """True once migration 0003 has created all three document tables."""
+    async with engine.connect() as conn:
+        found = await conn.scalar(
+            text(
+                "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN "
+                "('documents', 'document_revisions', 'document_department_access')"
+            )
+        )
+    return found == 3
+
+
 async def _run() -> int:
     url = os.environ.get("KS_DATABASE_URL")
     if not url:
@@ -174,12 +199,17 @@ async def _run() -> int:
     env = os.environ.get("KS_ENV", "local")
     root = os.environ.get("KS_OBJECT_STORE_PATH", ".local/objects")
     try:
-        store = build_object_store(kind, env=env, filesystem_root=Path(root))
+        store = build_object_store(
+            kind, env=env, filesystem_root=Path(root), r2=r2_config_from_env()
+        )
     except (ValueError, NotImplementedError) as exc:
         print(f"document seed refused: {exc}", file=sys.stderr)
         return 2
     engine = create_engine(normalize_database_url(url), null_pool=True)
     try:
+        if not await schema_ready(engine):
+            print("document seed refused: migration 0003 has not run", file=sys.stderr)
+            return 2
         outcomes = await seed_documents(create_session_factory(engine), store)
     except SeedError as exc:
         print(f"document seed refused: {exc}", file=sys.stderr)

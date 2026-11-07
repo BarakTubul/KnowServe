@@ -187,3 +187,98 @@ async def _snapshot(s: AsyncSession) -> tuple[list[tuple[object, ...]], ...]:
         [(r.id, r.storage_key, r.size_bytes, r.ready_at, r.page_count) for r in revs],
         [(a.document_id, a.department_id) for a in acc],
     )
+
+
+# --- production job behavior (M2-05, M2-00c): R2 settings, refusal before the migration ----------
+
+
+async def test_m2_ac15_r2_settings_come_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from knowserve_api.seed.documents import r2_config_from_env
+
+    for name in (
+        "KS_R2_ENDPOINT",
+        "KS_R2_BUCKET",
+        "KS_R2_ACCESS_KEY_ID",
+        "KS_R2_SECRET_ACCESS_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    empty = r2_config_from_env()
+    assert (empty.endpoint, empty.bucket, empty.access_key_id, empty.secret_access_key) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    monkeypatch.setenv("KS_R2_ENDPOINT", "https://acct.r2.cloudflarestorage.com")
+    monkeypatch.setenv("KS_R2_BUCKET", "bucket")
+    monkeypatch.setenv("KS_R2_ACCESS_KEY_ID", "key-id")
+    monkeypatch.setenv("KS_R2_SECRET_ACCESS_KEY", "key-secret")
+    full = r2_config_from_env()
+    assert (full.endpoint, full.bucket) == ("https://acct.r2.cloudflarestorage.com", "bucket")
+    assert (full.access_key_id, full.secret_access_key) == ("key-id", "key-secret")
+
+
+@pytest.mark.parametrize("kind", ["fake", "filesystem", "r2"])
+async def test_m2_ac15_production_seed_refuses_a_missing_or_non_r2_store_without_printing_values(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], kind: str
+) -> None:
+    from knowserve_api.seed.documents import _run
+
+    monkeypatch.setenv("KS_DATABASE_URL", "postgresql+asyncpg://u:p@localhost/none")
+    monkeypatch.setenv("KS_ENV", "production")
+    monkeypatch.setenv("KS_OBJECT_STORE", kind)
+    for name in (
+        "KS_R2_ENDPOINT",
+        "KS_R2_BUCKET",
+        "KS_R2_ACCESS_KEY_ID",
+        "KS_R2_SECRET_ACCESS_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert await _run() == 2
+    err = capsys.readouterr().err
+    assert "document seed refused" in err
+    assert "u:p@" not in err
+
+
+@pytest.mark.integration
+async def test_m2_ac15_seed_refuses_until_migration_0003_has_created_the_tables(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from knowserve_api.seed.documents import _run, schema_ready
+    from knowserve_core.db import create_engine
+
+    name = f"knowserve_test_seed_{uuid.uuid4().hex[:8]}"
+    base = database_url.rsplit("/", 1)[0]
+
+    async def admin(sql: str) -> None:
+        eng = create_engine(base + "/postgres", null_pool=True)
+        try:
+            async with eng.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.execute(text(sql))
+        finally:
+            await eng.dispose()
+
+    await admin(f'CREATE DATABASE "{name}"')
+    try:
+        empty = create_engine(f"{base}/{name}", null_pool=True)
+        try:
+            assert await schema_ready(empty) is False
+        finally:
+            await empty.dispose()
+        monkeypatch.setenv("KS_DATABASE_URL", f"{base}/{name}")
+        monkeypatch.setenv("KS_ENV", "local")
+        monkeypatch.setenv("KS_OBJECT_STORE", "fake")
+        assert await _run() == 2
+        assert "migration 0003 has not run" in capsys.readouterr().err
+    finally:
+        await admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+@pytest.mark.integration
+async def test_m2_ac15_schema_is_ready_on_the_migrated_test_database(engine: object) -> None:
+    from knowserve_api.seed.documents import schema_ready
+
+    assert await schema_ready(engine) is True  # type: ignore[arg-type]
