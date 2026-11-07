@@ -46,6 +46,12 @@ Exact columns are fixed by the M2/M3 schema contract (ARCH-11).
 | DOC-01 | integration | 5 visible docs, `limit=2`, follow `next_cursor` to the end, with a search term and an owner filter | each document exactly once in a stable order; `has_more` false on the last page; filtered-out and forbidden documents never appear on any page |
 | DOC-11 | integration | Valid range / unsatisfiable range / range on a forbidden or revoked doc / revoke between two range requests | 206 with `Content-Range` / 416 / 404 / second request 404 |
 
+## Current implementation (target, M2-02)
+- `GET /v1/documents` (`apps/api/src/knowserve_api/documents/router.py`) extends `visible_documents(active_department_id)`; the department comes only from the session. Order of checks: 401, 409, then query validation (422).
+- `q` is a case-insensitive literal substring (LIKE wildcards escaped) on title or filename; `owner_department_id` filters on the owner label only (access still comes from access rows).
+- Cursor pagination, order `created_at DESC, id DESC`, `limit` 1..50 (default 20), fetch `limit+1` to set `has_more`; no total. The cursor is unpadded URL-safe base64 of `[created_at ISO, id]`. It is not signed: a forged but well-formed cursor only moves the position inside the caller's already-visible set. Malformed cursors and owner ids return 422 `VALIDATION_ERROR`.
+- Metadata and bytes routes are still 501 stubs (M2-03).
+
 ## Current implementation (LEGACY, not migrated)
 - `routers/docs.py` exposes `/documents/my/access`, `/my/owned` and `/my/{id}/download`. The controller lives in `controllers/docs_controller.py` and the logic in `services/docs_service.py`.
 - Access is based on the JWT `department_id`. Admins see all documents.
