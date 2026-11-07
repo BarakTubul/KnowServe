@@ -17,7 +17,7 @@
 | M2-02 | Library API: list with the predicate, search, owner filter, cursor pagination, 409, uniform 404 | M2-01 | Backend-Library | medium | not started |
 | M2-03 | Bytes and metadata endpoints, `R2ObjectStore`, single-range 206/416, headers, proxy forwarding of `Range` and `If-Range`, production guard for store selection | M2-01 | Backend-Content | medium | not started |
 | M2-04a | Frontend library page: list, search, owner filter, "Load more" cursor paging, states with friendly localized messages, department-keyed cache | M2-01 (mocks); M2-02 for e2e; Q13 | Frontend-Library | medium | not started |
-| M2-04b | Frontend viewer: React-PDF, toolbar, `?page=`, neutral 404 view, friendly localized messages | M2-01 (mocks); M2-03 for e2e; Q13 | Frontend-Viewer | medium | not started |
+| M2-04b | Frontend viewer: React-PDF, toolbar, `?page=`, neutral 404 view, friendly localized messages | M2-01 (mocks); M2-03 for e2e; Q13 | Frontend-Viewer | medium | implemented locally on `claude/m2-04b-viewer-ui-7122aa`; Playwright and e2e wait for M2-03/M2-05 |
 | M2-05 | Deterministic PDF generator, committed small fictional PDFs, idempotent seed command, and the Cloud Run Job configuration (prepared for review, not applied) | M2-01 | Backend-Seed | small to medium | not started |
 | M2-06 | Integration, SEC hard gates, route walk, Playwright flow, independent review, traceability table, then deployed smoke and production seed | M2-02..05, M2-PG; smoke needs M2-00c and the migration approval | Owner + Review Agent | medium | not started |
 | M2-07 | Handoff and the milestone PR | M2-06, M2-CI, M2-RB, M2-00a | Owner | small | not started |
@@ -155,6 +155,7 @@ Conflict rules: lockfiles and `openapi.json` are never hand-merged (rebase and r
 - **Verification:** the same `pnpm -r` set; component tests (only the API bytes URL is requested; `?page=3` then next gives `?page=4`; 404 view); Playwright.
 - **Integration point:** CP3.
 - **Blocking risks:** the pdf.js worker asset under the Pages build and its `Content-Security-Policy` if one is set; `react-pdf` version choice.
+- **Status (local):** done with mocks. `react-pdf` 11.0.0 and `pdfjs-dist` 6.3.289 pinned exactly (lockfile to be merged by the Owner). The build emits the worker as `dist/assets/pdf.worker.min-*.mjs` (same origin, served by Pages, `_routes.json` does not route it to the Function); the repo sets no CSP or `_headers`, so there is nothing to change today. If a CSP is added it needs `worker-src 'self'`; pdf.js runs with `isEvalSupported: false` so `unsafe-eval` is not needed. Q13 default (English catalog keyed by code with generic fallback) lives in `features/documents/viewer/messages.ts`. Not done: Playwright flow (needs M2-03 bytes and M2-05 seed), real-pdf.js rendering check (jsdom has no canvas; tests replace `react-pdf`).
 
 ### M2-05 Seed
 - **Objective:** 3 to 5 fictional PDFs with explicit, varied access, for local use, tests, e2e and the deployed smoke (D1).
