@@ -45,12 +45,19 @@ class PostgresRateLimiter:
             )
             .returning(RateLimitCounter.count)
         )
+        # Rows of this key from earlier windows are dead; drop them so a key never outlives its
+        # window by more than the next hit (the Demo cleanup sweeps keys that never return).
+        expire = delete(RateLimitCounter).where(
+            RateLimitCounter.key == key, RateLimitCounter.window_start < window_start
+        )
         bind = session.bind
         if isinstance(bind, AsyncEngine):
             async with bind.begin() as conn:
                 count = (await conn.execute(stmt)).scalar_one()
+                await conn.execute(expire)
         else:
             count = (await session.execute(stmt)).scalar_one()
+            await session.execute(expire)
         allowed = count <= limit
         retry_after = (
             0 if allowed else max(1, math.ceil(start_epoch + window_seconds - now.timestamp()))

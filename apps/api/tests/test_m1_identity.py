@@ -376,7 +376,7 @@ async def test_sec_10_missing_proxied_ip_shares_one_conservative_bucket(
         assert second.status_code == 429
     async with session_factory() as db:
         keys = set((await db.execute(text("SELECT key FROM rate_limit_counters"))).scalars())
-    assert keys == {"demo:ip:unknown"}
+    assert len(keys) == 1 and "unknown" not in next(iter(keys))  # one hashed shared bucket
     app.state.token_verifier.close()
 
 

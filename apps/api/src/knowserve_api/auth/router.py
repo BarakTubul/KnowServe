@@ -60,13 +60,6 @@ from .verification import verify_id_token_or_raise
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
-def _client_ip(request: Request) -> str | None:
-    forwarded = getattr(request.state, "client_ip", None)
-    if forwarded:
-        return str(forwarded)
-    return request.client.host if request.client else None
-
-
 async def _issue_session(
     *,
     db: AsyncSession,
@@ -76,11 +69,10 @@ async def _issue_session(
     response: Response,
     user: User,
     provider: str,
-    ip: str | None,
 ) -> IdentityResponse:
     """Create the session, COMMIT, then set the cookie and build the body."""
     token, row = await service.create_session(db, user, provider, user.last_active_department_id)
-    await audit.record(db, "auth.session.created", user_id=user.id, ip=ip, provider=provider)
+    await audit.record(db, "auth.session.created", user_id=user.id, provider=provider)
     body = await _snapshot(db, user, row, provider)
     await db.commit()
     set_session_cookie(response, settings, token, body.expires_at, clock.now())
@@ -105,12 +97,12 @@ async def _snapshot(db: AsyncSession, user: User, row: Session, provider: str) -
     )
 
 
-async def _check_token_rules(db: AsyncSession, verified: VerifiedToken, ip: str | None) -> str:
+async def _check_token_rules(db: AsyncSession, verified: VerifiedToken) -> str:
     try:
         return require_verified(verified)
     except AppError as exc:
         reason = "email_not_verified" if exc.status_code == 403 else "provider_or_email"
-        await deny(db, reason, exc, ip=ip)
+        await deny(db, reason, exc)
 
 
 @router.post(
@@ -130,29 +122,28 @@ async def create_session(
     service: Annotated[SessionService, Depends(get_session_service)],
 ) -> IdentityResponse:
     """Verify a fresh Firebase ID token (password or Google) and start a KnowServe session."""
-    ip = _client_ip(request)
     verified = await verify_id_token_or_raise(verifier, body.id_token, require_fresh=True)
-    email = await _check_token_rules(db, verified, ip)
+    email = await _check_token_rules(db, verified)
 
     user = await lock_user_by_uid(db, verified.uid)
     if user is None:
         if await email_owner(db, email) is not None:
-            await deny(db, "email_in_use", unauthenticated(), ip=ip)
+            await deny(db, "email_in_use", unauthenticated())
         user = await create_registered(db, verified.uid, email, verified.name)
         if user is None:  # lost a race on uid or email: read once more, otherwise refuse
             user = await lock_user_by_uid(db, verified.uid)
         if user is None:
-            await deny(db, "email_in_use", unauthenticated(), ip=ip)
+            await deny(db, "email_in_use", unauthenticated())
     if user.disabled_at is not None:
-        await deny(db, "user_disabled", unauthenticated(), user_id=user.id, ip=ip)
+        await deny(db, "user_disabled", unauthenticated(), user_id=user.id)
 
     if user.kind == "demo":  # pending conversion completed by the normal exchange (AUTH-34)
         try:
             await convert_locked_demo_user(db, user, email, verified.name, clock.now())
         except EmailTaken:
-            await deny(db, "email_in_use", unauthenticated(), user_id=user.id, ip=ip)
+            await deny(db, "email_in_use", unauthenticated(), user_id=user.id)
         await service.revoke_all_for_user(db, user.id)
-        await audit.record(db, "auth.account.converted", user_id=user.id, ip=ip, via="session")
+        await audit.record(db, "auth.account.converted", user_id=user.id, via="session")
 
     # Rotate: a session presented by the incoming cookie never survives a new login (AUTH-06).
     incoming = request.cookies.get(settings.session_cookie_name)
@@ -168,7 +159,6 @@ async def create_session(
         response=response,
         user=user,
         provider=verified.sign_in_provider,
-        ip=ip,
     )
 
 
@@ -193,33 +183,32 @@ async def convert_demo(
     # 409 CONFLICT. Concurrent calls: one converts; a call that already resolved its Demo session
     # finds the row registered with the same email and also succeeds (own new session); a call that
     # resolves the session after the commit gets 401 (the Demo session is revoked).
-    ip = _client_ip(request)
     if identity.kind != "demo":
         raise AppError(409, "CONFLICT", "This account is already registered")
     verified = await verify_id_token_or_raise(verifier, body.id_token, require_fresh=False)
     if verified.uid != identity.firebase_uid:
-        await deny(db, "uid_mismatch", unauthenticated(), user_id=identity.user_id, ip=ip)
-    email = await _check_token_rules(db, verified, ip)
+        await deny(db, "uid_mismatch", unauthenticated(), user_id=identity.user_id)
+    email = await _check_token_rules(db, verified)
 
     user = await lock_user_by_uid(db, verified.uid)
     if user is None:  # Demo cleanup won the race: never resurrect
-        await deny(db, "demo_user_gone", unauthenticated(), ip=ip)
+        await deny(db, "demo_user_gone", unauthenticated())
     if user.disabled_at is not None:
-        await deny(db, "user_disabled", unauthenticated(), user_id=user.id, ip=ip)
+        await deny(db, "user_disabled", unauthenticated(), user_id=user.id)
     # Re-check under the lock: a logout or sign-out-everywhere in another tab while this call was
     # in flight must still count (review finding 2).
     if await db.scalar(select(Session.revoked_at).where(Session.id == identity.session_id)):
-        await deny(db, "session_revoked", unauthenticated(), user_id=user.id, ip=ip)
+        await deny(db, "session_revoked", unauthenticated(), user_id=user.id)
     conflict = AppError(409, "CONFLICT", "This email is already in use")
     if user.kind == "demo":
         try:
             await convert_locked_demo_user(db, user, email, verified.name, clock.now())
         except EmailTaken:
-            await deny(db, "email_in_use", conflict, user_id=user.id, ip=ip)
-        await audit.record(db, "auth.account.converted", user_id=user.id, ip=ip, via="convert")
+            await deny(db, "email_in_use", conflict, user_id=user.id)
+        await audit.record(db, "auth.account.converted", user_id=user.id, via="convert")
         await service.revoke_all_for_user(db, user.id)
     elif user.kind != "registered" or user.email != email:
-        await deny(db, "convert_not_applicable", conflict, user_id=user.id, ip=ip)
+        await deny(db, "convert_not_applicable", conflict, user_id=user.id)
     else:
         # A concurrent call already converted: revoke only this call's own Demo session, never
         # the winner's new session (review finding 1).
@@ -233,7 +222,6 @@ async def convert_demo(
         response=response,
         user=user,
         provider=verified.sign_in_provider,
-        ip=ip,
     )
 
 
@@ -246,7 +234,7 @@ async def logout(
     service: Annotated[SessionService, Depends(get_session_service)],
 ) -> Response:
     await service.revoke_session(db, identity.session_id)
-    await audit.record(db, "auth.session.revoked", user_id=identity.user_id, ip=_client_ip(request))
+    await audit.record(db, "auth.session.revoked", user_id=identity.user_id)
     await db.commit()
     response = Response(status_code=204)
     clear_session_cookie(response, settings)
@@ -280,7 +268,6 @@ async def revoke_all_sessions(
         db,
         "auth.sessions.revoked_all",
         user_id=identity.user_id,
-        ip=_client_ip(request),
         revoked=revoked,
     )
     await db.commit()

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     )
     enable_spike_endpoints: bool = False
     proxy_shared_secret: SecretStr | None = None
+    # Pepper for the keyed hash of the client address in rate-limit keys (SEC-18, OPEN-28 Q9).
+    # Optional here so the Worker needs no value; the API requires it when KS_ENV=production and
+    # uses a random per-process pepper otherwise.
+    ip_hash_pepper: SecretStr | None = None
 
     qstash_url: str = "https://qstash.upstash.io"
     qstash_token: SecretStr | None = None

@@ -282,7 +282,7 @@ Everything else in the earlier question list is answered above. Nothing blocks M
 12. Cloud Run response limits and Pages Function body streaming for PDFs are not measured. The smoke measures them (A7).
 13. The browser's in-memory copy of a PDF the user already opened is accepted as the same class of limitation as OPEN-11.
 14. A pgvector image for PostgreSQL 18 exists (M2-PG verifies the tag before editing; see its result in `tasks.md`).
-15. A rate limit keyed by a keyed hash of the address, with rows expiring at the end of the window, counts as no application-managed persistent IP history (M2-PRIV; the owner confirms when the code lands).
+15. (Implemented in M2-PRIV.) A rate limit keyed by a keyed hash of the address, with rows expiring at the end of the window, counts as no application-managed persistent IP history (M2-PRIV; the owner confirms when the code lands).
 16. The seed Cloud Run Job reuses the migration job's image with a separate, narrowly scoped identity; M2-05 documents the least-privilege design and the owner approves the IAM change.
 
 ## 14. Risks

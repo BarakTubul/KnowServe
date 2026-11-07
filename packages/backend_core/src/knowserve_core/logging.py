@@ -13,7 +13,8 @@ from . import request_context
 
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEY = re.compile(
-    r"pass(word)?|secret|token|authorization|cookie|api[_-]?key|signing[_-]?key|otp|csrf|signature|session",
+    r"pass(word)?|secret|token|authorization|cookie|api[_-]?key|signing[_-]?key|otp|csrf|signature|session"
+    r"|^ip$|_ip$|^ip_|client[_-]?ip|forwarded|remote[_-]?addr",
     re.IGNORECASE,
 )
 _BEARER = re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE)

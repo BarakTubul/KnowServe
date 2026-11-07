@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
@@ -72,6 +73,7 @@ class SpikeEchoResponse(BaseModel):
     cookie_present: bool
     # The client IP the Pages Function forwarded (X-KS-Client-IP), trusted only after the proxy
     # secret check; None when absent. M0-AC11 spike evidence only.
+    # Always None in production (SEC-18: no client address leaves the API).
     client_ip: str | None = None
 
 
@@ -87,9 +89,10 @@ async def spike_cookie() -> Response:
 
 @spike_router.get("/echo", response_model=SpikeEchoResponse)
 async def spike_echo(request: Request) -> SpikeEchoResponse:
+    production = request.app.state.settings.env == "production"
     return SpikeEchoResponse(
         cookie_present=SPIKE_COOKIE in request.cookies,
-        client_ip=getattr(request.state, "client_ip", None),
+        client_ip=None if production else getattr(request.state, "client_ip", None),
     )
 
 
@@ -164,6 +167,22 @@ def _build_object_store(settings: Settings) -> ObjectStore:
         raise RuntimeError(f"API refuses to start: {exc}") from None
 
 
+def _ip_hash_pepper(settings: Settings) -> bytes:
+    """Pepper for the keyed hash of client addresses in limiter keys (SEC-18, OPEN-28 Q9).
+
+    Production must configure it. Elsewhere a random per-process pepper is used, so nothing
+    reversible is ever derived from a stable value in a local database.
+    """
+    value = settings.ip_hash_pepper.get_secret_value() if settings.ip_hash_pepper else ""
+    if value:
+        if len(value) >= 16:
+            return value.encode()
+        raise RuntimeError("KS_IP_HASH_PEPPER must be at least 16 characters")
+    if settings.env == "production":
+        raise RuntimeError("API refuses to start in production without KS_IP_HASH_PEPPER")
+    return secrets.token_bytes(32)
+
+
 def create_app(
     settings: Settings | None = None,
     engine: AsyncEngine | None = None,
@@ -183,6 +202,7 @@ def create_app(
     if settings.env == "production" and not settings.firebase_project_id:
         raise RuntimeError("API refuses to start in production without KS_FIREBASE_PROJECT_ID")
     configure_logging("api", settings.log_level)
+    pepper = _ip_hash_pepper(settings)
     store = object_store or _build_object_store(settings)
     engine = engine or create_engine(settings.database_url)
 
@@ -216,6 +236,7 @@ def create_app(
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     # M1 auth state (M1-02a): injectable for tests, real implementations otherwise.
     app.state.clock = app_clock
+    app.state.ip_hash_pepper = pepper
     app.state.object_store = store
     app.state.token_verifier = app_token_verifier
     app.state.rate_limiter = rate_limiter or PostgresRateLimiter(app_clock)

@@ -515,6 +515,7 @@ def _prod(**over: Any) -> Settings:
         "api_allowed_origins": ["https://app.example.test"],
         "proxy_shared_secret": "s" * 32,
         "firebase_project_id": "knowserve-test",
+        "ip_hash_pepper": "pepper-for-tests-0123456789",
     }
     values.update(over)
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
