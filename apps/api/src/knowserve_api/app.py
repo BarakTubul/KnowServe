@@ -7,6 +7,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, FastAPI, Query, Request, Response
@@ -21,6 +22,7 @@ from knowserve_core.db import check_database, create_engine, create_session_fact
 from knowserve_core.firebase_tokens import TokenVerifier
 from knowserve_core.firebase_verifier import FirebaseTokenVerifier
 from knowserve_core.logging import configure_logging
+from knowserve_core.object_store import ObjectStore, R2Config, build_object_store
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.qstash import Publisher, build_publisher
 from knowserve_core.ratelimit import RateLimiter
@@ -141,6 +143,27 @@ async def get_status(request: Request) -> StatusResponse:
     )
 
 
+def _build_object_store(settings: Settings) -> ObjectStore:
+    """Select the document store at startup. In production only ``r2`` with its full
+    configuration is accepted; anything else stops the API with a message naming the setting."""
+    secret = settings.r2_secret_access_key
+    key_id = settings.r2_access_key_id
+    try:
+        return build_object_store(
+            settings.object_store,
+            env=settings.env,
+            filesystem_root=Path(settings.object_store_path),
+            r2=R2Config(
+                endpoint=settings.r2_endpoint,
+                bucket=settings.r2_bucket,
+                access_key_id=key_id.get_secret_value() if key_id else None,
+                secret_access_key=secret.get_secret_value() if secret else None,
+            ),
+        )
+    except ValueError as exc:
+        raise RuntimeError(f"API refuses to start: {exc}") from None
+
+
 def create_app(
     settings: Settings | None = None,
     engine: AsyncEngine | None = None,
@@ -149,6 +172,7 @@ def create_app(
     token_verifier: TokenVerifier | None = None,
     rate_limiter: RateLimiter | None = None,
     clock: Clock | None = None,
+    object_store: ObjectStore | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     proxy_secret = (
@@ -159,6 +183,7 @@ def create_app(
     if settings.env == "production" and not settings.firebase_project_id:
         raise RuntimeError("API refuses to start in production without KS_FIREBASE_PROJECT_ID")
     configure_logging("api", settings.log_level)
+    store = object_store or _build_object_store(settings)
     engine = engine or create_engine(settings.database_url)
 
     app_clock = clock or SystemClock()
@@ -170,6 +195,9 @@ def create_app(
         yield
         if owns_verifier and isinstance(app_token_verifier, FirebaseTokenVerifier):
             app_token_verifier.close()
+        close = getattr(store, "aclose", None)
+        if close is not None:
+            await close()
         await engine.dispose()
 
     app = FastAPI(
@@ -188,6 +216,7 @@ def create_app(
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     # M1 auth state (M1-02a): injectable for tests, real implementations otherwise.
     app.state.clock = app_clock
+    app.state.object_store = store
     app.state.token_verifier = app_token_verifier
     app.state.rate_limiter = rate_limiter or PostgresRateLimiter(app_clock)
     app.include_router(router)

@@ -42,4 +42,11 @@ must never leave the API as a storage URL.
   R2 configuration is wired (M2-03), production startup must fail clearly when the object store
   configuration is missing or selects `fake` or `filesystem`.
 - `updated_at` has no database trigger or `onupdate`; M3 must set it when document records change.
-- The route stubs return 501 until M2-02 and M2-03.
+- The list route stub returns 501 until M2-02.
+
+### M2-03 additions (bytes, R2 and the startup guard)
+- **`R2ObjectStore`** uses `httpx` (already a dependency) with a small AWS SigV4 signer for HEAD, ranged GET and PUT (path-style, region `auto`). No boto3, so the lockfile and the image are unchanged. The signer is checked against AWS's published example; there is no R2 end-to-end evidence until M2-00c.
+- **Startup guard.** `create_app` builds the store once. In production only `KS_OBJECT_STORE=r2` with `KS_R2_ENDPOINT` (https), `KS_R2_BUCKET`, `KS_R2_ACCESS_KEY_ID` and `KS_R2_SECRET_ACCESS_KEY` starts; anything else raises `RuntimeError` naming the missing setting (never a value). Outside production the default stays `filesystem`.
+- **Deployed M1 revisions keep starting** because they do not contain this code: they ignore the new `KS_*` variables (`extra="ignore"`). Terraform therefore sets the R2 variables on the API service **before** the M2 image is rolled out (a separate approval). If the M2 image is rolled out first, the new revision fails its startup check and Cloud Run keeps routing traffic to the previous healthy revision, so the failure is loud and does not take the service down. A lazy check at first request was rejected because it would let a production API start with no store and fail users later.
+- **Range semantics.** A single well-formed `bytes=` range gives 206; one outside the object gives 416 (`RANGE_NOT_SATISFIABLE`, `Content-Range: bytes */size`). Multiple ranges, a unit other than `bytes` and malformed specs are ignored and the full body is served (RFC 9110). `ETag` is the strong revision id; `If-Range` honours the range only on an exact match.
+- **Log hygiene.** `configure_logging` raises the `httpx` and `httpcore` loggers to WARNING, because httpx logs every request URL at INFO and the R2 URL contains the bucket host and the storage key.
