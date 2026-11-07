@@ -1,6 +1,6 @@
 # Frontend document library and PDF viewer
 
-**Status:** Target spec (M2). Not implemented: the legacy `/my-docs` page lists department documents and links to a raw PDF download. There is no viewer.
+**Status:** Target spec (M2). The library page (FE-DOC-01..06, 10) is implemented on the target stack (M2-04a, local branch, tested against mocks; not yet run against the real API). The viewer (FE-DOC-07..09) is not.
 
 ## Target requirements
 | ID | Requirement | Milestone |
@@ -33,14 +33,25 @@
 ### Retired IDs (do not reuse)
 None. FE-DOC-01..06 are kept with updated meaning.
 
-## Current implementation (LEGACY, not migrated)
+## Current implementation (target, M2-04a)
+- `apps/frontend/src/features/documents/library-page.tsx` (`LibraryPage`, route `/documents`): `useInfiniteQuery` keyed `['dept', userId, departmentId, 'documents', {q, owner}]`, so identity, department and filter changes each get their own entry and start at the first page (no cursor). The auth provider already removes `['dept']` queries on a department switch and clears the cache on logout/identity change.
+- `library-api.ts`: `GET /v1/documents` through the generated client; errors become `ApiError` and go to the global handler (409 opens the department selector).
+- Filename/title search is debounced (250 ms); the owner filter options come from `GET /v1/departments`; "Load more" follows `next_cursor` while `has_more`.
+- States: loading, empty, error (with retry) and no match. The dashboard links to the library.
+- Localization: no i18n mechanism exists and Q13/OPEN-29 is open, so `library-messages.ts` holds a minimal English catalog (per-language entry in `CATALOGS`, error messages keyed by API code with a generic fallback, language read from `localStorage['knowserve.locale']`). The viewer (M2-04b) or the Owner may move it to a shared place.
+- Tests: `library.test.tsx` (FE-DOC-01..06, 10, FE-ARCH-14 mapping).
+
+## Legacy behaviour (not migrated)
 - `src/pages/MyDocuments.jsx` and `src/context/DocsContext.jsx` cache the list forever, with no invalidation and no clearing on logout.
 - The page filters by *allowed* departments (not the owner) and shows a red badge for any non-`ingested` status.
 - The `error` state is never rendered.
 - "View PDF" opens `/api/documents/my/{id}/download` in a new tab. There is no viewer, page deep links or zoom.
 
 ## Known gaps
-Every FE-DOC requirement is unimplemented on the target stack.
+- FE-DOC-07..09 (viewer) are unimplemented (M2-04b).
+- Existing flows (auth, department selector, dashboard text, `describeApiError`) still use hard-coded English and some technical text (e.g. a "reference <request id>" fallback); they are not on the catalog yet (PROD-13/FE-ARCH-14 gap, migrate by risk).
+- Only English exists until the owner answers Q13; there is no language selector.
+- No e2e/Playwright run against the real M2-02 API yet.
 
 ## Related docs
 `architecture.md`, `chat.md`, `../backend/documents.md`, `../cross-cutting/security-and-permissions.md`, `../cross-cutting/product-and-ux.md`
