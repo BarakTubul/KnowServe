@@ -46,3 +46,9 @@ def test_sec06_document_routes_require_a_session(client: TestClient, path: str) 
     response = client.get(path)
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_m2_ac14_content_route_declares_range_headers(client: TestClient) -> None:
+    op = client.get("/openapi.json").json()["paths"]["/v1/documents/{document_id}/content"]["get"]
+    headers = {p["name"] for p in op["parameters"] if p["in"] == "header"}
+    assert {"Range", "If-Range"} <= headers

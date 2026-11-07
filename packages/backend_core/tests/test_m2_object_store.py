@@ -67,3 +67,13 @@ def test_local_factory_builds_both(tmp_path: Path) -> None:
     assert isinstance(
         build_object_store("filesystem", env="ci", filesystem_root=tmp_path), FilesystemObjectStore
     )
+
+
+@pytest.mark.parametrize("start,end", [(-1, 5), (5, 4), (-3, -1)])
+def test_byte_range_rejects_invalid_bounds(start: int, end: int) -> None:
+    with pytest.raises(ValueError):
+        ByteRange(start, end)
+
+
+def test_byte_range_accepts_single_byte_and_reports_length() -> None:
+    assert ByteRange(0, 0).length == 1

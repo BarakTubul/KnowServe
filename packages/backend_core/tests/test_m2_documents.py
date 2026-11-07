@@ -141,3 +141,60 @@ def test_q7_malformed_id_gets_the_uniform_404() -> None:
     assert (err.status_code, err.code, err.message) == (ref.status_code, ref.code, ref.message)
     assert (ref.status_code, ref.code) == (404, "DOCUMENT_NOT_FOUND")
     assert parse_document_id(str(FIN)) == FIN
+
+
+def test_m2_downgrade_0003_removes_document_tables_and_upgrades_again(database_url: str) -> None:
+    """Rollback of 0003 leaves 0002 intact; runs on its own disposable database."""
+    import asyncio
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+
+    from conftest import ALEMBIC_INI
+    from knowserve_core.db import create_engine
+
+    name = f"knowserve_test_dg_{uuid.uuid4().hex[:8]}"
+    admin_url = database_url.rsplit("/", 1)[0] + "/postgres"
+    url = database_url.rsplit("/", 1)[0] + f"/{name}"
+
+    async def admin(sql: str) -> None:
+        eng = create_engine(admin_url, null_pool=True)
+        try:
+            async with eng.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.execute(text(sql))
+        finally:
+            await eng.dispose()
+
+    async def tables() -> set[str]:
+        eng = create_engine(url, null_pool=True)
+        try:
+            async with eng.connect() as conn:
+                rows = await conn.execute(
+                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                )
+                return set(rows.scalars())
+        finally:
+            await eng.dispose()
+
+    doc_tables = {"documents", "document_revisions", "document_department_access"}
+    previous = os.environ.get("KS_DATABASE_URL")
+    asyncio.run(admin(f'CREATE DATABASE "{name}"'))
+    try:
+        os.environ["KS_DATABASE_URL"] = url
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "head")
+        assert doc_tables <= asyncio.run(tables())
+        command.downgrade(cfg, "0002")
+        remaining = asyncio.run(tables())
+        assert not doc_tables & remaining
+        assert {"departments", "users", "sessions"} <= remaining
+        command.upgrade(cfg, "head")
+        assert doc_tables <= asyncio.run(tables())
+    finally:
+        if previous is None:
+            os.environ.pop("KS_DATABASE_URL", None)
+        else:
+            os.environ["KS_DATABASE_URL"] = previous
+        asyncio.run(admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))

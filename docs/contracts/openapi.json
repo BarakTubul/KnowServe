@@ -1155,6 +1155,42 @@
               "title": "Document Id",
               "type": "string"
             }
+          },
+          {
+            "description": "A single byte range, for example `bytes=0-1023`",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A single byte range, for example `bytes=0-1023`",
+              "title": "Range"
+            }
+          },
+          {
+            "description": "Validator for `Range`; mismatch returns the full body",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Validator for `Range`; mismatch returns the full body",
+              "title": "If-Range"
+            }
           }
         ],
         "responses": {

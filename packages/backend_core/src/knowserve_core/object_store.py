@@ -22,10 +22,18 @@ class ObjectNotFound(Exception):
 
 @dataclass(frozen=True)
 class ByteRange:
-    """Inclusive byte range, already validated against the object size."""
+    """Inclusive byte range with ``0 <= start <= end``.
+
+    Construction checks only the invariants. Callers (M2-03) must also check ``end`` against the
+    object size from ``ObjectStore.size`` before building one.
+    """
 
     start: int
     end: int
+
+    def __post_init__(self) -> None:
+        if self.start < 0 or self.end < self.start:
+            raise ValueError(f"invalid byte range {self.start}-{self.end}")
 
     @property
     def length(self) -> int:

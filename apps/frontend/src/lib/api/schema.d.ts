@@ -1025,7 +1025,12 @@ export interface operations {
     get_document_content: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description A single byte range, for example `bytes=0-1023` */
+                Range?: string | null;
+                /** @description Validator for `Range`; mismatch returns the full body */
+                "If-Range"?: string | null;
+            };
             path: {
                 document_id: string;
             };

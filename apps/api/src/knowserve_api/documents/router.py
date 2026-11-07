@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Response
 
 from knowserve_core.identity import Identity
 
@@ -68,5 +68,15 @@ async def get_document(
 async def get_document_content(
     document_id: str,
     _: Annotated[Identity, Depends(require_active_department)],
+    range_header: Annotated[
+        str | None,
+        Header(alias="Range", description="A single byte range, for example `bytes=0-1023`"),
+    ] = None,
+    if_range: Annotated[
+        str | None,
+        Header(
+            alias="If-Range", description="Validator for `Range`; mismatch returns the full body"
+        ),
+    ] = None,
 ) -> Response:
     raise not_implemented()
