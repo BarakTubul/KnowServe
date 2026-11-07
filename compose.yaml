@@ -4,7 +4,8 @@ name: knowserve
 
 services:
   db:
-    image: pgvector/pgvector:pg16
+    # PostgreSQL 18 with pgvector 0.8.6, the production versions (ADR 0002, M2-PG).
+    image: pgvector/pgvector:0.8.6-pg18
     environment:
       POSTGRES_USER: knowserve
       POSTGRES_PASSWORD: knowserve_local_only
@@ -13,7 +14,9 @@ services:
       # 5433 on the host avoids clashing with a developer's own PostgreSQL on 5432.
       - "${KS_DB_PORT:-5433}:5432"
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # PostgreSQL 18 images keep the data in a versioned subdirectory of /var/lib/postgresql.
+      # A new volume name leaves any old PostgreSQL 16 volume (db-data) untouched.
+      - db-data-pg18:/var/lib/postgresql
       - ./infra/local/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U knowserve -d knowserve"]
@@ -84,4 +87,4 @@ services:
       - "9099:9099"
 
 volumes:
-  db-data:
+  db-data-pg18:

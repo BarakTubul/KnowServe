@@ -9,7 +9,7 @@
 | M2-00b | M0-AC09 cost evidence: billing report for the idle project and Neon compute hours | none | Owner (user) | small | not started |
 | M2-00c | R2 bucket (created manually, Q10), scoped access token, Secret Manager container, Terraform wiring of Cloud Run environment and secrets (existing Terraform) | none | Owner (user) | small to medium | not started; gates the deployed smoke and the production seed |
 | M2-00d | Owner decisions Q1 to Q12 | none | Owner (user) | small | done 2026-11-07 (OPEN-28); Q13 and Q14 remain |
-| M2-PG | CI and Compose to a PostgreSQL 18 pgvector image; run `0001`, `0002`; affected tests; ADR | none (first task, Q11) | Infra-PG | small to medium | in progress locally (see Task section) |
+| M2-PG | CI and Compose to a PostgreSQL 18 pgvector image; run `0001`, `0002`; affected tests; ADR | none (first task, Q11) | Infra-PG | small to medium | edits committed on `m2/pg18`; PostgreSQL 18 test run pending (Docker engine stopped); not merged |
 | M2-CI | OPEN-22 decision, OPEN-27 proposal, E2E placement (docs only) | none | Owner | small | not started |
 | M2-RB | Cloud Run rollback note including the `0003` compatibility check | M2-01 (schema known) | Owner | small | not started |
 | M2-PRIV | No client IP in the application database or logs (SEC-18): stop writing `ip` to audit events, replace the `demo:ip:<address>` limiter key with a keyed hash and expire rows, remove IP logging paths, tests; read-only production count and a proposed scrub for approval | M2-PG (not M2-01) | Backend-Identity | small to medium | proposed, not started; needs the owner's go-ahead |
