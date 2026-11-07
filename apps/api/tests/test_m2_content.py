@@ -544,3 +544,9 @@ def test_m2_production_error_never_prints_secret_values() -> None:
     with pytest.raises(RuntimeError) as excinfo:
         create_app(_prod(object_store="r2", r2_secret_access_key="topsecretvalue"))
     assert "topsecretvalue" not in str(excinfo.value)
+
+
+def test_doc11_range_header_with_unicode_digits_is_ignored() -> None:
+    """Only ASCII digits form a range; Arabic-Indic digits are ignored (full body)."""
+    assert resolve_range("bytes=\u0660-\u0665", 100) is None
+    assert resolve_range("bytes=0-5", 100) is not None

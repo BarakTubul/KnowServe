@@ -46,3 +46,7 @@ crash.log
 test-results/
 playwright-report/
 .pnpm-store/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+

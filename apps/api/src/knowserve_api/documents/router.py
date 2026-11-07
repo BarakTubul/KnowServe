@@ -14,7 +14,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -76,8 +76,10 @@ def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         created_at = datetime.fromisoformat(data[0])
         if created_at.tzinfo is None:
             raise ValueError
+        # Normalizing here makes an out-of-range timestamp fail now (422), not in the driver (500).
+        created_at = created_at.astimezone(UTC)
         return created_at, uuid.UUID(data[1])
-    except (ValueError, TypeError, binascii.Error, UnicodeError):
+    except (ValueError, TypeError, OverflowError, binascii.Error, UnicodeError):
         raise _invalid("Invalid cursor") from None
 
 
@@ -221,7 +223,7 @@ async def get_document(
 
 # --- bytes ---------------------------------------------------------------------------------------
 
-_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
+_RANGE_RE = re.compile(r"bytes=([0-9]*)-([0-9]*)")
 _UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9._ -]")
 
 

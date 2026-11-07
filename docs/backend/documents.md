@@ -73,7 +73,9 @@ Implemented on the target: `apps/api/src/knowserve_api/seed/`.
 - DOC-01, DOC-03, DOC-07 and DOC-08 (library list) are M2-02.
 - DOC-04, 05, 09, 10, 11 are implemented in M2-03 and tested against `FakeObjectStore` and a mock R2 transport. The R2 path is unverified against a real bucket until M2-00c, and streaming limits of Cloud Run and the Pages Function are unmeasured.
 - A range request that is multiple, malformed or of another unit is answered with the full body (200) instead of an error.
-- A stream that fails after the headers are sent ends early (short read); the client retries.
+- A stream that fails after the headers are sent ends early (short read), with no error envelope because the status line is already sent. This is an accepted limitation (CP2); the viewer shows its friendly load-failure message and no recovery mechanism is added.
+- The document seed reports `incomplete` (non-zero exit) for an existing row that is not the full seed shape (current revision and access rows), and never repairs it. Each seeded document is written in one transaction, so the seed itself does not create partial rows; an object written before a failed database step is repaired on the next run.
+- Deploy precondition (M2-00c): production sets `KS_ENV=production` but the Terraform config has no `KS_OBJECT_STORE` or `KS_R2_*` yet. The store guard stops an M2 API revision at startup until that wiring exists, so the R2 environment and secrets wiring must land before any M2 deploy. Already-deployed M1 revisions are unaffected. No cloud change is authorized by this note.
 The seed's `r2` path is untested until M2-03 and M2-00c exist; the production seed has not run.
 Every DOC requirement is unimplemented on the target (R2, revisions, active department, 404 semantics).
 

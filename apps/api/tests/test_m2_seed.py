@@ -130,7 +130,8 @@ async def test_m2_ac15_seed_keeps_existing_rows_untouched(
             {"i": spec.document_id, "d": DEPARTMENT_IDS["engineering"]},
         )
         await s.commit()
-    assert (await seed_documents(session_factory, store, specs=[spec]))[spec.slug] == "unchanged"
+    # A hand-edited access set is not the seed shape: flagged, never success, never repaired.
+    assert (await seed_documents(session_factory, store, specs=[spec]))[spec.slug] == "incomplete"
     async with session_factory() as s:
         assert await s.scalar(select(Document.title)) == "Edited by hand"
         assert await s.scalar(select(func.count()).select_from(DocumentDepartmentAccess)) == 1

@@ -195,6 +195,23 @@ async def test_doc08_tampered_cursor_is_a_controlled_422(
     assert r.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+@pytest.mark.parametrize(
+    "timestamp",
+    ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"],
+)
+async def test_doc08_out_of_range_cursor_timestamp_is_422_not_500(
+    client: httpx.AsyncClient, fin_cookie: dict[str, str], timestamp: str
+) -> None:
+    import base64
+    import json
+
+    raw = json.dumps([timestamp, str(uuid.uuid4())], separators=(",", ":")).encode()
+    cursor = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    r = await get(client, fin_cookie, cursor=cursor)
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 async def test_doc08_real_cursor_with_edited_payload_is_422(
     client: httpx.AsyncClient,
     fin_cookie: dict[str, str],

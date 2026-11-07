@@ -47,7 +47,7 @@ from .specs import SEED_DOCUMENTS, SeedDocument
 DATA_DIR = Path(__file__).parent / "data"
 CONTENT_TYPE = "application/pdf"
 
-Outcome = Literal["created", "unchanged", "object_conflict"]
+Outcome = Literal["created", "unchanged", "object_conflict", "incomplete"]
 
 
 class SeedError(Exception):
@@ -109,7 +109,24 @@ async def _seed_one(
             .on_conflict_do_nothing(index_elements=[Document.id])
         )
         if inserted.rowcount == 0:  # type: ignore[attr-defined]
-            return "unchanged"
+            # The row exists. Say "unchanged" only if it is the complete seed shape; a partial
+            # row (created outside this command) is reported, never repaired or called success.
+            current = await db.scalar(
+                select(Document.current_revision_id).where(Document.id == spec.document_id)
+            )
+            granted = set(
+                (
+                    await db.scalars(
+                        select(DocumentDepartmentAccess.department_id).where(
+                            DocumentDepartmentAccess.document_id == spec.document_id
+                        )
+                    )
+                ).all()
+            )
+            complete = current == spec.revision_id and granted == {
+                departments[slug] for slug in spec.allowed
+            }
+            return "unchanged" if complete else "incomplete"
         db.add(
             DocumentRevision(
                 id=spec.revision_id,
@@ -173,7 +190,7 @@ async def _run() -> int:
         print(f"{slug}: {outcome}")
     counts = Counter(outcomes.values())
     print("document seed: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    return 1 if counts["object_conflict"] else 0
+    return 1 if counts["object_conflict"] or counts["incomplete"] else 0
 
 
 def main() -> None:
