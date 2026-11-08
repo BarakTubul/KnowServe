@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +52,13 @@ export function DashboardPage() {
             </p>
           </CardContent>
         </Card>
+        <Link
+          to="/documents"
+          data-testid="library-link"
+          className="self-start text-lg font-medium underline"
+        >
+          Browse documents
+        </Link>
       </RequireDepartment>
       {isDemo && <CreateAccountPanel onConverted={() => setConverted(true)} />}
       <DepartmentSelectorDialog />

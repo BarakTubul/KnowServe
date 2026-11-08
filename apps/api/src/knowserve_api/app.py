@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, FastAPI, Query, Request, Response
@@ -21,6 +23,7 @@ from knowserve_core.db import check_database, create_engine, create_session_fact
 from knowserve_core.firebase_tokens import TokenVerifier
 from knowserve_core.firebase_verifier import FirebaseTokenVerifier
 from knowserve_core.logging import configure_logging
+from knowserve_core.object_store import ObjectStore, R2Config, build_object_store
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.qstash import Publisher, build_publisher
 from knowserve_core.ratelimit import RateLimiter
@@ -32,6 +35,7 @@ from .admin.router import router as admin_router
 from .auth.router import router as auth_router
 from .demo.router import router as demo_router
 from .departments.router import router as departments_router
+from .documents.router import router as documents_router
 from .operator import router as operator_router
 from .proxy_guard import install_proxy_guard
 
@@ -69,6 +73,7 @@ class SpikeEchoResponse(BaseModel):
     cookie_present: bool
     # The client IP the Pages Function forwarded (X-KS-Client-IP), trusted only after the proxy
     # secret check; None when absent. M0-AC11 spike evidence only.
+    # Always None in production (SEC-18: no client address leaves the API).
     client_ip: str | None = None
 
 
@@ -84,9 +89,10 @@ async def spike_cookie() -> Response:
 
 @spike_router.get("/echo", response_model=SpikeEchoResponse)
 async def spike_echo(request: Request) -> SpikeEchoResponse:
+    production = request.app.state.settings.env == "production"
     return SpikeEchoResponse(
         cookie_present=SPIKE_COOKIE in request.cookies,
-        client_ip=getattr(request.state, "client_ip", None),
+        client_ip=None if production else getattr(request.state, "client_ip", None),
     )
 
 
@@ -140,6 +146,43 @@ async def get_status(request: Request) -> StatusResponse:
     )
 
 
+def _build_object_store(settings: Settings) -> ObjectStore:
+    """Select the document store at startup. In production only ``r2`` with its full
+    configuration is accepted; anything else stops the API with a message naming the setting."""
+    secret = settings.r2_secret_access_key
+    key_id = settings.r2_access_key_id
+    try:
+        return build_object_store(
+            settings.object_store,
+            env=settings.env,
+            filesystem_root=Path(settings.object_store_path),
+            r2=R2Config(
+                endpoint=settings.r2_endpoint,
+                bucket=settings.r2_bucket,
+                access_key_id=key_id.get_secret_value() if key_id else None,
+                secret_access_key=secret.get_secret_value() if secret else None,
+            ),
+        )
+    except ValueError as exc:
+        raise RuntimeError(f"API refuses to start: {exc}") from None
+
+
+def _ip_hash_pepper(settings: Settings) -> bytes:
+    """Pepper for the keyed hash of client addresses in limiter keys (SEC-18, OPEN-28 Q9).
+
+    Production must configure it. Elsewhere a random per-process pepper is used, so nothing
+    reversible is ever derived from a stable value in a local database.
+    """
+    value = settings.ip_hash_pepper.get_secret_value() if settings.ip_hash_pepper else ""
+    if value:
+        if len(value) >= 16:
+            return value.encode()
+        raise RuntimeError("KS_IP_HASH_PEPPER must be at least 16 characters")
+    if settings.env == "production":
+        raise RuntimeError("API refuses to start in production without KS_IP_HASH_PEPPER")
+    return secrets.token_bytes(32)
+
+
 def create_app(
     settings: Settings | None = None,
     engine: AsyncEngine | None = None,
@@ -148,6 +191,7 @@ def create_app(
     token_verifier: TokenVerifier | None = None,
     rate_limiter: RateLimiter | None = None,
     clock: Clock | None = None,
+    object_store: ObjectStore | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     proxy_secret = (
@@ -158,6 +202,8 @@ def create_app(
     if settings.env == "production" and not settings.firebase_project_id:
         raise RuntimeError("API refuses to start in production without KS_FIREBASE_PROJECT_ID")
     configure_logging("api", settings.log_level)
+    pepper = _ip_hash_pepper(settings)
+    store = object_store or _build_object_store(settings)
     engine = engine or create_engine(settings.database_url)
 
     app_clock = clock or SystemClock()
@@ -169,6 +215,9 @@ def create_app(
         yield
         if owns_verifier and isinstance(app_token_verifier, FirebaseTokenVerifier):
             app_token_verifier.close()
+        close = getattr(store, "aclose", None)
+        if close is not None:
+            await close()
         await engine.dispose()
 
     app = FastAPI(
@@ -187,11 +236,19 @@ def create_app(
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     # M1 auth state (M1-02a): injectable for tests, real implementations otherwise.
     app.state.clock = app_clock
+    app.state.ip_hash_pepper = pepper
+    app.state.object_store = store
     app.state.token_verifier = app_token_verifier
     app.state.rate_limiter = rate_limiter or PostgresRateLimiter(app_clock)
     app.include_router(router)
     # M1 slice routers are registered once here so slices never edit the app factory.
-    for slice_router in (auth_router, demo_router, departments_router, admin_router):
+    for slice_router in (
+        auth_router,
+        demo_router,
+        departments_router,
+        admin_router,
+        documents_router,
+    ):
         app.include_router(slice_router)
     if settings.enable_spike_job_ops:
         app.include_router(operator_router)

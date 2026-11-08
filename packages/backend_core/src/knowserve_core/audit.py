@@ -3,6 +3,10 @@
 ``record`` is the only way slices write ``audit_events``. Details pass through the same redaction
 as the logs, so a token, cookie or CSRF value can never be stored even by mistake. Only counts and
 ids belong in ``details``.
+
+No client address is ever written (SEC-18, OPEN-28 Q9): ``record`` has no ``ip`` parameter and
+``audit_events.ip`` stays NULL. The column remains only so the running revision keeps reading the
+model.
 """
 
 from __future__ import annotations
@@ -25,15 +29,12 @@ async def record(
     event: str,
     *,
     user_id: uuid.UUID | None = None,
-    ip: str | None = None,
     **details: Any,
 ) -> None:
     """Add an audit row to the caller's transaction (it commits or rolls back with it)."""
     safe: dict[str, Any] = redact(details)
     request_id = request_context.get_request_id()
-    session.add(
-        AuditEvent(event=event, user_id=user_id, request_id=request_id, ip=ip, details=safe)
-    )
+    session.add(AuditEvent(event=event, user_id=user_id, request_id=request_id, details=safe))
     await session.flush()
     logger.info(
         "audit event",

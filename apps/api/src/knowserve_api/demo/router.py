@@ -20,7 +20,7 @@ from knowserve_core import audit
 from knowserve_core.clock import Clock
 from knowserve_core.firebase_tokens import TokenVerifier
 from knowserve_core.models import User
-from knowserve_core.ratelimit import RateLimiter
+from knowserve_core.ratelimit import RateLimiter, client_bucket_key
 from knowserve_core.sessions import SessionService
 from knowserve_core.settings import Settings
 from knowserve_core.web import AppError
@@ -80,21 +80,21 @@ async def start_demo(
     401 ``DEMO_EXPIRED`` when this Demo identity is past its 24 hours.
     """
     verified = await verify_id_token_or_raise(verifier, body.id_token, require_fresh=True)
-    ip = client_ip(request, settings)
+    bucket = client_bucket_key(client_ip(request, settings), request.app.state.ip_hash_pepper)
 
     if verified.sign_in_provider != "anonymous":
-        await audit.record(db, "demo.denied", ip=ip, reason="provider")
+        await audit.record(db, "demo.denied", reason="provider")
         await db.commit()
         raise unauthenticated()
 
     decision = await limiter.hit(
         db,
-        f"demo:ip:{ip}",
+        bucket,
         limit=settings.demo_start_limit,
         window_seconds=settings.demo_start_window_seconds,
     )
     if not decision.allowed:
-        await audit.record(db, "demo.denied", ip=ip, reason="rate_limited")
+        await audit.record(db, "demo.denied", reason="rate_limited")
         await db.commit()
         raise AppError(
             429,
@@ -116,7 +116,6 @@ async def start_demo(
             db,
             "demo.denied",
             user_id=user.id if user is not None else None,
-            ip=ip,
             reason="not_demo",
         )
         await db.commit()
@@ -124,7 +123,7 @@ async def start_demo(
 
     lifetime_end = user.created_at + timedelta(seconds=settings.session_ttl_seconds)
     if now >= lifetime_end:
-        await audit.record(db, "demo.denied", user_id=user.id, ip=ip, reason="expired")
+        await audit.record(db, "demo.denied", user_id=user.id, reason="expired")
         await db.commit()
         raise AppError(401, "DEMO_EXPIRED", "This Demo has ended. Start a new Demo.")
 
@@ -133,7 +132,7 @@ async def start_demo(
     )
     if row.expires_at > lifetime_end:
         row.expires_at = lifetime_end  # a Demo identity never outlives its own 24 hours
-    await audit.record(db, "demo.started", user_id=user.id, ip=ip)
+    await audit.record(db, "demo.started", user_id=user.id)
     await db.commit()  # commit before the cookie is built or the response leaves
 
     identity = await service.lookup_by_token(db, token)

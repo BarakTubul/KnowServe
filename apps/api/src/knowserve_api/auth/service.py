@@ -41,11 +41,11 @@ def normalize_email(email: str | None) -> str | None:
 
 
 async def deny(
-    db: AsyncSession, reason: str, error: AppError, *, user_id: uuid.UUID | None = None, ip=None
+    db: AsyncSession, reason: str, error: AppError, *, user_id: uuid.UUID | None = None
 ) -> NoReturn:
     """Audit the refusal (committed, since the caller is about to raise) and raise ``error``."""
     await db.rollback()
-    await audit.record(db, "auth.session.denied", user_id=user_id, ip=ip, reason=reason)
+    await audit.record(db, "auth.session.denied", user_id=user_id, reason=reason)
     await db.commit()
     raise error
 
