@@ -1,6 +1,6 @@
 # M2 traceability table (TEST-03)
 
-Status of 2026-11-07, branch `m2/integration` at the commit that contains this file, draft PR 32. Test files: `apps/api/tests/test_m2_*.py`, `packages/backend_core/tests/test_m2_*.py`, `apps/frontend/src/features/documents/**/*.test.tsx`, `apps/frontend/functions/api/proxy.test.ts`.
+Status of 2026-11-08. PR 32 is merged (`2163ea8`). Test files: `apps/api/tests/test_m2_*.py`, `packages/backend_core/tests/test_m2_*.py`, `apps/frontend/src/features/documents/**/*.test.tsx`, `apps/frontend/functions/api/proxy.test.ts`.
 
 Evidence legend: **local** = run on the integration worktree (564 Python tests at `0c412c3`, 174 frontend tests and the 4-test browser flow after the Q13 merge). **CI** = GitHub `ci` on draft PR 32, 8 of 8 checks passed on `19d39b0`; the later commits have not been re-checked here. Reviews: CP1 (schema, predicate, 404) and CP2 (M2-02, M2-03) found no blocking issue.
 
@@ -23,28 +23,28 @@ A row is **open** when evidence is missing; open rows are gaps the user has to s
 | M2-AC13 | FE-DOC-02, 04, 05, 06, PROD-06, PROD-13 | `fe_doc_02_shows_loading_then_the_empty_message`, `fe_doc_04_05_items_show_filename_...`, `fe_doc_06_a_filter_with_no_hits_...`, `fe_doc_02_prod_13_errors_render_a_friendly_message_never_the_api_text`, `fe_doc_05_the_dashboard_links_to_the_library` | local, CI | covered |
 | M2-AC14 | ARCH-11, INFRA-05, TEST-11, TEST-16 | `test_m2_ac14_schema_has_document_tables`, `test_current_revision_must_belong_to_same_document`, `test_ready_revision_requires_page_count`, `test_m2_downgrade_0003_removes_document_tables_and_upgrades_again`; rollback note `docs/architecture/rollback.md` | local, CI | covered; the INFRA-05 checklist answer goes in the milestone PR text |
 | M2-AC15 | D1 | `test_m2_ac15_*` (determinism, committed PDFs, shape and ids, idempotency, no overwrite, hand-edited rows flagged `incomplete`, filesystem twice), `test_sec04_sec05_seed_visibility_per_department` | local, CI | covered locally; **gap: the owner-run production seed has not happened** |
-| M2-AC16 | TEST-15, A7, D1 | none | none | **open: needs M2-00c (R2) and the approved production migration; not started** |
+| M2-AC16 | TEST-15, A7, D1 | `tests/e2e/deployed.library.spec.ts` (`m2_ac16_finance_demo_reads_seeded_documents_with_a_range_request_and_gets_a_neutral_404`) against the production Pages host with real R2 | passed 2026-11-08 after the production seed; recorded in `handoff.md` | covered |
 | M2-AC17 | D5, TEST-11 | migrations `0001` to `0003` and the full suite on `pgvector/pgvector:0.8.6-pg18` | CI (8 of 8, PR 32); ADR 0002 and the M2-PG handoff note | covered |
 | M2-AC18 | D2, TEST-13, TEST-14 | review of `docs/architecture/ci-cd-proposals.md`; user decisions of 2026-11-07 recorded in `open-decisions.md` | review | covered as docs; no implementation by design |
-| M2-AC19 | AUTH-35, SEC-14 | none until the 2026-11-08 03:00 UTC run | pending | **open: read-only check of the Worker log and the `demo.cleanup.run` audit row after the run** |
+| M2-AC19 | AUTH-35, SEC-14 | Worker log of the 2026-11-08 03:00 UTC run and the `demo.cleanup.run` audit row | read-only checks 2026-11-08 | covered (first attempt 500 from a cold start, retry 200; audit row with `deleted_users: 0`) |
 | M2-AC20 | INFRA-05, TEST-16 | `docs/architecture/rollback.md` (review) and the downgrade test above | review | covered; the procedure itself has not been exercised |
 | M2-AC21 | SEC-18, MON-04, MON-05, AUTH-15 | `test_sec_18_m2_ac21_no_address_in_audit_counters_or_logs_on_every_m1_path`, `test_sec_18_m2_ac21_demo_start_returns_429_with_the_hashed_key`, `test_sec_18_bucket_key_is_keyed_and_contains_no_address`, `test_sec_18_old_counter_rows_for_a_key_expire_after_their_window`, `test_sec_18_log_redaction_masks_address_like_keys`, `test_sec_18_production_requires_the_pepper_and_local_falls_back`, `test_sec_18_spike_echo_hides_the_address_in_production` | local (full suite 564 at `0c412c3`) | **covered for new writes. Deferred: the historical production data (OPEN-30, Q14), non-blocking for M2; existing production IP data is not claimed clean.** Retention of a limiter row is the window plus 15 minutes before it is eligible for deletion; cleanup is lazy, so this is not a hard 75-minute guarantee |
 | M2-AC22 | PROD-13, FE-ARCH-14 | `fe_arch_14_*` (code-to-message mapping, generic fallback, 503, network failure, unreadable PDF); Q13: `q13_selector_switches_language_dir_and_persists_in_the_browser`, `q13_every_language_has_every_library_and_viewer_error_code_and_ui_string`, `q13_hebrew_messages_have_no_technical_or_english_text`, `q13_an_unknown_code_uses_the_generic_message_in_each_language`, `q13_a_code_missing_in_one_language_falls_back_to_english_then_generic`; browser: `m2_ac22_language_selector_switches_to_hebrew_rtl_and_the_choice_is_kept_in_the_browser` | local (174 frontend tests, e2e 4 of 4) | covered for the M2 screens (English and Hebrew). Auth, dashboard and other screens stay English and are listed as a gap |
 
 ## Summary by state
-- **Passed (local, and CI for the commits it has seen):** AC01 to AC09, AC10, AC11, AC12, AC13, AC14, AC15 (local part), AC17, AC18, AC20, AC21 (new writes), AC22 (M2 screens).
-- **Pending (needs a future event or owner action):** AC16 (deployed smoke; needs M2-00c and the migration approval) and AC19 (the 2026-11-08 03:00 UTC Demo cleanup run).
+- **Passed:** AC01 to AC09, AC10, AC11, AC12, AC13, AC14, AC15, AC16, AC17, AC18, AC19, AC20, AC21 (new writes), AC22 (M2 screens).
+- **Pending:** none. AC16 (deployed smoke) and AC19 (Demo cleanup run) passed on 2026-11-08.
 - **Deferred by the user:** the historical production IP data half of AC21 (OPEN-30, Q14, before real users); localization of screens outside M2 (Q13).
 
 ## Exit criteria
 | ID | State |
 |---|---|
-| M2-EX1 | This table. Pending: AC16, AC19. Deferred: OPEN-30. Browser flows run against a mocked API; real Firebase sign-in stays covered by the M1 auth evidence. |
-| M2-EX2 | CI was green on `19d39b0` (8 of 8). The newer local commits (route walk, M2-PRIV, Q13, Terraform, Playwright flow) have not been pushed, so CI has not seen them. |
+| M2-EX1 | This table. No pending row. Deferred: OPEN-30. Browser flows in CI-style runs use a mocked API; the deployed smoke ran against production. |
+| M2-EX2 | CI passed 8 of 8 on the PR's last commit (`bb667b2`) and on the merge commit `2163ea8`. |
 | M2-EX3 | CP1 and CP2 reviews done, no blocking finding. M2-PRIV and Q13 had targeted tests but no separate independent review; the milestone PR review covers them. |
-| M2-EX4 | Not met: needs M2-00c and the production migration approval. |
+| M2-EX4 | Met 2026-11-08: migration `0003` ran through the migration job under the `production` approval, four documents are seeded and the deployed smoke passed. |
 | M2-EX5 | Specs updated by each task; the final WF-15 check is part of M2-07. |
-| M2-EX6 | Not met: handoff (M2-07) and the user's approval of the milestone PR. |
+| M2-EX6 | Handoff written (`handoff.md`). The user approved and merged PR #32. |
 
 ## Known test limits
 - Bytes tests use `FakeObjectStore` and a mock R2 transport. Real R2 behavior, and Cloud Run and Pages Function streaming limits, are unmeasured until the deployed smoke.
