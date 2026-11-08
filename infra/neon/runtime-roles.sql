@@ -3,7 +3,8 @@
 --
 -- STATUS (2026-11-06): sections 1 to 3 below were EXECUTED against the production Neon database
 -- (database `neondb`, PostgreSQL 18.6) as `neondb_owner`, in one transaction, and verified
--- (section 4). Section 5 is DEFERRED to the separately approved `database-url` cutover.
+-- (section 4). Section 5, the `database-url` cutover, was also DONE on 2026-11-06 (see section 5
+-- and `docs/milestones/M1/handoff.md`, "Verified on production").
 -- Nothing in this file contains a credential.
 --
 -- Findings that shaped the approach (Neon behavior, observed):
@@ -13,8 +14,8 @@
 --    Neon console and recreated with SQL, which does not add `neon_superuser` membership.
 --  * Neon's control plane rejects a pre-hashed SCRAM password ("only supports plaintext
 --    passwords"). To avoid sending a temporary plaintext password that would immediately need
---    rotation, the role is created NOLOGIN with NO password. LOGIN and a freshly generated
---    password are set at the cutover (section 5).
+--    rotation, the role was created NOLOGIN with NO password. LOGIN and a freshly generated
+--    password were set at the cutover (section 5).
 
 -- ============================================================================================
 -- 1. READ-ONLY inspection (run first). Decides the DDL role.
@@ -57,8 +58,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public
 --    no CREATE on the database or on schema public, DML on the three tables, USAGE+SELECT on
 --    spike_vector_probe_id_seq, no privilege at all on alembic_version, default ACLs for
 --    neondb_owner = {ks_runtime=arwd} on tables and {ks_runtime=rU} on sequences.
---    Note: pg_roles always shows the password column masked, so "no password" follows from the
---    CREATE ROLE statement having none, and the cutover login test confirms it.
+--    Note: pg_roles always shows the password column masked, so "no password" followed from the
+--    CREATE ROLE statement having none. The state recorded here is from before the cutover:
+--    rolcanlogin = false was true then and is no longer true after section 5.
 -- ============================================================================================
 SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolcanlogin
 FROM pg_roles WHERE rolname = 'ks_runtime';
@@ -81,7 +83,13 @@ SELECT defaclobjtype::text AS objtype, defaclacl::text AS acl
 FROM pg_default_acl WHERE pg_get_userbyid(defaclrole) = 'neondb_owner';
 
 -- ============================================================================================
--- 5. DEFERRED to the `database-url` cutover (each step needs the Owner's separate approval)
+-- 5. `database-url` cutover. DONE on 2026-11-06 (kept below as the record of what was run; each
+--    step needed the Owner's separate approval). Recorded outcome in
+--    `docs/milestones/M1/handoff.md`: a real pooled login as `ks_runtime` passed DML in a
+--    rolled-back transaction and was denied CREATE TABLE, ALTER and reading `alembic_version`;
+--    `database-url` version 2 is the pooled `ks_runtime` URL (version 1, `neondb_owner`, is
+--    preserved for rollback); `migration-database-url` holds the direct `neondb_owner` URL; the
+--    live API revision `knowserve-api-00007` runs on the runtime credential.
 -- ============================================================================================
 --  a) ALTER ROLE ks_runtime LOGIN PASSWORD '<freshly generated, in memory only, never printed>';
 --  b) Real login test through the POOLED host ("-pooler"), every statement rolled back:
@@ -95,5 +103,5 @@ FROM pg_default_acl WHERE pg_get_userbyid(defaclrole) = 'neondb_owner';
 --  c) Publish from stdin to Secret Manager (never to a file, the repo or CI):
 --       migration-database-url : neondb_owner, DIRECT host (not "-pooler")
 --       database-url           : ks_runtime, POOLED host ("-pooler"), as a new version
---     Keep the previous `database-url` version enabled until M1-AC11 (the migration job run)
---     has passed, so the runtime can be rolled back.
+--     The previous `database-url` version was kept enabled until M1-AC11 (the migration job run)
+--     had passed, so the runtime could be rolled back.
