@@ -1,6 +1,8 @@
 # M1 handoff (WF-12), draft
 
-**Status (2026-11-06):** all M1 code is implemented and integrated **locally** on `m1/integration`. Nothing is pushed, deployed or applied to the cloud, and the milestone PR is not opened. M1 is **not** complete: the final independent review (M1-08), the cloud setup and the real-Firebase smoke are open (see sections 3 and 4). Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
+**Resolved (2026-11-08): Demo Cleanup signature defect.** The first scheduled cleanup (2026-11-07 03:00 UTC) was rejected with 401 on all four deliveries; the cause was a schedule destination host that did not match the Worker's `KS_WORKER_PUBLIC_URL` (section 3, "Demo Cleanup defect"). After the schedule was corrected, the scheduled run on 2026-11-08 03:00 UTC authenticated and cleaned up (evidence in section 3). The block is lifted.
+
+**Status (2026-11-06):** M1 is merged (PR #28, `045f463`), deployed to production (`knowserve-m0-spike`) through the `production` GitHub Environment, and closed by the Owner with **one accepted gap**: the Demo to Registered conversion was not run on real Firebase (section 3). The migration ran, the Admin is provisioned, the daily Demo-cleanup schedule exists, and the other real-Firebase checks passed. Specs: `../../backend/auth.md`, `../../frontend/auth.md`, `../../contracts/auth-session.md`, `plan.md`, `tasks.md`, ADRs 0004 to 0006, decisions OPEN-24 to OPEN-26.
 
 ## 1. What exists locally
 | Area | State |
@@ -36,10 +38,31 @@
 - AC17 quotas, global guard and kill switch as a mechanism; **chat-level evidence is an M4 criterion** (CHAT-18, CHAT-19), as is real chat-history preservation.
 - Time-dependent cases (expired Demo, stale sign-in window) are intentionally not in e2e.
 
-**Remaining real-Firebase / cloud checks (not done; need the Owner)**
-- AC02 Firebase password policy (minimum 8, no composition rules, `Require` mode) verified in the real console (N3); if it needs Identity Platform, report and ask.
-- AC03 real Google OAuth; AC05 verification and reset mail delivery and the "account exists" linking path on real Firebase; behavior of `/v1/auth/convert` after real credential linking (emulator showed the provider becomes `password`).
-- AC11 migration job applied and run (the Neon runtime role `ks_runtime` exists as a `NOLOGIN`, password-less, DML-only role, verified 2026-11-06; still to do: LOGIN and password, the real pooled-login test, and the `database-url` / `migration-database-url` secret versions at the cutover); AC12 deployed smoke through the Pages proxy; AC16 QStash schedule creation after confirming availability and quotas; Admin account creation and provisioning; the first production deploy through the `production` environment.
+**Verified on production (2026-11-06)**
+- Cutover and deploy: the deploy workflow targets the `production` Environment (PR #27); `auth-check` passed (run 42255581776: login works, the deployer cannot read secrets, the IAM policy or `migration-database-url`, and can see the migration job); `deploy` passed every step (run 42257551803): images built and pushed, **migration job run**, Cloud Run rolled, frontend deployed, API status through the Pages proxy, direct Cloud Run access denied, worker readiness and the deployed Playwright smoke (AC11, AC12).
+- Database: `alembic_version` is `0002`; the new tables exist; the five departments are seeded; `neondb_owner` owns every table. The runtime role `ks_runtime` (created by SQL, no privileged memberships) has SELECT/INSERT/UPDATE/DELETE on all tables except `alembic_version`, no TRUNCATE, and was tested by a real pooled login: DML in a rolled-back transaction passed; CREATE TABLE, ALTER and reading `alembic_version` were denied. `database-url` version 2 is the pooled `ks_runtime` URL (version 1, `neondb_owner`, is preserved); `migration-database-url` holds the direct `neondb_owner` URL. The live API revision `knowserve-api-00007` runs on the runtime credential, and `/health/live` and `/health/ready` return 200.
+- Admin (AC09): one `admin` row bound to the Firebase uid, provisioned once through the Cloud Run job `knowserve-admin-seed` under the runtime identity (outcome `promoted`, audit event `admin.provisioned`). The Owner confirmed `/v1/admin/ping` returns 200 for the Admin and 403 for another account.
+- Firebase (configuration read through the Identity Toolkit API): Email/Password, Google and Anonymous enabled; password policy enforced (minimum 8, no composition rules) and confirmed by the Owner's rejection of a short password (AC02); email enumeration protection on; `knowserve-m0-spike.pages.dev` is an authorized domain; Firebase's default mail handler and sender are in use. The Owner confirmed Try Demo, Google sign-in, password sign-in and sign-out, signup verification mail and password reset on the live site (AC01, AC03, AC14).
+- Finding: Firebase replaced the Admin's unverified console-created password credential when the same email signed in with Google (its built-in protection), so the Admin account is Google-only and verified. This is allowed (O1); password sign-in for the Admin can be added later.
+- Cleanup endpoint: unsigned requests to `/internal/maintenance/demo-cleanup` are rejected with 401, with and without a body (AC16, SEC-14). The daily QStash schedule `knowserve-demo-cleanup` (`CRON_TZ=UTC 0 3 * * *`, POST, no body, 3 retries) was created on 2026-11-06 and read back; the first scheduled delivery (03:00 UTC) has not been observed yet. The one-time Admin seed job was removed after use (Terraform apply: 1 destroyed), and Terraform matches the configuration.
+
+**Demo Cleanup defect (2026-11-07), resolved 2026-11-08**
+- Verification (2026-11-08): the scheduled run at 03:00 UTC authenticated. The Worker log shows the first attempt (03:00:05) aborted with 500 by Cloud Run after waiting for an instance during a cold start, so the app never ran. QStash retried, and the retry returned 200 at 03:00:27 with the log lines `audit event` and `demo cleanup run` at 03:00:28. The audit row `demo.cleanup.run` records `batches: 0`, `deleted_users: 0`, `failed_batches: 0`. No Demo account had reached its limit yet. The same evidence is in `../M2/handoff.md`.
+- Symptom: four QStash deliveries (03:00:00, 03:00:22, 03:02:54, 03:30:14 UTC) reached the Worker and all returned 401, log line `rejected maintenance delivery with invalid signature`. No cleanup ran.
+- Root cause: the schedule destination was `https://knowserve-worker-ql7pu53csa-ew.a.run.app/internal/maintenance/demo-cleanup`, but the Worker's `KS_WORKER_PUBLIC_URL` (revision `knowserve-worker-00006-sk8`) is `https://knowserve-worker-866929656529.europe-west1.run.app`. QStash signs the destination it called into the `sub` claim; the Worker requires `sub` to equal its configured URL plus the path, so the destination check failed. Both hosts are aliases of the same Cloud Run service, which is why requests still arrived. The signing keys were not the cause: they have one enabled version each (created 2026-10-31), and the corrected delivery verified with them. The error log does not say which check failed (deferred improvement below).
+- Fix (cloud only, Owner approved in chat, 2026-11-07 ~09:06 UTC): `infra/qstash/demo-cleanup-schedule.sh create` was re-run with `WORKER_PUBLIC_URL=https://knowserve-worker-866929656529.europe-west1.run.app` and the same schedule id, which updates the schedule in place (no delete, so no gap and no duplicate). The listing afterwards shows exactly one schedule `knowserve-demo-cleanup`, the corrected destination, `CRON_TZ=UTC 0 3 * * *`, POST, 3 retries, not paused. No secret, Worker configuration or application code changed.
+- Manual verification: one test message published through QStash to the corrected destination (09:07:03 UTC, no retries) returned 200 at 09:07:04; the Worker logged `demo cleanup run` with `deleted_users` 0, `failed_batches` 0, `batches` 0 (nothing was expired, so this proves authentication and a clean run, not a deletion).
+- Still required before closing: the next scheduled run (2026-11-08 03:00 UTC) accepted with 200 and a `demo cleanup run` log line, recorded here.
+- Deferred follow-ups (Owner asked to wait): distinct signature failure reasons in the Worker log (destination mismatch, bad signature, body hash), regression tests for a validly signed but wrong-host delivery, and a check in the script and README that the destination equals the deployed `KS_WORKER_PUBLIC_URL` (use the Cloud Run env value, not the service URL).
+
+**Real-Firebase checks run by the Owner on the live site (2026-11-06)**
+- Passed: sign out everywhere (sessions revoked, the other browser signed out), Google sign-in on an email that already has a password account (link prompt, no silent merge), and the Continue button on Firebase's hosted verification and reset pages returning to `/login` (AC05, AC07).
+
+**Accepted gap (Owner decision, 2026-11-06)**
+- AC15 Demo to Registered conversion was **not run on real Firebase**. The Owner closed M1 without it. What covers it instead: the backend integration tests (same `users.id` and uid, fixture records in two departments, lost-call recovery, the cleanup race) and the real-API end-to-end flow against the Firebase Auth Emulator. What stays unproven on real Firebase is that the token's provider claim becomes `password` after linking, as it did on the emulator. If conversion fails on production, `/v1/auth/convert` fails closed (401) and the Demo session stays valid; the lost-call path (a normal sign-in completes the conversion) still works.
+
+**Still to observe**
+- The first successful scheduled Demo cleanup is evidenced (2026-11-08 03:00 UTC, see "Demo Cleanup defect").
 
 ## 4. Unresolved failures and risks
 - No failing check at the time of writing. The earlier real-API e2e failures were caused by a stale API process on port 8000 and the persistent 5-per-hour Demo counters, not by product defects; the e2e README records the isolation rules.
@@ -52,7 +75,7 @@
 - The production cutover (spike to production Environment) runs in its own session; this handoff does not depend on it.
 
 ## 5. Next steps
-1. Run the M1-08 independent review on the integrated branch; fix findings.
-2. Owner actions in order: Firebase console setup and the password-policy check, `production` Environment secrets, migration job apply and Neon roles, Admin account, QStash schedule, first deploy.
-3. Real-Firebase smoke (Google, mail, convert), then fill the evidence into the traceability table.
-4. Open the milestone PR as a Draft (needs push approval), mark ready for approval after step 3.
+1. Done (2026-11-08): the scheduled Demo cleanup succeeded and the BLOCKED banner is removed.
+2. Run the Demo to Registered conversion on real Firebase when convenient, to close the accepted gap.
+3. Decide whether to add password sign-in for the Admin, and close PR #26 (superseded by #28).
+4. Carry the M4 criteria that complete M1 evidence (CHAT-18, CHAT-19) into the M4 plan.
