@@ -1,6 +1,6 @@
 # M2: Documents Library and Access
 
-Status: approved by the Owner on 2026-11-07 (decisions Q1 to Q12, recorded as OPEN-28 in `../../open-decisions.md`). Local implementation of M2-PG, M2-01 to M2-05, M2-PRIV and Q13 is authorized and done or in progress (status in `tasks.md`). Q13 was decided on 2026-11-07 (OPEN-29): English and Hebrew, English default, selector, choice kept in the browser. Q14 is deferred and non-blocking (OPEN-30). Nothing here authorizes cloud actions, `git push`, a merge, a deployment or a production data change; each needs separate approval. The task board is `tasks.md`. Normative requirements stay in the specs; this plan adds the scope, acceptance criteria, contracts, access model, schema, risks and owner actions. The roadmap section is `../ROADMAP.md` (section 4); where this plan and the roadmap table differ, this plan owns the final allocation (A2).
+Status: M2 is complete. It was approved by the Owner on 2026-11-07 (decisions Q1 to Q12 as OPEN-28, Q13 as OPEN-29, Q14 deferred as OPEN-30), merged to `main` as PR #32 (`2163ea8`) and deployed on 2026-11-08. The handoff is `handoff.md`, the evidence table is `traceability.md`, the board is `tasks.md`. Normative requirements stay in the specs; this plan keeps the scope, acceptance criteria, contracts, access model, schema and risks as approved.
 
 Anything I inferred and did not find in the specs is marked "Assumption" and collected in section 13. Approved decisions and the questions that remain are in section 12.
 
