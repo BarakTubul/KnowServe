@@ -17,7 +17,8 @@ Status on 2026-11-13: M3 (Admin Upload and Ingestion) is implemented and tested 
 
 ## Decisions taken during implementation
 
-- Worker sizing comes from `measurements.md`: concurrency 1, memory 512 MiB and request timeout 300 s unchanged, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
+- Worker sizing comes from `measurements.md`. The Owner approved these as initial values: concurrency 1, memory 512 MiB, Cloud Run request timeout 300 s, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. They rest on local measurements, so they are a starting point and not a production performance result. M3-AC23 stays open until the deployed Worker has processed a large, representative PDF (see the next section). The values are not to be changed or re-measured before then. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
+- The Owner split two retriever clauses between M3 and M4 (see the next section). M3 does not contain a temporary retriever.
 - The ZIP panel has no "retry the files that were not imported" button. Retrying the same ZIP under a new key would create the finished entries again, so the Admin imports a new ZIP that holds only the failed files.
 - A missing source object fails the job as `INVALID_PDF` without retries. Embedding errors stay retryable.
 - A missing OpenAI key or R2 setting in the Worker fails the attempt (`INTERNAL_ERROR`, retryable) and does not stop the Worker from starting, so the current deployment still boots before the secrets exist.
@@ -33,10 +34,26 @@ Status on 2026-11-13: M3 (Admin Upload and Ingestion) is implemented and tested 
 
 ## Acceptance criteria that stay open
 
-- M3-AC22 and M3-AC23 (a real upload on production, and a real large document on Cloud Run) need the cloud steps below.
-- M3-AC25 (the D15 failure and recovery experiment) needs its own approval. The design is plan section 12.2. The runner is not written yet.
-- Two clauses cannot be tested before M4 builds the retriever: no retriever query ever sees a non-ready revision (M3-AC07) and a query across a different index identity is refused (M3-AC09). The chunk tables, the visibility rules and the stored identity are in place.
+Three production acceptance criteria are not met, because they need the cloud steps below:
+
+- M3-AC22: one real upload of a small PDF on production, through the Pages proxy, real QStash, the Worker, R2 and OpenAI, plus the permitted and a non-permitted department and the upload size limit through Cloudflare and Cloud Run.
+- M3-AC23: time, peak memory and embedding cost for small, medium and the largest allowed PDF on the deployed Worker. The Owner requires at least one large, representative PDF to be measured there before the Worker values above count as validated. If the measurement shows the values are wrong, the change goes back to the Owner as a new decision.
+- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is not written yet.
+
+Two criteria are split between M3 and M4 by the Owner's decision. The whole criteria are not deferred.
+
+M3-AC07 ("a document that is `queued`, `processing` or `failed` never appears in the library, metadata, bytes or a retriever query over its chunks"):
+- Done in M3: visibility, authorization and non-ready isolation in the library, metadata and bytes routes. Evidence: `test_m2_documents.py` and the Admin tests in `apps/api/tests`, the Worker publication tests in `test_m3_ingest.py`, all within the 998 backend tests, and the local trial.
+- Moved to M4: the retriever query clause. M4 must show that the real retriever cannot return chunks from a non-ready, deleted or unauthorized revision. The M4 test is acceptance criterion 11 in the M4 section of `docs/milestones/ROADMAP.md`.
+
+M3-AC09 ("a query across a different index identity is refused", with atomic publication, page-bound chunks, revision metadata and index identity storage):
+- Done in M3: atomic publication in one transaction that checks `deleted_at`, page-bound chunks of 512 tokens with 64 overlap, and the embedding model and index identity stored per revision. Evidence: the chunking and publication tests, including `test_m3_ingest.py`.
+- Moved to M4: the refusal clause. M4 must show that retrieval refuses to compare vectors across incompatible index identities. The M4 test is acceptance criterion 12 in the same ROADMAP section.
+
+Other notes:
+
 - M3-AC01 is covered in pieces (upload, Worker pipeline, visibility) and by the local trial. There is no single automated test that runs upload, Worker and a second department's library view in one flow.
+- The completed M3 parts are supported by the evidence section above: 998 backend tests with no skips, 235 frontend unit tests, the mocked Playwright Admin spec, two local real-API trials (the second on the final code), the OpenAPI and generated type drift checks, the Docker builds, Terraform format and validate, the secret scans, and the independent reviews.
 
 ## Steps only the Owner can approve
 

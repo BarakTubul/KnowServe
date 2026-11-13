@@ -219,6 +219,8 @@ Acceptance criteria and evidence
 8. Prompt injection and cross-department leak cases hard-fail (SEC-12, EVAL-05): eval.
 9. Cost per answer within COST-01 and recorded (OPEN-02, OPEN-10): measured report.
 10. Chat joins the Playwright smoke suite (TEST-13). Answer quality is judged only by the evaluation harness.
+11. Retriever isolation, carried over from M3-AC07: the actual retriever cannot return chunks from a revision that is not ready, is deleted, or is not authorized for the active department. Tested with a real pgvector query that includes queued, processing, failed and deleted revisions (M4-02). This is the same check as criterion 1, run over the M3 chunk tables.
+12. Index identity, carried over from M3-AC09: retrieval refuses to compare vectors across incompatible index identities. Tested with chunks stored under two identities and a query under one of them (M4-02, ING-18). M3 stores the identity per revision and does not enforce it at query time.
 
 Security tests that start here: SEC-08 pre-filtering in SQL; SEC-12 instruction hierarchy and injection cases; CHAT-09 authorization only from the session; cross-conversation and cross-department isolation (CHAT-14, SEC-10); no prompt or answer text in logs beyond policy (MON-05); SSE through the proxy beyond 120 s is checked or the limit is documented.
 
