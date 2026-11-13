@@ -33,6 +33,7 @@ from knowserve_core.web import AppError, ErrorEnvelope, install_web
 
 from .admin.router import router as admin_router
 from .auth.router import router as auth_router
+from .body_limit import AdminBodyLimit
 from .demo.router import router as demo_router
 from .departments.router import router as departments_router
 from .documents.router import router as documents_router
@@ -256,6 +257,10 @@ def create_app(
         app.include_router(spike_router)
     if proxy_secret:
         install_proxy_guard(app, proxy_secret)  # before install_web: errors keep a request id
+    app.add_middleware(
+        AdminBodyLimit,
+        max_body_bytes=max(settings.upload_max_zip_bytes, settings.upload_max_pdf_bytes),
+    )
     install_web(app)
     if not proxy_secret:
         # Same-origin proxy route (docs/contracts/proxy.md) needs no CORS. With the guard on,

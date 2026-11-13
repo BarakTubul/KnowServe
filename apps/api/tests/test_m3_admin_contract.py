@@ -52,6 +52,8 @@ IMPLEMENTED = {
     ("GET", "/v1/admin/ping"),
     ("GET", "/v1/admin/documents"),
     ("POST", "/v1/admin/documents"),
+    ("POST", "/v1/admin/imports/preview"),
+    ("POST", "/v1/admin/imports/confirm"),
     ("GET", "/v1/admin/documents/{document_id}"),
     ("GET", "/v1/admin/documents/{document_id}/events"),
     ("PATCH", "/v1/admin/documents/{document_id}/access"),
