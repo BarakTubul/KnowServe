@@ -185,7 +185,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "KS_ENABLE_SPIKE_JOB_OPS needs KS_SPIKE_OPERATOR_EMAILS and KS_SPIKE_OIDC_AUDIENCE"
             )
-        # No handler-timeout < lease rule since M3-00a: the lease heartbeat keeps a long job claimed.
+        # No handler-timeout < lease rule since M3-00a: the lease heartbeat keeps the job claimed.
         return self
 
     @model_validator(mode="after")

@@ -11,8 +11,8 @@ failure never fails a ready revision (the handler raises, the terminal hook skip
 
 Selection: a ``ready`` revision of a live document that has no chunks, unless its job is
 processing under a live lease. So a seeded row, a failed run and a killed run are all picked up.
-A second run after success changes nothing. The job is claimed and run in this process; no message is sent to
-QStash, so the outbox row is created already ``published``.
+A second run after success changes nothing. The job is claimed and run in this process; no
+message is sent to QStash, so the outbox row is created already ``published``.
 
 Safety: it refuses to run with ``KS_ENV=production``, an R2 object store, or fake embeddings on a
 non-local database unless ``--allow-production`` is given, which
