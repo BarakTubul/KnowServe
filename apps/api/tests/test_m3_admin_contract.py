@@ -46,22 +46,7 @@ ROUTES: tuple[tuple[str, str, bool, bool], ...] = (
     ("POST", "/v1/admin/imports/preview", True, True),
     ("POST", "/v1/admin/imports/confirm", True, True),
 )
-# Implemented by M3-05a (test_m3_admin_manage.py) and M3-03/04 (test_m3_upload.py and the import
-# tests); the others are still 501 stubs.
-IMPLEMENTED = {
-    ("GET", "/v1/admin/ping"),
-    ("GET", "/v1/admin/documents"),
-    ("POST", "/v1/admin/documents"),
-    ("POST", "/v1/admin/imports/preview"),
-    ("POST", "/v1/admin/imports/confirm"),
-    ("GET", "/v1/admin/documents/{document_id}"),
-    ("GET", "/v1/admin/documents/{document_id}/events"),
-    ("PATCH", "/v1/admin/documents/{document_id}/access"),
-    ("DELETE", "/v1/admin/documents/{document_id}"),
-    ("POST", "/v1/admin/documents/{document_id}/retry"),
-    ("POST", "/v1/admin/documents/{document_id}/replace"),
-}
-STUBS = [r for r in ROUTES if (r[0], r[1]) not in IMPLEMENTED]
+# Every Admin route is implemented (M3-03 to M3-05b), so no 501 stub test remains.
 UPLOAD_ROUTES = [r for r in ROUTES if r[3]]
 
 
@@ -171,22 +156,6 @@ async def test_m3_ac02_admin_routes_need_a_session_and_the_admin_role(
         denied = await _call(client, method, path, session=session)
         assert denied.status_code == 403, f"{method} {path} allowed a {kind} user"
         assert denied.json()["error"]["code"] in ("FORBIDDEN", "CSRF_INVALID", "ORIGIN_INVALID")
-
-
-@pytest.mark.parametrize(("method", "path", "writes", "uploads"), STUBS)
-async def test_m3_ac02_admin_reaches_the_stub_and_gets_501(
-    client: httpx.AsyncClient,
-    make_user: Any,
-    make_session: Any,
-    method: str,
-    path: str,
-    writes: bool,
-    uploads: bool,
-) -> None:
-    admin = await make_session(await make_user("admin"))
-    response = await _call(client, method, path, session=admin)
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "NOT_IMPLEMENTED"
 
 
 @pytest.mark.parametrize(("method", "path"), [(m, p) for m, p, writes, _ in ROUTES if writes])
