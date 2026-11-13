@@ -39,7 +39,6 @@ export const adminText = {
     title: 'Edit access',
     description: 'Choose which departments can read this document.',
     noReprocessing: 'Changing access does not reprocess the document.',
-    atLeastOne: 'Choose at least one department.',
     save: 'Save',
     saving: 'Saving...',
     cancel: 'Cancel',

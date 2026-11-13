@@ -7,6 +7,7 @@ import { retryAdminDocument, type AdminDocument } from './admin-api';
 import { patchAdminDocument, refreshAdminDocuments } from './admin-cache';
 import { describeAdminError, failureMessage } from './admin-error-messages';
 import { DELIVERY_HINT, adminText } from './admin-text';
+import { TERMINAL_FAILURES } from './upload/upload-text';
 import { StatusBadge } from './status-badge';
 import { useDocumentEvents } from './use-document-events';
 
@@ -14,6 +15,7 @@ interface DocumentRowProps {
   document: AdminDocument;
   onEditAccess: (document: AdminDocument) => void;
   onDelete: (document: AdminDocument) => void;
+  onReplace: (document: AdminDocument) => void;
 }
 
 /**
@@ -21,7 +23,7 @@ interface DocumentRowProps {
  * follows its status stream. The actions come from the server's `can_retry` and `can_replace` flags;
  * the client keeps no action rules of its own (ADM-16, ADM-18).
  */
-export function DocumentRow({ document, onEditAccess, onDelete }: DocumentRowProps) {
+export function DocumentRow({ document, onEditAccess, onDelete, onReplace }: DocumentRowProps) {
   const { identity } = useAuth();
   const { language } = useLanguage();
   const queryClient = useQueryClient();
@@ -43,6 +45,19 @@ export function DocumentRow({ document, onEditAccess, onDelete }: DocumentRowPro
 
   const hint = document.delivery_state ? DELIVERY_HINT[document.delivery_state] : undefined;
   const failed = document.status === 'failed';
+
+  const replaceButton = document.can_replace ? (
+    <Button size="sm" variant="outline" onClick={() => onReplace(document)}>
+      {adminText.actions.replaceFile}
+    </Button>
+  ) : null;
+  const retryButton = document.can_retry ? (
+    <Button size="sm" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate()}>
+      {retry.isPending ? adminText.actions.retrying : adminText.actions.retry}
+    </Button>
+  ) : null;
+  // Retry cannot help a terminal failure, so Replace file comes first there (plan F13); otherwise Retry does.
+  const terminal = document.failure_code != null && TERMINAL_FAILURES.has(document.failure_code);
 
   return (
     <li
@@ -87,16 +102,8 @@ export function DocumentRow({ document, onEditAccess, onDelete }: DocumentRowPro
       )}
       {retry.isError && <Alert variant="error">{describeAdminError(retry.error, language)}</Alert>}
       <div className="flex flex-wrap gap-2">
-        {document.can_retry && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={retry.isPending}
-            onClick={() => retry.mutate()}
-          >
-            {retry.isPending ? adminText.actions.retrying : adminText.actions.retry}
-          </Button>
-        )}
+        {terminal ? replaceButton : retryButton}
+        {terminal ? retryButton : replaceButton}
         <Button size="sm" variant="outline" onClick={() => onEditAccess(document)}>
           {adminText.actions.editAccess}
         </Button>

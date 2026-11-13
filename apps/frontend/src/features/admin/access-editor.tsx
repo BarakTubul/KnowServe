@@ -6,7 +6,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import { useLanguage } from '@/lib/i18n/language-context';
 import { updateAccess, type AdminDocument } from './admin-api';
 import { patchAdminDocument, refreshAdminDocuments } from './admin-cache';
-import { describeAdminError } from './admin-error-messages';
+import { adminErrorMessage, describeAdminError } from './admin-error-messages';
 import { adminText } from './admin-text';
 import { DepartmentChecklist } from './department-checklist';
 import { ModalDialog } from './modal-dialog';
@@ -74,7 +74,7 @@ export function AccessEditor({
       )}
       {required && (
         <p id="access-required" role="alert" className="text-sm text-destructive">
-          {adminText.access.atLeastOne}
+          {adminErrorMessage('ALLOWED_DEPARTMENTS_EMPTY')}
         </p>
       )}
       <p className="text-sm text-muted-foreground">{adminText.access.noReprocessing}</p>

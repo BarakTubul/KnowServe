@@ -17,7 +17,13 @@ export type FailureCode = components['schemas']['FailureCode'];
  * client invents). They live in the same catalog so an Admin screen needs only one lookup (M3-06a).
  */
 export type CommonCode =
-  'NETWORK_ERROR' | 'FORBIDDEN' | 'VALIDATION_ERROR' | 'RATE_LIMITED' | 'DEPENDENCY_UNAVAILABLE';
+  | 'NETWORK_ERROR'
+  | 'FORBIDDEN'
+  | 'VALIDATION_ERROR'
+  | 'RATE_LIMITED'
+  | 'DEPENDENCY_UNAVAILABLE'
+  | 'FILE_REQUIRED'
+  | 'OWNER_REQUIRED';
 
 type Generic = { generic: string };
 type AdminCatalog = Record<AdminErrorCode | CommonCode, string> & Generic;
@@ -29,6 +35,8 @@ const adminEn: AdminCatalog = {
   VALIDATION_ERROR: 'Some of the entered values cannot be used. Check them and try again.',
   RATE_LIMITED: 'Too many requests right now. Wait a moment and try again.',
   DEPENDENCY_UNAVAILABLE: 'The service is temporarily unavailable. Try again in a few minutes.',
+  FILE_REQUIRED: 'Choose a file.',
+  OWNER_REQUIRED: 'Choose the owner department.',
   DOCUMENT_NOT_FOUND: 'This document was not found. It may have been deleted.',
   FILE_EMPTY: 'The file is empty. Choose a file with content.',
   FILE_TOO_LARGE: 'The file is larger than the allowed size. Choose a smaller file.',
@@ -69,6 +77,8 @@ const adminHe: AdminCatalog = {
   VALIDATION_ERROR: 'אי אפשר להשתמש בחלק מהערכים שהוזנו. כדאי לבדוק אותם ולנסות שוב.',
   RATE_LIMITED: 'יש כרגע יותר מדי בקשות. אפשר להמתין רגע ולנסות שוב.',
   DEPENDENCY_UNAVAILABLE: 'השירות אינו זמין כרגע. אפשר לנסות שוב בעוד כמה דקות.',
+  FILE_REQUIRED: 'יש לבחור קובץ.',
+  OWNER_REQUIRED: 'יש לבחור את המחלקה שמחזיקה במסמך.',
   DOCUMENT_NOT_FOUND: 'המסמך לא נמצא. ייתכן שהוא נמחק.',
   FILE_EMPTY: 'הקובץ ריק. יש לבחור קובץ עם תוכן.',
   FILE_TOO_LARGE: 'הקובץ גדול מהגודל המותר. יש לבחור קובץ קטן יותר.',
