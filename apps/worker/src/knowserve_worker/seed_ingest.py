@@ -9,12 +9,13 @@ reindex mode: chunks and the index identity are written; status, phase, page cou
 the current pointer and every id stay as they are, and the document stays visible throughout. A
 failure never fails a ready revision (the handler raises, the terminal hook skips ready rows).
 
-Selection: a ``ready`` revision of a live document that has no chunks and either no job (a seeded
-row) or a ``failed`` job (a rerun after a failure). Anything else is left alone, so a second run
-after success changes nothing. The job is claimed and run in this process; no message is sent to
+Selection: a ``ready`` revision of a live document that has no chunks, unless its job is
+processing under a live lease. So a seeded row, a failed run and a killed run are all picked up.
+A second run after success changes nothing. The job is claimed and run in this process; no message is sent to
 QStash, so the outbox row is created already ``published``.
 
-Safety: it refuses to run with ``KS_ENV=production`` unless ``--allow-production`` is given, which
+Safety: it refuses to run with ``KS_ENV=production``, an R2 object store, or fake embeddings on a
+non-local database unless ``--allow-production`` is given, which
 only the Owner does after approving the production reindex (plan section 12.3, item 7). Output is
 revision ids and outcome codes only: no text, no storage keys, no credentials.
 """
@@ -28,6 +29,7 @@ import types
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -51,7 +53,8 @@ Factory = async_sessionmaker[AsyncSession]
 
 _CANDIDATES = text(
     """
-    SELECT r.id, r.job_id, j.status AS job_status
+    SELECT r.id, r.job_id, j.status AS job_status, j.lease_expires_at AS job_lease,
+           (j.lease_expires_at > now()) AS job_lease_live
     FROM document_revisions r
     JOIN documents d ON d.id = r.document_id
     LEFT JOIN jobs j ON j.id = r.job_id
@@ -82,13 +85,16 @@ async def ingest_seeded(
     factory: Factory, store: ObjectStore, provider: EmbeddingProvider, settings: Settings
 ) -> SeedIngestResult:
     """Run the reindex for every selected revision, one at a time. Returns one outcome per
-    candidate: ``ingested``, ``failed:<CODE>``, ``in_progress`` (a live job exists) or ``lost``."""
+    candidate: ``ingested``, ``failed:<CODE>``, ``in_progress`` (a job holds a live lease) or
+    ``lost``."""
     async with factory() as session:
         candidates = (await session.execute(_CANDIDATES)).all()
     handler = IngestHandler(factory, store, provider, settings)
     outcomes: dict[uuid.UUID, str] = {}
     for row in candidates:
-        if row.job_id is not None and row.job_status != "failed":
+        # Only a job that is processing under a live lease is in flight. Anything else (failed,
+        # done without chunks, queued, or a killed run's expired lease) gets a new job.
+        if row.job_id is not None and row.job_status == "processing" and row.job_lease_live:
             outcomes[row.id] = "in_progress"
             continue
         outcomes[row.id] = await _ingest_one(factory, handler, settings, row.id)
@@ -143,10 +149,25 @@ async def _ingest_one(
 
 
 def guard(settings: Settings, argv: list[str]) -> str | None:
-    """A refusal message, or None when it may run."""
-    if settings.env == "production" and "--allow-production" not in argv:
-        return "seed ingestion refused: KS_ENV=production needs --allow-production (Owner only)"
+    """A refusal message, or None when it may run.
+
+    ``--allow-production`` (Owner only) is needed when the environment is production, when the
+    object store is R2, or when fake embeddings would be written into a non-local database.
+    """
+    reason = None
+    if settings.env == "production":
+        reason = "KS_ENV=production"
+    elif settings.object_store == "r2":
+        reason = "KS_OBJECT_STORE=r2"
+    elif settings.embedding_provider == "fake" and not _local_database(settings.database_url):
+        reason = "fake embeddings with a non-local database"
+    if reason and "--allow-production" not in argv:
+        return f"seed ingestion refused: {reason} needs --allow-production (Owner only)"
     return None
+
+
+def _local_database(url: str) -> bool:
+    return urlsplit(url).hostname in ("localhost", "127.0.0.1", "::1", "db")
 
 
 async def ingest_from_env(argv: list[str] | None = None) -> int:
@@ -163,6 +184,10 @@ async def ingest_from_env(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError) as exc:
         print(f"seed ingestion refused: {exc}", file=sys.stderr)
         return 2
+    print(
+        f"seed ingestion: embedding provider={settings.embedding_provider} "
+        f"model={provider.model} object_store={settings.object_store}"
+    )
     engine = create_engine(settings.database_url, null_pool=True)
     try:
         result = await ingest_seeded(create_session_factory(engine), store, provider, settings)

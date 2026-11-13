@@ -165,7 +165,12 @@ class IngestHandler:
                 if size > limit:
                     raise NonRetryableJobError(FailureCode.INVALID_PDF)
                 parts.append(part)
-        except (ObjectNotFound, ObjectStoreError):
+        except ObjectNotFound:
+            # The object is written before the rows that point at it, so a missing object will
+            # not appear on a retry. No code fits exactly; INVALID_PDF tells the Admin to upload
+            # a different file, which is the fix.
+            raise NonRetryableJobError(FailureCode.INVALID_PDF) from None
+        except ObjectStoreError:
             raise RetryableJobError(FailureCode.STORAGE_UNAVAILABLE) from None
         return b"".join(parts)
 
@@ -253,9 +258,19 @@ class IngestHandler:
                 await session.execute(
                     _PUBLISH_REVISION, {**params, "page_count": document.page_count}
                 )
-                await session.execute(
+                pointer = await session.execute(
                     _SET_POINTER, {"id": revision.document_id, "revision_id": revision.id}
                 )
+                if pointer.rowcount != 1:  # type: ignore[attr-defined]
+                    # Another revision is already current (replacing a ready document is M5).
+                    logger.warning(
+                        "ingest: current revision left unchanged",
+                        extra={
+                            "job_id": str(ctx.job_id),
+                            "document_id": str(revision.document_id),
+                            "revision_id": str(revision.id),
+                        },
+                    )
 
 
 Handler = Callable[[Any], Awaitable[None]]

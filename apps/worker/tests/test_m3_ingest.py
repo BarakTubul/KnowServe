@@ -281,8 +281,13 @@ async def test_ing23_terminal_reasons_fail_at_once_without_chunks_or_retries(
 # ----------------------------------------------------------------------------- retryable failures
 
 
-async def test_ing09_storage_failure_is_retried_to_the_cap_then_failed(h: Harness) -> None:
-    _, rev_id, job_id = await h.make(None)  # no object in the store
+async def test_ing09_storage_outage_is_retried_to_the_cap_then_failed(h: Harness) -> None:
+    _, rev_id, job_id = await h.make(pdf_two_pages())
+
+    async def outage() -> None:
+        raise ObjectStoreError("network")
+
+    h.store.on_read = outage
     async with h.client(h.app()) as c:
         codes = [(await h.deliver(c, job_id)).status_code for _ in range(4)]
         after = await h.deliver(c, job_id)
@@ -291,6 +296,36 @@ async def test_ing09_storage_failure_is_retried_to_the_cap_then_failed(h: Harnes
     assert (job.status, job.attempts) == ("failed", 4)
     revision = await h.revision(rev_id)
     assert (revision.status, revision.failure_reason) == ("failed", "STORAGE_UNAVAILABLE")
+
+
+async def test_ing09_missing_object_is_terminal_without_retries(h: Harness) -> None:
+    _, rev_id, job_id = await h.make(None)  # the row exists, the object does not
+    async with h.client(h.app()) as c:
+        response = await h.deliver(c, job_id)
+    assert response.status_code == 500
+    job = await h.job(job_id)
+    assert (job.status, job.attempts) == ("failed", 1)
+    assert (await h.revision(rev_id)).failure_reason == "INVALID_PDF"
+
+
+async def test_ing17_a_different_current_revision_keeps_its_pointer_and_logs_it(
+    h: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc_id, rev_id, job_id = await h.make(pdf_two_pages())
+    other = uuid.uuid4()
+    await h.sql(
+        "INSERT INTO document_revisions (id, document_id, storage_key, status, page_count, "
+        "ready_at, size_bytes, "
+        "content_type) VALUES (:o, :d, 'k', 'ready', 1, now(), 1, 'application/pdf')",
+        o=other,
+        d=doc_id,
+    )
+    await h.sql("UPDATE documents SET current_revision_id = :o WHERE id = :d", o=other, d=doc_id)
+    async with h.client(h.app()) as c:
+        await h.deliver(c, job_id)
+    doc = await h.one("SELECT current_revision_id FROM documents WHERE id = :d", d=doc_id)
+    assert doc.current_revision_id == other
+    assert "current revision left unchanged" in capsys.readouterr().out
 
 
 async def test_ing09_store_error_maps_to_storage_unavailable(h: Harness) -> None:

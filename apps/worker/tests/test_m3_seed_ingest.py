@@ -156,14 +156,25 @@ async def test_m3_seed_ingest_leaves_uploads_deleted_documents_and_live_jobs_alo
     assert (await seeded.one("SELECT count(*) AS n FROM jobs")).n == 0
 
 
-async def test_m3_seed_ingest_skips_a_revision_with_a_live_job(seeded: Seeded) -> None:
+@pytest.mark.parametrize(
+    ("lease", "expected"),
+    [
+        ("now() + interval '5 minutes'", "in_progress"),  # another run holds it
+        ("now() - interval '5 minutes'", "ingested"),  # a killed run: pick it up again
+        ("NULL", "ingested"),
+    ],
+)
+async def test_m3_seed_ingest_only_a_live_lease_counts_as_in_progress(
+    seeded: Seeded, lease: str, expected: str
+) -> None:
     _, rev_id = await seeded.seed(pdf_two_pages())
     async with seeded.factory() as s, s.begin():
         job_id = (
             await s.execute(
                 text(
-                    "INSERT INTO jobs (job_type, status, correlation_id) "
-                    "VALUES ('ingest_revision', 'processing', 'x') RETURNING id"
+                    "INSERT INTO jobs (job_type, status, correlation_id, claimed_by, "
+                    f"lease_expires_at) VALUES ('ingest_revision', 'processing', 'x', 'dead', "
+                    f"{lease}) RETURNING id"
                 )
             )
         ).scalar_one()
@@ -171,8 +182,19 @@ async def test_m3_seed_ingest_skips_a_revision_with_a_live_job(seeded: Seeded) -
             text("UPDATE document_revisions SET job_id = :j WHERE id = :r"),
             {"j": job_id, "r": rev_id},
         )
-    assert await seeded.run() == {rev_id: "in_progress"}
-    assert await seeded.chunk_count(rev_id) == 0
+    assert await seeded.run() == {rev_id: expected}
+    assert await seeded.chunk_count(rev_id) == (0 if expected == "in_progress" else 2)
+
+
+async def test_m3_seed_ingest_a_done_job_on_a_chunkless_revision_is_run_again(
+    seeded: Seeded,
+) -> None:
+    _, rev_id = await seeded.seed(pdf_two_pages())
+    assert await seeded.run() == {rev_id: "ingested"}
+    async with seeded.factory() as s, s.begin():
+        await s.execute(text("DELETE FROM document_chunks"))  # e.g. chunks were cleaned up
+    assert await seeded.run() == {rev_id: "ingested"}
+    assert await seeded.chunk_count(rev_id) == 2
 
 
 def test_m3_seed_ingest_refuses_production_without_the_explicit_flag() -> None:
@@ -218,3 +240,20 @@ async def test_m3_seed_flag_ingest_runs_the_worker_command_after_seeding(
     assert await seed._run() == 0 and calls == []
     monkeypatch.setattr("sys.argv", ["seed", "--ingest"])
     assert await seed._run() == 0 and calls == [1]
+
+
+def test_m3_seed_ingest_guard_also_covers_r2_and_fake_embeddings_on_a_remote_database() -> None:
+    local = make_settings("postgresql://u:p@localhost/db")
+    assert guard(local, []) is None
+    remote_fake = make_settings("postgresql://u:p@db.example.com/db")
+    assert guard(remote_fake, []) is not None
+    assert guard(remote_fake, ["--allow-production"]) is None
+    r2 = make_settings(
+        "postgresql://u:p@localhost/db",
+        object_store="r2",
+        r2_endpoint="https://x.test",
+        r2_bucket="b",
+        r2_access_key_id="k",
+        r2_secret_access_key="s",
+    )
+    assert guard(r2, []) is not None
