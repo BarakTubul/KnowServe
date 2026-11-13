@@ -1662,7 +1662,7 @@
     },
     "/v1/admin/documents/{document_id}/replace": {
       "post": {
-        "description": "Replace the file of a document with no current revision whose latest revision failed\n(ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state.",
+        "description": "Replace the file of a document with no current revision whose latest revision failed\n(ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state. The rules are in\n``replace.py``.",
         "operationId": "replace_failed_document",
         "parameters": [
           {

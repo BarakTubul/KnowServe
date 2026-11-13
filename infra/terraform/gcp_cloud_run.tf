@@ -185,10 +185,11 @@ resource "google_cloud_run_v2_service" "worker" {
       max_instance_count = 2
     }
 
-    # M3 sizing (OPEN-31 D2): PENDING the M3-00b measurements (docs/milestones/M3/measurements.md).
-    # All three default to null, which leaves the attribute unmanaged: the platform defaults stay
-    # (512 MiB, 300 s request timeout, concurrency 80), exactly as in M2. Set them only to what the
-    # measurements justify, and apply only with the Owner's separate approval.
+    # M3 sizing (OPEN-31 D2), from the M3-00b measurements (docs/milestones/M3/measurements.md):
+    # concurrency 1 (the variable default; the platform default of 80 would stack up to 10 jobs on
+    # one 512 MiB instance), memory and request timeout left null so 512 MiB and 300 s stay as in
+    # M2. Applying needs the Owner's separate approval, and the first large-document run on Cloud
+    # Run (M3-AC23) must confirm memory and time.
     timeout                          = var.worker_request_timeout_seconds == null ? null : "${var.worker_request_timeout_seconds}s"
     max_instance_request_concurrency = var.worker_concurrency
 

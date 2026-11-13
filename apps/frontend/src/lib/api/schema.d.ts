@@ -141,7 +141,8 @@ export interface paths {
         /**
          * Replace Failed Document
          * @description Replace the file of a document with no current revision whose latest revision failed
-         *     (ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state.
+         *     (ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state. The rules are in
+         *     ``replace.py``.
          */
         post: operations["replace_failed_document"];
         delete?: never;

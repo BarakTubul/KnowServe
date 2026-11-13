@@ -221,7 +221,7 @@ variable "api_m3_settings" {
 
 variable "worker_m3_settings" {
   type        = map(string)
-  description = "Optional non-secret M3 settings for the Worker (page cap, chunking, embedding, extraction timeout, job timing), as KEY = \"value\". Leave empty to keep the application defaults. KS_EMBEDDING_PROVIDER is deliberately not accepted: it is fixed to openai in gcp_cloud_run.tf. The application's own guards are mirrored where cheap (handler timeout below lease, overlap below size, 1536 dimensions)."
+  description = "Optional non-secret M3 settings for the Worker (page cap, chunking, embedding, extraction timeout, job timing), as KEY = \"value\". Leave empty to keep the application defaults. KS_EMBEDDING_PROVIDER is deliberately not accepted: it is fixed to openai in gcp_cloud_run.tf. The application's own guards are mirrored where cheap (overlap below size, 1536 dimensions). Since M3-00a the handler timeout need not stay below the lease (the lease heartbeat keeps a long job claimed), so no such rule exists. Application defaults after M3-00b: KS_JOB_HANDLER_TIMEOUT_SECONDS 240, KS_PDF_EXTRACTION_TIMEOUT_SECONDS 120."
   default     = {}
 
   validation {
@@ -249,11 +249,6 @@ variable "worker_m3_settings" {
   }
 
   validation {
-    condition     = try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "90")) < tonumber(lookup(var.worker_m3_settings, "KS_JOB_LEASE_SECONDS", "120")), false)
-    error_message = "KS_JOB_HANDLER_TIMEOUT_SECONDS (default 90) must be a number below KS_JOB_LEASE_SECONDS (default 120)."
-  }
-
-  validation {
     condition     = try(tonumber(lookup(var.worker_m3_settings, "KS_CHUNK_OVERLAP_TOKENS", "64")) < tonumber(lookup(var.worker_m3_settings, "KS_CHUNK_SIZE_TOKENS", "512")), false)
     error_message = "KS_CHUNK_OVERLAP_TOKENS (default 64) must be a number below KS_CHUNK_SIZE_TOKENS (default 512)."
   }
@@ -264,9 +259,13 @@ variable "worker_m3_settings" {
   }
 }
 
-# Worker sizing (OPEN-31 D2). PENDING: no value below may be set until the M3-00b measurements
-# (docs/milestones/M3/measurements.md) justify it. null leaves the attribute unmanaged, so the
-# platform defaults (512 MiB, 300 s, concurrency 80) keep applying, as in M2.
+# Worker sizing (OPEN-31 D2), decided from the M3-00b measurements (docs/milestones/M3/measurements.md):
+#   * concurrency 1 (the default below): the Cloud Run default of 80 would put up to 10 in-flight
+#     jobs on one 512 MiB instance. This lowers a limit and costs nothing extra.
+#   * memory stays 512 MiB and the request timeout stays 300 s: both are left null (unmanaged).
+#   * CPU stays unmanaged (one vCPU is enough, extraction is single-threaded).
+# The first real large-document run on Cloud Run (M3-AC23) must confirm memory and time before
+# anything else changes. null leaves an attribute unmanaged, so the platform default applies.
 
 variable "worker_memory" {
   type        = string
@@ -292,8 +291,8 @@ variable "worker_cpu" {
 
 variable "worker_concurrency" {
   type        = number
-  description = "Maximum concurrent requests per Worker instance (max_instance_request_concurrency). Default null: unmanaged (Cloud Run default 80). Set only from the M3-00b measurements (D2)."
-  default     = null
+  description = "Maximum concurrent requests per Worker instance (max_instance_request_concurrency). Default 1 (OPEN-31 D2, from the M3-00b measurements): one ingestion job per 512 MiB instance. With max_instance_count 2, at most two jobs run at once; further deliveries wait or are rejected by Cloud Run and QStash retries them (a rejected delivery uses no processing attempt). Set null to leave it unmanaged (Cloud Run default 80)."
+  default     = 1
 
   validation {
     condition     = var.worker_concurrency == null || (coalesce(var.worker_concurrency, 1) >= 1 && coalesce(var.worker_concurrency, 1) <= 1000 && floor(coalesce(var.worker_concurrency, 1)) == coalesce(var.worker_concurrency, 1))
@@ -303,7 +302,7 @@ variable "worker_concurrency" {
 
 variable "worker_request_timeout_seconds" {
   type        = number
-  description = "Cloud Run request timeout of the Worker in seconds. Default null: unmanaged (300 s). It must stay above KS_JOB_HANDLER_TIMEOUT_SECONDS (default 90; see worker_m3_settings). Set only from the M3-00b measurements (D2)."
+  description = "Cloud Run request timeout of the Worker in seconds. Default null: unmanaged (300 s), which the M3-00b measurements keep (D2). It must stay above KS_JOB_HANDLER_TIMEOUT_SECONDS (application default 240; see worker_m3_settings)."
   default     = null
 
   validation {
@@ -315,8 +314,8 @@ variable "worker_request_timeout_seconds" {
   # of 300 s (documented in docs/milestones/M3/plan.md, section 6), so raising the handler timeout
   # in worker_m3_settings to 300 or more requires setting this variable too.
   validation {
-    condition     = coalesce(var.worker_request_timeout_seconds, 300) > try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "90")), 90)
-    error_message = "The Worker request timeout (this variable, or the Cloud Run default of 300 s while it is null) must exceed KS_JOB_HANDLER_TIMEOUT_SECONDS (default 90), or Cloud Run cuts the request before the handler's own timeout."
+    condition     = coalesce(var.worker_request_timeout_seconds, 300) > try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "240")), 240)
+    error_message = "The Worker request timeout (this variable, or the Cloud Run default of 300 s while it is null) must exceed KS_JOB_HANDLER_TIMEOUT_SECONDS (application default 240), or Cloud Run cuts the request before the handler's own timeout."
   }
 }
 
