@@ -11,19 +11,28 @@ The Owner approved the M3-01 contracts with these corrections, all applied:
 - Idempotency, the status stream and the `can_retry` and `can_replace` rules are written out in `docs/contracts/admin-api.md`.
 - Migration `0004` was checked: the same-document composite foreign key on chunks, unique `(revision_id, ordinal)`, nullable unique `document_revisions.job_id`, cascade from `users` (demo-cleanup rule), no vector index, and unchanged M2 rows after upgrade (test `test_m3_0004_upgrade_keeps_existing_m2_document_data`). Not run against production.
 
-## Workstreams
+## Workstreams (local implementation done 2026-11-13)
 
-Launched 2026-11-13 as separate local worktree sessions cut from `m3/integration` at `39ce924`. Branch names are the session names with the app's prefix. Nothing is pushed.
+All slices are merged into `m3/integration`. Each had its own worktree and branch (`m3-w1-worker` to `m3-w6-infra`, kept, not deleted).
 
-| ID | Task | Branch | Status |
-|---|---|---|---|
-| M3-01 | Shared contracts, migration `0004`, stubs, fixtures, ADRs 0008 to 0010 | `m3/integration` | Done, CP1 closed |
-| M3-00a, M3-02b, M3-02c | Worker reliability, ingestion handler, seed ingestion | `m3-w1-worker` (session) | M3-00a committed (`ba89da2`), in independent review, not merged; 02b in progress on top of it; 02c waits for 02b |
-| M3-02a, M3-00b | Extraction, chunking, measurements | `m3-w2-extract` (session) | M3-02a merged into `m3/integration` (`44810d8`); M3-00b in progress |
-| M3-03, M3-04 | Upload API, ZIP import | `m3-w3-upload` (session) | M3-03 in progress (creation service not yet committed); M3-04 follows |
-| M3-05a, M3-05b | Admin management, SSE, replace | `m3-w4-manage` (session) | M3-05a merged into `m3/integration` (`7348227`); M3-05b waits for the M3-03 creation service |
-| M3-06a, M3-06b | Admin frontend | `m3-w5-frontend` (session) | M3-06a merged into `m3/integration` (`42fa9c6`); M3-06b in progress |
-| M3-09 | Terraform preparation (no apply) | `m3-w6-infra` (session) | M3-09 committed (`b8a84d1`), in independent review, not merged; Worker sizing waits for M3-00b |
-| M3-07, M3-08 | Integration, local trial, reviews, handoff | `m3/integration` | Not started |
+| ID | Task | Status |
+|---|---|---|
+| M3-01 | Shared contracts, migration `0004`, stubs, fixtures, ADRs 0008 to 0010 | Done, CP1 closed |
+| M3-00a | Worker reliability: lease heartbeat, claim-time cap, fencing, hooks | Done, independently reviewed, review fixes applied |
+| M3-00b | Local measurements (`measurements.md`) | Done; sizing decisions recorded there |
+| M3-02a | Extraction in a child process, page-bound chunking | Done |
+| M3-02b, M3-02c | Ingest handler, OpenAI provider, reindex mode, seed command | Done, independently reviewed, review fixes applied |
+| M3-03, M3-04 | Upload, creation service, ZIP import | Done, independently reviewed, review fixes applied |
+| M3-05a, M3-05b | Management, status stream, replace | Done, covered by the final review |
+| M3-06a, M3-06b | Admin frontend | Done; the ZIP retry button was removed after the final review |
+| M3-09 | Terraform preparation | Done, independently reviewed, review fixes applied. Not planned or applied |
+| M3-07 | Integration and review | Local trial passed (CP6). Final review done, fixes applied. Full CI run locally (below) and on GitHub |
+| M3-08 | Handoff and milestone PR | Handoff doc and PR |
 
-Session limits: the six sessions hit the account usage limit once (reset 20:10 Asia/Jerusalem) and were restarted by message after it cleared for the lead. `uv.lock`, `openapi.json` and `schema.d.ts` were regenerated at `54301de`.
+## Evidence (local, 2026-11-13)
+
+- Backend: `uv run pytest` 991 passed, no skips (the later review fixes add tests); ruff, pyright and the OpenAPI drift check clean.
+- Frontend: `pnpm -r lint|format:check|typecheck|test|build` and `check:api` clean; mocked Playwright admin spec passes.
+- Local real-API trial (CP6): `tests/trial/` harness and `tests/e2e/trial.admin.spec.ts` passed against the real API and Worker with the Firebase Auth Emulator, a local queue stand-in, a filesystem object store and fake embeddings.
+- Docker builds of `api` and `worker`, `terraform fmt`, `init -backend=false`, `validate`, the Terraform secret check and gitleaks over the working tree all passed.
+- Not run and not authorized: production migration, deploy, `terraform apply`/plan against state, OpenAI/R2/QStash configuration, production reindex and upload checks, the D15 experiment.

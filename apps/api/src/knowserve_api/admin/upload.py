@@ -1,4 +1,4 @@
-"""Single PDF upload (M3-03) and failed-document file replacement (M3-05b, still a stub).
+"""Single PDF upload (M3-03) and failed-document file replacement (M3-05b).
 
 The create route is thin: authorization and CSRF come from the dependencies, everything else is in
 ``creation.UploadService`` so the ZIP import and the replace route share one implementation.

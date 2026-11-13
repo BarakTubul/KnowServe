@@ -2,8 +2,8 @@
 
 A structural walk fails when an Admin route appears that is not registered here, so no route ships
 without a row in the authorization matrix (M3-AC02). A behavioural walk then runs every route as
-anonymous, Demo, registered and Admin users, with and without CSRF. The routes are 501 stubs until
-their slices land; the guards, the upload switch and the OpenAPI shape are already real.
+anonymous, Demo, registered and Admin users, with and without CSRF. Every route is implemented now;
+the behaviour of each is tested in the slice test files.
 """
 
 from __future__ import annotations
