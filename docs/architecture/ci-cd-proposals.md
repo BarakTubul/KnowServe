@@ -4,7 +4,7 @@ Requirements: OPEN-22, OPEN-27, TEST-13, M2-AC18. This note recommends. Where th
 
 ## OPEN-22: CI efficiency and change policy
 
-Status: **partly decided by the user on 2026-11-07.** Optimize CI for docs-only pull requests only. Every existing gate stays for code changes. Any change to GitHub Actions or branch protection needs separate approval. This section is the design for that decision. Nothing here is implemented.
+Status: **partly decided by the user on 2026-11-07.** Optimize CI for docs-only pull requests only. Every existing gate stays for code changes. Any change to GitHub Actions or branch protection needs separate approval. This section is the design for that decision. **Implemented in PR #37 on 2026-11-13** (merged to `main`); the live docs-only run on PR #36 showed the five heavy jobs skipped and `ci-required` green. Still to do: the two other test PRs below.
 
 ### What is fixed today
 - Branch protection requires one check, `ci-required` (GitHub Actions, `strict: true`). Nothing else is required, so a job skipped inside `ci.yml` does not block a merge by itself.
@@ -65,15 +65,15 @@ After approval and implementation, open three throw-away PRs and read the result
 - (c) Interim rule: batch docs-only edits into one PR per work step or milestone. Unchanged until D1 is decided.
 - (d) Push identity: use the `BarakTubul` credential. If `git push` returns 403 as `Barak-Horizon`, push with `git -c credential.helper= -c credential.helper='!gh auth git-credential' push`.
 
-### Changes this would need: NOT APPROVED
-1. `.github/workflows/ci.yml`: add the `changes` job, add `needs: changes` and the `if` to five jobs, rewrite `ci-required` (its `needs` and its check step). **NOT APPROVED.**
-2. New `scripts/ci/` classifier with fixture tests, run by an existing job. **NOT APPROVED.**
+### Changes made (PR #37)
+1. `.github/workflows/ci.yml`: add the `changes` job, add `needs: changes` and the `if` to five jobs, rewrite `ci-required` (its `needs` and its check step), drop the `m0/**` trigger. Done.
+2. New `scripts/ci/` classifier with fixture tests, fixtures in `tests/ci/`. Done.
 3. Branch protection: **no change needed.** The required check stays `ci-required`.
-4. `docs/contracts/ci-and-branch-protection.md`: update the `ci-required` semantics in the same change. **NOT APPROVED.**
+4. `docs/contracts/ci-and-branch-protection.md`: update the `ci-required` semantics in the same change. Done.
 
 ## OPEN-27: approval-gated deploy workflow
 
-Status: **approved in principle by the user on 2026-11-07, design only.** An approval-gated deploy workflow, the migration job runs before deployment, dependent jobs are enforced with `needs`, and the Workload Identity Federation (WIF) conditions stay as they are. No workflow change is authorized. The original idea of a `push: main` trigger for ordinary roll-outs is **not** part of this design and stays a later decision (D5).
+Status: **approved in principle by the user on 2026-11-07; the design was cleared for implementation on 2026-11-13 and is implemented in PR #37 (not yet run on GitHub).** An approval-gated deploy workflow, the migration job runs before deployment, dependent jobs are enforced with `needs`, and the Workload Identity Federation (WIF) conditions stay as they are. The original idea of a `push: main` trigger for ordinary roll-outs is **not** part of this design and stays a later decision (D5).
 
 ### What exists today
 `deploy.yml` runs by `workflow_dispatch` from `main` (`target`, `mode`, `confirm`). A `gate` job waits for `ci-required` on the commit. One `deploy` job bound to the `production` Environment then does everything as ordered steps: WIF login, build and push, migration (Cloud Run job `knowserve-migrate`, `--wait`), Cloud Run rollout, Pages deploy and smoke checks. The reviewer approves that one job once. Ordering depends on step order inside the job, not on `needs`.
@@ -110,6 +110,9 @@ deploy   environment: production   <== the single approval click
 - Database rollback (`alembic downgrade`) stays a separate decision under the same `production` approval, after a Neon branch or backup.
 - No automatic revert after a failed smoke. That would need its own approval and a rule for migrations that are not backward compatible.
 
+### Docs-only merges and deploy
+A docs-only merge to `main` starts no deploy. `deploy.yml` has only the `workflow_dispatch` trigger, so nothing deploys on a merge, docs-only or not, and nothing was deployed for the docs-only PRs so far. No workflow change is needed for this. It stays true while `push: main` stays out of scope (D5). If automatic deploy is ever enabled, add a path filter so docs-only pushes are ignored.
+
 ### What stays manual
 - Starting the workflow (`workflow_dispatch`) and typing `yes`.
 - The `production` approval clicks.
@@ -126,15 +129,15 @@ deploy   environment: production   <== the single approval click
 | The edit changes the WIF subject | Login rejected | The subject uses the environment and the workflow file, not step names. Run `auth-check` first after the change; use `debug_claims` if rejected. |
 | A bug in the new file | Broken deploy path | `auth-check`, then one supervised `deploy` before relying on it. |
 
-### Changes this would need: NOT APPROVED
-1. `.github/workflows/deploy.yml`: add step ids (`build`, `migrate`, `rollout`) and an explicit `if:` on the outcome of the previous step for the rollout, Pages and smoke steps; the single `deploy` job, `environment: production` and `gate` stay. **NOT APPROVED.**
-2. GitHub Environment `production`: no change planned (required reviewer, `main` only). **NOT APPROVED** to change.
+### Changes made (PR #37)
+1. `.github/workflows/deploy.yml`: add step ids (`migrate`, `rollout`, `pages`) and an explicit `if:` on the outcome of the previous step for the rollout, Pages and smoke steps; the single `deploy` job, `environment: production` and `gate` stay. Done.
+2. GitHub Environment `production`: no change planned (required reviewer, `main` only). Unchanged.
 3. Terraform and the WIF conditions: **no change.**
-4. `docs/contracts/ci-and-branch-protection.md` and `docs/workflow/testing.md` ("Deployment today vs the policy"): update in the same change. **NOT APPROVED.**
-5. After merge: one `auth-check` and one supervised `deploy`, with the run ids recorded in the handoff. Both need the user's approval.
+4. `docs/contracts/ci-and-branch-protection.md` and `docs/workflow/testing.md` ("Deployment today vs the policy"): update in the same change. Done.
+5. After merge: one `auth-check` and one supervised `deploy`, with the run ids recorded in the handoff. Not done yet; both need the user's approval.
 
 ## Decisions
-Answered by the user on 2026-11-13 in chat. Nothing is implemented, and every workflow change below still needs separate approval.
+Answered by the user on 2026-11-13 in chat. Implemented in PR #37. The test PRs, `auth-check` and a supervised `deploy` still need the user's approval.
 
 | Id | Question | Answer |
 |---|---|---|
