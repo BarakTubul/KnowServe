@@ -74,7 +74,7 @@ Each was approved separately and recorded in `tasks.md`.
 
 ## Open items
 
-- OPEN-30 (historical IP data): the scrub is done and the backup branch is deleted (see Limits and known gaps). Still to decide: whether to close OPEN-30 in `docs/open-decisions.md`.
+- OPEN-30 (historical IP data) is resolved: the scrub is done, the backup branch is deleted (see Limits and known gaps), and `docs/open-decisions.md` lists it as resolved.
 - Decide whether to implement OPEN-22 and OPEN-27. Both need separate approval.
 - PR #31 (the Demo cleanup signature fix) was open when last checked, and the 2026-11-08 run it was waiting on has now authenticated.
 - Q13 covers English and Hebrew for M2 only. A wider rollout is a separate decision.
