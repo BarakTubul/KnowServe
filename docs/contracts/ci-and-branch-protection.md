@@ -5,10 +5,11 @@ Requirements: INFRA-04, INFRA-06, INFRA-07, WF-06, WF-13. Workflows: `.github/wo
 Status: workflows are authored and linted locally (actionlint, third-party actions pinned by commit SHA, local gitleaks over the full history: no findings). They have **not** been run on GitHub. Branch protection and the GitHub Environment are **not** configured; the user applies them. This repository is public.
 
 ## Required checks
-Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fails if any of these jobs failed, was cancelled or was skipped:
+Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fails if any of these jobs failed or was cancelled, or was skipped, with one exception: on a **docs-only pull request** the five heavy jobs (`python`, `openapi-drift`, `frontend`, `docker-build`, `terraform-validate`) are skipped on purpose and the check still passes. `changes` and `secret-scan` must always succeed. Docs-only means every changed file is `docs/**/*.md` or the root `README.md`, `AGENTS.md` or `CLAUDE.md` (`scripts/ci/classify_changes.py`, tested in `tests/ci/`). Anything else, a failed or empty classification, and every push to `main` run the full set (OPEN-22):
 
 | Job | What it runs |
 |---|---|
+| `changes` | classifies the pull request as docs-only or not, from `git diff --name-only --no-renames` against the base commit; fails closed |
 | `python` | `uv sync --frozen`, `ruff format --check`, `ruff check`, `pyright`, `pytest -q` against a `pgvector/pgvector:0.8.6-pg18` service container (PostgreSQL 18, as production, ADR 0002) (database `knowserve_test`, `KS_TEST_DATABASE_URL`) |
 | `openapi-drift` | regenerates the OpenAPI document and fails on any diff against `docs/contracts/openapi.json` |
 | `frontend` | frozen pnpm install, lint, format:check, typecheck, test, build, `check:api` (Node 22) |
@@ -16,7 +17,7 @@ Only one check is required: **`ci-required`** (aggregate job of `ci.yml`). It fa
 | `terraform-validate` | `fmt -check -recursive`, `init -backend=false`, `validate` in `infra/terraform` (skipped cleanly when no `.tf` files exist) |
 | `secret-scan` | gitleaks (pinned image) over the full history |
 
-Triggers: pull requests, pushes to `main`, pushes to `m0/**`. Permissions: `contents: read`. Superseded runs are cancelled.
+Triggers: pull requests and pushes to `main`. A branch without a pull request gets no CI; open a draft PR to get checks. Permissions: `contents: read`. Superseded runs are cancelled.
 
 ## Deploy gating (INFRA-04)
 `deploy.yml` runs only on manual `workflow_dispatch` from `main`; the `push: main` trigger is deliberately disabled. Inputs: `target` (the GitHub Environment; `production` since the M1 cutover, OPEN-26), `mode` (`auth-check` or `deploy`), `debug_claims` and `confirm` (must equal `yes`). The `gate` job requires the `ci-required` check run of the same commit to be `success`; the `deploy` job `needs` the gate and runs in the chosen environment, so the environment's required reviewer must approve it. Merging to `main` requires the human-approved PR (branch protection below). `workflow_dispatch` is available only after `deploy.yml` exists on `main`.

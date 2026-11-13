@@ -1,6 +1,8 @@
 name: ci
 
-# Quality pipeline for every PR and for pushes to main and m0/** branches (M0-10).
+# Quality pipeline for every PR and for pushes to main (M0-10, OPEN-22).
+# A docs-only PR (scripts/ci/classify_changes.py) skips the five heavy jobs; secret-scan still runs.
+# Pushes to main always run everything.
 # The single required status check is the aggregate job "ci-required".
 # Third-party actions are pinned by commit SHA (the comment names the release line).
 # To update one, look up the new SHA and review the change.
@@ -10,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - "m0/**"
 
 permissions:
   contents: read
@@ -20,8 +21,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed files (docs-only pull requests only)
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Fail closed: anything unexpected means the full CI runs.
+          docs_only=false
+          if [ "$EVENT" = "pull_request" ] && [ -n "$BASE_SHA" ]; then
+            if git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed.bin"; then
+              result="$(python3 scripts/ci/classify_changes.py < "$RUNNER_TEMP/changed.bin")" || result=""
+              [ "$result" = "docs_only=true" ] && docs_only=true
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
   python:
     name: python
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -64,6 +94,8 @@ jobs:
 
   openapi-drift:
     name: openapi-drift
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -83,6 +115,8 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -104,6 +138,8 @@ jobs:
 
   docker-build:
     name: docker-build (${{ matrix.image }})
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -125,6 +161,8 @@ jobs:
 
   terraform-validate:
     name: terraform-validate
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -170,6 +208,7 @@ jobs:
     name: ci-required
     if: ${{ always() }}
     needs:
+      - changes
       - python
       - openapi-drift
       - frontend
@@ -179,12 +218,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: All required jobs succeeded
+      - name: All required jobs succeeded (skips accepted only for a docs-only PR)
         env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
+          NEEDS: ${{ toJSON(needs) }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          echo "needs results: $RESULTS"
-          if echo "$RESULTS" | grep -Eq '"(failure|cancelled|skipped)"'; then
-            echo "::error::At least one required job did not succeed."
-            exit 1
-          fi
+          echo "needs: $NEEDS"
+          python3 - <<'PY'
+          import json, os, sys
+
+          needs = json.loads(os.environ["NEEDS"])
+          docs_only = os.environ.get("DOCS_ONLY") == "true"
+          always_required = {"changes", "secret-scan"}
+          bad = []
+          for name, info in needs.items():
+              result = info["result"]
+              if result == "success":
+                  continue
+              if result == "skipped" and docs_only and name not in always_required:
+                  continue
+              bad.append(f"{name}={result}")
+          if bad:
+              print("::error::At least one required job did not succeed: " + ", ".join(bad))
+              sys.exit(1)
+          print(f"ci-required ok (docs_only={docs_only})")
+          PY
