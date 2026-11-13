@@ -315,3 +315,93 @@ def test_m3_downgrade_0004_drops_only_the_m3_objects_and_upgrades_again(database
         else:
             os.environ["KS_DATABASE_URL"] = previous
         asyncio.run(admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+
+
+def test_m3_0004_upgrade_keeps_existing_m2_document_data(database_url: str) -> None:
+    """Upgrading 0003 to 0004 with M2 rows present changes none of them (no destructive step)."""
+    import asyncio
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+
+    from conftest import ALEMBIC_INI
+    from knowserve_core.db import create_engine
+
+    name = f"knowserve_test_up4_{uuid.uuid4().hex[:8]}"
+    admin_url = database_url.rsplit("/", 1)[0] + "/postgres"
+    url = database_url.rsplit("/", 1)[0] + f"/{name}"
+    doc_id, rev_id = uuid.uuid4(), uuid.uuid4()
+
+    async def run(target: str, sql: str, params: dict | None = None, *, autocommit: bool = False):
+        eng = create_engine(target, null_pool=True)
+        try:
+            async with eng.connect() as conn:
+                if autocommit:
+                    await conn.execution_options(isolation_level="AUTOCOMMIT")
+                result = await conn.execute(text(sql), params or {})
+                rows = result.all() if result.returns_rows else []
+                await conn.commit()
+                return rows
+        finally:
+            await eng.dispose()
+
+    previous = os.environ.get("KS_DATABASE_URL")
+    asyncio.run(run(admin_url, f'CREATE DATABASE "{name}"', autocommit=True))
+    try:
+        os.environ["KS_DATABASE_URL"] = url
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0003")
+        dept = asyncio.run(run(url, "SELECT id FROM departments LIMIT 1"))[0][0]
+        asyncio.run(
+            run(
+                url,
+                "INSERT INTO documents (id, title, filename, owner_department_id) "
+                "VALUES (:d, 'Kept', 'kept.pdf', :o)",
+                {"d": doc_id, "o": dept},
+            )
+        )
+        asyncio.run(
+            run(
+                url,
+                "INSERT INTO document_revisions (id, document_id, storage_key, status, "
+                "page_count, size_bytes, content_type, ready_at) "
+                "VALUES (:r, :d, 'k', 'ready', 2, 10, 'application/pdf', now())",
+                {"r": rev_id, "d": doc_id},
+            )
+        )
+        asyncio.run(
+            run(
+                url,
+                "UPDATE documents SET current_revision_id = :r WHERE id = :d",
+                {"r": rev_id, "d": doc_id},
+            )
+        )
+        asyncio.run(
+            run(
+                url,
+                "INSERT INTO document_department_access (document_id, department_id) "
+                "VALUES (:d, :o)",
+                {"d": doc_id, "o": dept},
+            )
+        )
+        command.upgrade(cfg, "0004")
+        row = asyncio.run(
+            run(
+                url,
+                "SELECT d.title, d.current_revision_id, r.status, r.page_count, r.job_id, "
+                "(SELECT count(*) FROM document_department_access WHERE document_id = d.id) "
+                "FROM documents d JOIN document_revisions r ON r.document_id = d.id "
+                "WHERE d.id = :d",
+                {"d": doc_id},
+            )
+        )[0]
+        assert tuple(row) == ("Kept", rev_id, "ready", 2, None, 1)
+    finally:
+        if previous is None:
+            os.environ.pop("KS_DATABASE_URL", None)
+        else:
+            os.environ["KS_DATABASE_URL"] = previous
+        asyncio.run(
+            run(admin_url, f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', autocommit=True)
+        )

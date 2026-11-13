@@ -11,7 +11,7 @@ from knowserve_core.identity import Identity
 from knowserve_core.ingestion_contract import IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_PATTERN
 
 from ..schemas import not_implemented
-from .deps import require_admin_csrf, require_uploads_enabled
+from .deps import AdminDocumentId, require_admin_csrf, require_uploads_enabled
 from .schemas import AdminDocumentOut, admin_error_responses
 
 router = APIRouter(tags=["admin"])
@@ -50,9 +50,9 @@ async def create_document(
     responses=admin_error_responses(401, 403, 404, 409, 413, 422, 429, 503),
 )
 async def replace_failed_document(
-    document_id: uuid.UUID,
     _: Annotated[Identity, Depends(require_admin_csrf)],
     __: Annotated[None, Depends(require_uploads_enabled)],
+    document_id: AdminDocumentId,
     idempotency_key: IdempotencyKey,
     file: Annotated[UploadFile, File()],
 ) -> AdminDocumentOut:

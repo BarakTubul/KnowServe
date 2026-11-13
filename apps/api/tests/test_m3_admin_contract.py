@@ -290,3 +290,38 @@ async def test_m3_access_update_accepts_an_empty_list_so_the_route_can_return_it
     body = app.openapi()["components"]["schemas"]["AccessUpdateRequest"]
     assert "minItems" not in body["properties"]["allowed_department_ids"]
     assert uuid.UUID(DOC)
+
+
+# --- Uniform 404 for malformed document ids (OPEN-28 Q7) ---
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "writes", "uploads"), [r for r in STUBS if "{document_id}" in r[1]]
+)
+async def test_m3_sec02_malformed_document_id_is_404_after_the_auth_checks(
+    client: httpx.AsyncClient,
+    make_user: Any,
+    make_session: Any,
+    method: str,
+    path: str,
+    writes: bool,
+    uploads: bool,
+) -> None:
+    bad = path.replace("{document_id}", "not-a-uuid")
+
+    async def call(session: Any = None) -> httpx.Response:
+        kwargs = _request_kwargs(method, path)
+        headers = dict(kwargs.pop("headers", {}))
+        cookies = None
+        if session is not None:
+            cookies = session.cookies
+            headers.update(session.headers)
+        return await client.request(method, bad, headers=headers, cookies=cookies, **kwargs)
+
+    assert (await call()).status_code == 401  # authentication is not bypassed
+    registered = await make_session(await make_user("registered"))
+    assert (await call(registered)).status_code == 403  # nor is the Admin check
+    admin = await make_session(await make_user("admin"))
+    response = await call(admin)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"

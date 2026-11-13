@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -11,7 +10,7 @@ from knowserve_core.identity import Identity
 
 from ..auth.deps import require_admin
 from ..schemas import not_implemented
-from .deps import require_admin_csrf
+from .deps import AdminDocumentId, require_admin_csrf
 from .schemas import (
     AccessUpdateRequest,
     AdminDocumentList,
@@ -46,7 +45,7 @@ async def admin_list_documents(
     responses=admin_error_responses(401, 403, 404),
 )
 async def admin_get_document(
-    document_id: uuid.UUID, _: Annotated[Identity, Depends(require_admin)]
+    _: Annotated[Identity, Depends(require_admin)], document_id: AdminDocumentId
 ) -> AdminDocumentOut:
     raise not_implemented()
 
@@ -57,9 +56,9 @@ async def admin_get_document(
     responses=admin_error_responses(401, 403, 404, 422),
 )
 async def update_access(
-    document_id: uuid.UUID,
-    body: AccessUpdateRequest,
     _: Annotated[Identity, Depends(require_admin_csrf)],
+    document_id: AdminDocumentId,
+    body: AccessUpdateRequest,
 ) -> AdminDocumentOut:
     """Replace the allowed departments in one update. No job, no re-embedding (ADM-07)."""
     raise not_implemented()
@@ -71,7 +70,7 @@ async def update_access(
     responses=admin_error_responses(401, 403, 404),
 )
 async def delete_document(
-    document_id: uuid.UUID, _: Annotated[Identity, Depends(require_admin_csrf)]
+    _: Annotated[Identity, Depends(require_admin_csrf)], document_id: AdminDocumentId
 ) -> None:
     """Soft delete only (ADM-08, OPEN-31 D7). Objects and chunks stay until M5."""
     raise not_implemented()
@@ -84,7 +83,7 @@ async def delete_document(
     responses=admin_error_responses(401, 403, 404, 409),
 )
 async def retry_document(
-    document_id: uuid.UUID, _: Annotated[Identity, Depends(require_admin_csrf)]
+    _: Annotated[Identity, Depends(require_admin_csrf)], document_id: AdminDocumentId
 ) -> AdminDocumentOut:
     """Manual retry (ADM-16). 409 ``DOCUMENT_NOT_RETRYABLE`` for a done or actively leased job."""
     raise not_implemented()

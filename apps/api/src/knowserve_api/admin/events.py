@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -11,6 +10,7 @@ from knowserve_core.identity import Identity
 
 from ..auth.deps import require_admin
 from ..schemas import not_implemented
+from .deps import AdminDocumentId
 from .schemas import admin_error_responses
 
 router = APIRouter(tags=["admin"])
@@ -33,6 +33,6 @@ _SSE_RESPONSE = {
     responses={**_SSE_RESPONSE, **admin_error_responses(401, 403, 404)},
 )
 async def document_events(
-    document_id: uuid.UUID, _: Annotated[Identity, Depends(require_admin)]
+    _: Annotated[Identity, Depends(require_admin)], document_id: AdminDocumentId
 ) -> None:
     raise not_implemented()

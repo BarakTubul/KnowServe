@@ -6,7 +6,7 @@ Code: `apps/api/src/knowserve_api/admin/` (routes and `schemas.py`), `packages/b
 
 ## Routes
 
-All routes live under `/v1/admin`. Every one needs a session (401) and the Admin role (403). Mutations also need the allowed Origin and the CSRF token (`X-CSRF-Token`), multipart ones included. None needs an active department, and none is affected by it (SEC-17 applies to the user routes). Ids in paths are uuids; a malformed id is a normal 422.
+All routes live under `/v1/admin`. Every one needs a session (401) and the Admin role (403). Mutations also need the allowed Origin and the CSRF token (`X-CSRF-Token`), multipart ones included. None needs an active department, and none is affected by it (SEC-17 applies to the user routes). Ids in paths are uuids. A malformed, unknown or deleted document id is the same 404 `DOCUMENT_NOT_FOUND`, and it is checked after the session and the Admin role, so 401 and 403 always come first (OPEN-28 Q7). The id is a string in the OpenAPI schema for that reason; the `admin_document_id` dependency parses it.
 
 | Method and path | Request | Success | Errors |
 |---|---|---|---|
@@ -31,7 +31,7 @@ Upload and replace answer 202 because processing continues in the Worker (the sp
 
 ### Idempotency
 
-`Idempotency-Key` (`^[A-Za-z0-9_-]{8,128}$`) is required on create, replace and import confirmation. A key is scoped to the Admin and to one operation. The same key with the same request (a hash of the file bytes and the normalized metadata) returns the stored status and body, with no second document and no second job. The same key with a different request is 409 `IDEMPOTENCY_KEY_REUSED`. Table `admin_idempotency_keys` (migration `0004`) holds the completed result; it is written in the same transaction as the rows it describes. `import_batch_entries` records each manifest entry's outcome, so a confirmation that stopped half way resumes under the same key without creating an entry twice.
+`Idempotency-Key` (`^[A-Za-z0-9_-]{8,128}$`) is required on create, replace and import confirmation. A key is scoped to the Admin and to one operation. The same key with the same request (a hash of the file bytes and the normalized metadata) returns the stored status and body, with no second document and no second job. The same key with a different request is 409 `IDEMPOTENCY_KEY_REUSED`. A replay still passes the session, CSRF and Admin checks of the request, so a revoked Admin gets nothing from an old key. A new key re-checks the operation's preconditions inside the transaction that performs it (for replace, the atomic `failed` to `queued` change), so stale state cannot start a second attempt. Two concurrent requests with one key cannot both create rows: the idempotency row is written in the same transaction as the document rows, the unique key makes the second transaction fail and roll back, and that request then replays the first result. Table `admin_idempotency_keys` (migration `0004`) holds the completed result; it is written in the same transaction as the rows it describes. `import_batch_entries` records each manifest entry's outcome, so a confirmation that stopped half way resumes under the same key without creating an entry twice.
 
 ## Models
 
@@ -44,7 +44,7 @@ Upload and replace answer 202 because processing continues in the Worker (the sp
 | `phase` | `fetching`, `extracting`, `chunking`, `embedding` or `publishing` while processing; no percentages (ING-07). |
 | `failure_code`, `failure_message` | A `FailureCode` and its English fallback text. The interface text comes from the frontend catalog by code. |
 | `delivery_state` | The derived job state from `job_recovery.py` (`publish_failed`, `unpublished_stuck`, `queued_stuck`, `processing_stuck`, `failed` and the rest), or null. |
-| `can_retry`, `can_replace` | Computed on the server, so the client keeps no rules (ADM-16, ADM-18). |
+| `can_retry`, `can_replace` | Computed on the server, so the client keeps no action rules (ADM-16, ADM-18). `can_retry` stays true for a failed `NO_EXTRACTABLE_TEXT` document, as FE-ADM-06 requires; the UI puts Replace file first for terminal reasons. Each mutation re-checks its precondition atomically, whatever the flags said when the screen loaded. |
 | `title`, `filename`, `owner_department`, `allowed_departments`, `page_count`, `size_bytes`, `created_at`, `updated_at` | Document data. Departments are `{id, slug, name}`. |
 
 `ImportEntryPreview` and `ImportEntryResult` identify an entry by `index` and `file`, carry an `error_code` (an `AdminErrorCode`), the English fallback `error_message` and an optional `detail` (for example the unknown slug). Preview never creates anything.
@@ -77,7 +77,7 @@ event: end
 data: {"reason": "terminal"}
 ```
 
-`status` carries `DocumentProcessingStatus`, sent on connect and on every change. A comment line goes out every `KS_SSE_KEEPALIVE_SECONDS` (15). `end` follows a `ready` or `failed` status (`terminal`), or comes after `KS_SSE_MAX_SECONDS` (120) with reason `timeout`, and the client reconnects. There are no event ids and no replay, because a reconnect starts with a fresh `status`. The document list is the fallback when the stream fails.
+`status` carries `DocumentProcessingStatus`, sent on connect and on every change. A comment line goes out every `KS_SSE_KEEPALIVE_SECONDS` (15). `end` follows a `ready` or `failed` status (`terminal`), or comes after `KS_SSE_MAX_SECONDS` (120) with reason `timeout`, and the client reconnects. There are no event ids, no persisted event history and no replay, because a reconnect starts with a fresh `status` read from the database. Connecting or reconnecting never creates or requeues a job. The document list is the fallback when the stream fails.
 
 ## Error codes
 
