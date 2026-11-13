@@ -78,32 +78,33 @@ Status: **approved in principle by the user on 2026-11-07, design only.** An app
 ### What exists today
 `deploy.yml` runs by `workflow_dispatch` from `main` (`target`, `mode`, `confirm`). A `gate` job waits for `ci-required` on the commit. One `deploy` job bound to the `production` Environment then does everything as ordered steps: WIF login, build and push, migration (Cloud Run job `knowserve-migrate`, `--wait`), Cloud Run rollout, Pages deploy and smoke checks. The reviewer approves that one job once. Ordering depends on step order inside the job, not on `needs`.
 
-### Design: split the one job into a `needs` chain
-The order and the approval point are enforced by `needs`, and a failure stops everything after it.
+### Design: one approved job, with the order enforced by step outcomes
+Decided by the user (D3, option 2): keep a single `deploy` job so the reviewer approves once. GitHub asks for approval per job, not per run, and WIF requires every job that logs in to Google to run in `production`, so a second authenticated job would mean a second click. The `needs` rule is applied where it can be: between the unapproved `gate` job and the approved job, and between the steps inside the approved job.
 
 ```
-gate        ci-required success for this commit, confirm = yes, ref = main   (no approval, no cloud login)
+gate     ci-required success for this commit, confirm = yes, ref = main   (no approval, no cloud login)
   |
-  v
-release     environment: production   <== approval click 1
-  |         WIF login, build and push api + worker, output both image digests,
-  |         point knowserve-migrate at the API digest, execute with --wait
-  v
-rollout     needs: release            environment: production   <== approval click 2
-            gcloud run deploy api, then worker, by digest; build and deploy Pages;
-            smoke: proxy status, direct API 403, worker ready, Playwright
+  v  needs: gate
+deploy   environment: production   <== the single approval click
+         1. WIF login
+         2. build and push api + worker, record both digests         (id: build)
+         3. migration: point knowserve-migrate at the API digest, execute --wait   (id: migrate)
+         4. roll out api, then worker, by digest        if: steps.migrate.outcome == 'success'
+         5. build and deploy Pages                      if: steps.rollout.outcome == 'success'
+         6. smoke: proxy status, direct API 403, worker ready, Playwright
 ```
 
-- **Approval point.** The `production` Environment with its required reviewer, as today. Each job that names the environment asks for approval separately, so two jobs mean two clicks. WIF's subject includes the environment name, so every job that logs in to Google must run in `production`. That is why the design does not add a third, unapproved job that authenticates.
-- **Migration before deployment.** `rollout` has `needs: release`. If the migration fails, is rejected or times out, `rollout` never starts and the old revisions keep serving. Today this holds only because a failed step skips later steps.
-- **No bypass.** Nothing that deploys is reachable without passing `release`. If `RUN_MIGRATIONS=false`, the migration step inside `release` is skipped with a visible warning and `release` still ends `success`. A skipped job would make `rollout` skip as well, so the skip must stay a step, not a job.
-- **Digests.** `release` passes the two image digests to `rollout` as job outputs. `rollout` never rebuilds.
-- **`auth-check` mode** stays a single read-only job.
-- **WIF is unchanged.** Repository, `refs/heads/main`, this workflow file and the `production` environment stay as in Terraform. The subject uses the environment and the workflow file, not the job name. No Terraform change is part of this.
+- **Approval point.** The `production` Environment with its required reviewer, as today. One click per run.
+- **Migration before deployment.** Steps 4 to 6 carry an explicit `if:` on the outcome of the step before. If the migration fails, is cancelled or times out, no rollout step runs and the old revisions keep serving. Today this holds only because a failed step skips the later ones; the explicit `if:` makes the rule visible and survives a reordering.
+- **No bypass.** The `deploy` job has `needs: gate`, and nothing that deploys sits outside it. A step that must not run when the migration is skipped on purpose (`RUN_MIGRATIONS=false`) treats the skipped migration as acceptable: the `if:` accepts `outcome == 'success'` or an explicit skip marker. The warning stays visible in the run summary.
+- **Digests.** Steps 2 to 4 read the digests from the same job's environment. The job never rebuilds after the migration.
+- **`auth-check` mode** stays a read-only run in the same job.
+- **WIF is unchanged.** Repository, `refs/heads/main`, this workflow file and the `production` environment stay as in Terraform. No Terraform change is part of this.
 - **Concurrency** (`deploy-<target>`, no cancel), the inputs, `confirm` and the `gate` stay as they are.
+- **What this does not give.** Job-level `needs` between migration and rollout. A job-level split with one click would need a second environment and a change to the WIF trust, which was not approved.
 
 ### Rollback
-- Automation never rolls back (TEST-16). A failed `release` leaves the old revisions serving. A failed `rollout` or smoke leaves whatever already rolled out serving and the run red.
+- Automation never rolls back (TEST-16). A failed migration leaves the old revisions serving. A failed rollout or smoke leaves whatever already rolled out serving and the run red.
 - A person follows `docs/architecture/rollback.md`: pick the last healthy revision, check it against the current schema, route traffic with `gcloud run services update-traffic`, check `/health/ready`.
 - The frontend is rolled back as a separate Cloudflare Pages deployment rollback.
 - Database rollback (`alembic downgrade`) stays a separate decision under the same `production` approval, after a Neon branch or backup.
@@ -119,29 +120,30 @@ rollout     needs: release            environment: production   <== approval cli
 ### Risks
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Two approval clicks | Slower, and a second wait if the reviewer is away | Accepted, or collapse to one job (D3). |
-| Skipped dependency | `rollout` skips silently and the run looks finished | Keep `release` ending `success` or `failure`, never skipped. Check the run summary shows both jobs. |
-| Digests lost between jobs | `rollout` deploys the wrong image | Job outputs only; `rollout` has no build step. |
-| An authenticated job without the environment | Login rejected by WIF, or a run without approval | Every job that authenticates uses `environment: production`. |
-| The split changes the WIF subject | Login rejected | Run `auth-check` first after the change. Use `debug_claims` if rejected. |
+| Enforcement is step-level, not job-level | A later edit that removes an `if:` lets a rollout run after a failed migration | The `if:` lines are covered by the supervised first deploy, and CODEOWNERS routes `.github/` to the owner. |
+| A skipped migration (`RUN_MIGRATIONS=false`) read as failure, or a failure read as skip | Rollout blocked, or rollout after a failed migration | Use `outcome == 'success'` or an explicit marker for the deliberate skip; never `!= 'failure'`. |
+| Wrong digest rolled out | Old or unbuilt image deployed | Digests recorded once in the build step; no later build. |
+| The edit changes the WIF subject | Login rejected | The subject uses the environment and the workflow file, not step names. Run `auth-check` first after the change; use `debug_claims` if rejected. |
 | A bug in the new file | Broken deploy path | `auth-check`, then one supervised `deploy` before relying on it. |
 
 ### Changes this would need: NOT APPROVED
-1. `.github/workflows/deploy.yml`: split `deploy` into `release` and `rollout` with `needs`, job outputs for the digests, `environment: production` on both, `gate` unchanged. **NOT APPROVED.**
+1. `.github/workflows/deploy.yml`: add step ids (`build`, `migrate`, `rollout`) and an explicit `if:` on the outcome of the previous step for the rollout, Pages and smoke steps; the single `deploy` job, `environment: production` and `gate` stay. **NOT APPROVED.**
 2. GitHub Environment `production`: no change planned (required reviewer, `main` only). **NOT APPROVED** to change.
 3. Terraform and the WIF conditions: **no change.**
 4. `docs/contracts/ci-and-branch-protection.md` and `docs/workflow/testing.md` ("Deployment today vs the policy"): update in the same change. **NOT APPROVED.**
 5. After merge: one `auth-check` and one supervised `deploy`, with the run ids recorded in the handoff. Both need the user's approval.
 
-## Decisions the user must make
-| Id | Question | Recommendation |
+## Decisions
+Answered by the user on 2026-11-13 in chat. Nothing is implemented, and every workflow change below still needs separate approval.
+
+| Id | Question | Answer |
 |---|---|---|
-| D1 | Is the docs-only saving (about 2 minutes per PR) worth changing `ci.yml`? | Yes, but low priority. If not, keep the batching rule and close OPEN-22(b). |
+| D1 | Is the docs-only saving (about 2 minutes per PR) worth changing `ci.yml`? | Yes. |
 | D2 | Docs-only allowlist: `docs/**/*.md` plus root `README.md`, `AGENTS.md`, `CLAUDE.md`, with `openapi.json` always full? | Yes. |
-| D3 | Deploy job split: two jobs (`release`, `rollout`, two clicks) or one job as today (one click, order by step)? | Two jobs. It gives the `needs` enforcement you approved. |
-| D4 | With `RUN_MIGRATIONS=false`, should the migration step be skipped with a warning while `release` still succeeds? | Yes. |
-| D5 | Keep automatic `push: main` deploy out of scope? | Yes. Revisit after several clean supervised deploys. |
-| D6 | Drop the `m0/**` push trigger in the same `ci.yml` change (original OPEN-22 (a))? | Yes. |
+| D3 | Deploy structure: two jobs (two clicks) or one job? | One approved job with step-outcome `if:` rules (option 2): one click, no WIF change. |
+| D4 | With `RUN_MIGRATIONS=false`, skip the migration step with a warning and keep the run going? | Yes. |
+| D5 | Keep automatic `push: main` deploy out of scope? | Yes, agreed. |
+| D6 | Drop the `m0/**` push trigger in the same `ci.yml` change? | Yes, agreed. |
 
 ## E2E placement for the library flow (TEST-13)
 Recommendation:
