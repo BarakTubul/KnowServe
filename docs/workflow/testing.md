@@ -84,7 +84,7 @@ Read from the repository on 2026-11-06. Nothing was re-run for this document; "E
 
 ## Deployment today vs the policy
 - **Automatic deploy.** The policy says ordinary changes deploy after merge. Today they do not: `deploy.yml` runs only by manual dispatch, and the `push: main` trigger was disabled on purpose (security review M2). Enabling it is a separate decision that needs the user's approval (OPEN-27). Until then the manual, approved dispatch is the only deploy path.
-- **Approval model.** The `production` Environment has a required reviewer, so as configured every run waits for approval, including ordinary ones. How to combine "automatic for ordinary changes" with "approval for sensitive operations" (for example separate jobs or environments for the migration and infrastructure steps versus the image roll) is not designed here.
+- **Approval model.** The `production` Environment has a required reviewer, so as configured every run waits for approval, including ordinary ones. The user decided on 2026-11-13 to keep one approved `deploy` job with one click, where each rollout, Pages and smoke step runs only if the migration (or the step before it) succeeded. Automatic `push: main` deploy stays out of scope.
 - **PostgreSQL version.** CI and Compose use `pgvector/pgvector:0.8.6-pg18` since M2-PG (ADR 0002, OPEN-28 Q11), matching the Neon database verified in the M0 spike (PostgreSQL 18.6, pgvector 0.8.6, test plan AC03). Neon-only behavior stays release evidence (TEST-11). Before M2-PG the images were `pg16`.
 
 ## Gaps for the current and next milestone
@@ -96,11 +96,11 @@ Only what M1 (Authentication & Demo, `../milestones/M1/plan.md`, `tasks.md`, `ha
 5. **Auto-deploy decision.** OPEN-27, together with OPEN-22, before the deploy trigger changes.
 
 ## Overlap with OPEN-22 (CI/CD efficiency and change policy)
-OPEN-22 is still open and this document does not settle it.
+OPEN-22 was decided by the user on 2026-11-13 (docs-only PRs skip the five heavy jobs, `m0/**` trigger dropped). See `contracts/ci-and-branch-protection.md`.
 - TEST-10 (risk-based gate, reuse valid evidence) fits OPEN-22(b): a docs-only PR may need only the quick jobs. Any such narrowing must keep `ci-required` failing on failed or cancelled jobs, and the deploy gate must still see `success` on the deployed commit.
 - OPEN-22(a) drops the `m0/**` push trigger. TEST-10 assumes a PR-run check, so the two are consistent.
 - TEST-14 depends on the same CI triggers and on `ci-required` semantics. Any change to either goes to the user, as OPEN-22 already says for branch protection.
-- Nothing here changes `ci.yml`, `deploy.yml` or branch protection.
+- Branch protection is unchanged: the required check stays `ci-required`.
 
 ## Current implementation (LEGACY)
 - There are no backend or frontend tests. A `tests/` tree existed earlier in git history and was deleted.
