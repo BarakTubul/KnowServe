@@ -121,6 +121,7 @@ async def _ingest_one(
         claim.job.attempts,
         claim.job.last_error,
         claimed_by=me,
+        session_factory=factory,
     )
     state = types.SimpleNamespace(
         session_factory=factory, heartbeat_interval=max(0.05, settings.job_lease_seconds / 3)

@@ -464,6 +464,38 @@ async def test_ing15_stale_worker_cannot_publish_after_losing_the_claim(h: Harne
     assert (job.status, job.claimed_by) == ("processing", "usurper")
 
 
+async def test_ing15_stale_handler_phase_write_changes_nothing(h: Harness) -> None:
+    """The claim is lost while fetching. The next phase write is fenced and writes nothing, and
+    nothing later (chunks, publication) happens either."""
+    _, rev_id, job_id = await h.make(pdf_two_pages())
+
+    async def lose_claim() -> None:
+        await h.sql(
+            "UPDATE jobs SET claimed_by = 'usurper', attempts = 2, "
+            "lease_expires_at = now() + interval '5 minutes' WHERE id = :i",
+            i=job_id,
+        )
+
+    h.store.on_read = lose_claim
+    async with h.client(h.app()) as c:
+        response = await h.deliver(c, job_id)
+    assert response.status_code == 409
+    revision = await h.revision(rev_id)
+    assert (revision.status, revision.phase) == ("processing", "fetching")  # not "extracting"
+    assert await h.chunks(rev_id) == []
+    assert h.provider.texts == []  # it never got as far as embedding
+
+
+def test_ing15_ingest_handler_writes_only_through_the_fenced_session() -> None:
+    """Gate against a forgotten fence: the handler module opens no transaction of its own."""
+    import inspect
+
+    import knowserve_worker.ingest as ingest
+
+    source = inspect.getsource(ingest)
+    assert ".begin()" not in source and "ctx.fenced_session()" in source
+
+
 # ----------------------------------------------------------------------------- reindex mode (Q8)
 
 

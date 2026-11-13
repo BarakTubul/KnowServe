@@ -67,7 +67,12 @@ class Harness:
         if self.behavior is not None:
             await self.behavior(ctx)
 
-    def app(self, settings_update: dict[str, Any] | None = None, **settings: Any) -> Any:
+    def app(
+        self,
+        settings_update: dict[str, Any] | None = None,
+        heartbeat_interval: float = 0.1,
+        **settings: Any,
+    ) -> Any:
         s = make_settings(self.url, **settings)
         if settings_update:
             # model_copy skips validation: the handler timeout may exceed the lease only because
@@ -78,7 +83,7 @@ class Harness:
             engine=self.engine,
             publisher=FakePublisher(),
             handlers={INGEST: self.handler},
-            heartbeat_interval=0.1,
+            heartbeat_interval=heartbeat_interval,
         )
 
     def client(self, app: Any) -> httpx.AsyncClient:
@@ -587,3 +592,156 @@ async def test_adm16_requeue_after_a_terminal_failure_runs_again_from_attempt_on
     assert response.json() == {"result": "done"}
     job = await h.job(job_id)
     assert (job.status, job.attempts) == ("done", 1)
+
+
+# ----------------------------------------------------------------------- review fixes (M3-00a)
+
+
+@pytest.mark.parametrize("max_attempts", [4, 1])  # a released attempt and a permanent failure
+async def test_mon05_exception_text_never_reaches_last_error_or_logs(
+    h: Harness, capsys: pytest.CaptureFixture[str], max_attempts: int
+) -> None:
+    """Hard gate (SEC-18): a raw exception can quote chunk text or a storage key."""
+
+    async def leak(ctx: JobContext) -> None:
+        try:
+            raise ValueError("SECRET-CAUSE chunk text")
+        except ValueError as cause:
+            raise RuntimeError("SECRET-TEXT storage key documents/abc") from cause
+
+    job_id, revision_id = await h.job_with_revision()
+    h.behavior = leak
+    async with h.client(h.app(job_max_attempts=max_attempts)) as c:
+        response = await h.deliver(c, job_id)
+    assert response.status_code == 500
+    assert "SECRET" not in response.text
+    job = await h.job(job_id)
+    assert job.last_error == "RuntimeError <- ValueError"
+    assert "SECRET" not in capsys.readouterr().out
+    revision = await h.revision(revision_id)
+    assert "SECRET" not in str(tuple(revision))
+
+
+async def test_mon05_typed_errors_log_codes_only(
+    h: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    job_id, _ = await h.job_with_revision()
+    h.behavior = raising(NonRetryableJobError(FailureCode.INVALID_PDF))
+    async with h.client(h.app()) as c:
+        await h.deliver(c, job_id)
+    out = capsys.readouterr().out
+    assert "INVALID_PDF" in out and "Traceback" not in out
+
+
+async def test_ing19_a_failed_lease_renewal_does_not_kill_the_handler_or_leak_its_text(
+    h: Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import knowserve_worker.app as worker_app
+
+    real = worker_app.renew_lease
+    calls = 0
+
+    async def flaky(*args: Any, **kwargs: Any) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("SECRET-DSN password=hunter2")
+        return await real(*args, **kwargs)
+
+    async def work(ctx: JobContext) -> None:
+        await asyncio.sleep(0.6)
+
+    monkeypatch.setattr(worker_app, "renew_lease", flaky)
+    job_id, _ = await h.job_with_revision()
+    h.behavior = work
+    async with h.client(h.app()) as c:
+        response = await h.deliver(c, job_id)
+    assert response.json() == {"result": "done"}
+    assert calls >= 2  # it tried again after the failure
+    out = capsys.readouterr().out
+    assert "lease renewal failed" in out and "ConnectionError" in out
+    assert "SECRET-DSN" not in out and "hunter2" not in out
+
+
+async def test_ing19_no_heartbeat_task_survives_a_handler_timeout(h: Harness) -> None:
+    async def slow(ctx: JobContext) -> None:
+        await asyncio.sleep(5)
+
+    job_id, _ = await h.job_with_revision()
+    h.behavior = slow
+    app = h.app(job_max_attempts=1, job_lease_seconds=3, job_handler_timeout_seconds=1)
+    async with h.client(app) as c:
+        await h.deliver(c, job_id)
+    leftovers = [
+        str(t.get_coro())
+        for t in asyncio.all_tasks()
+        if t is not asyncio.current_task() and "beat" in str(t.get_coro())
+    ]
+    assert leftovers == []
+
+
+async def test_ing15_fenced_session_commits_for_the_owner_and_rolls_back_for_a_stale_worker(
+    h: Harness,
+) -> None:
+    from knowserve_core.job_fencing import fenced_session
+
+    job_id, revision_id = await h.job_with_revision()
+    await h.sql(
+        "UPDATE jobs SET status='processing', claimed_by='me', "
+        "lease_expires_at = now() + interval '1 minute' WHERE id = :id",
+        id=job_id,
+    )
+    async with fenced_session(h.factory, job_id, "me") as s:
+        await s.execute(text("UPDATE document_revisions SET phase = 'embedding'"))
+    assert (await h.revision(revision_id)).phase == "embedding"
+    with pytest.raises(LostClaimError):
+        async with fenced_session(h.factory, job_id, "stale") as s:
+            await s.execute(text("UPDATE document_revisions SET phase = 'publishing'"))
+    assert (await h.revision(revision_id)).phase == "embedding"
+    with pytest.raises(RuntimeError):  # an error inside rolls the writes back
+        async with fenced_session(h.factory, job_id, "me") as s:
+            await s.execute(text("UPDATE document_revisions SET phase = 'publishing'"))
+            raise RuntimeError("inside")
+    assert (await h.revision(revision_id)).phase == "embedding"
+
+
+async def test_ing15_reclaim_during_an_in_flight_fenced_write_gives_the_old_worker_409(
+    h: Harness,
+) -> None:
+    """The old worker's lease lapsed while it was publishing. The reclaim waits for the fenced
+    transaction; once the old worker commits, the new owner holds the job and the old worker's
+    `done` is refused (409), so it cannot overwrite the new claim."""
+    inside = asyncio.Event()
+
+    async def publisher(ctx: JobContext) -> None:
+        await h.sql(
+            "UPDATE jobs SET lease_expires_at = now() - interval '1 minute' WHERE id = :id",
+            id=ctx.job_id,
+        )
+        async with ctx.fenced_session() as session:
+            await session.execute(text("UPDATE document_revisions SET phase = 'publishing'"))
+            inside.set()
+            await asyncio.sleep(0.8)
+
+    job_id, _ = await h.job_with_revision()
+    h.behavior = publisher
+    async with h.client(h.app(heartbeat_interval=60)) as c:
+        delivery = asyncio.ensure_future(h.deliver(c, job_id))
+        await asyncio.wait_for(inside.wait(), 5)
+        reclaim = asyncio.ensure_future(
+            claim_job(
+                h.factory,
+                job_id,
+                "worker-b",
+                lease_seconds=60,
+                max_attempts=4,
+                terminal_hook=mark_revision_failed,
+            )
+        )
+        await asyncio.sleep(0.3)
+        assert not reclaim.done()  # waiting for the old worker's transaction
+        response = await asyncio.wait_for(delivery, 10)
+    assert (await asyncio.wait_for(reclaim, 5)).kind == "claimed"
+    assert response.status_code == 409 and response.json()["error"]["code"] == "JOB_CLAIM_LOST"
+    job = await h.job(job_id)
+    assert (job.status, job.claimed_by, job.attempts) == ("processing", "worker-b", 2)

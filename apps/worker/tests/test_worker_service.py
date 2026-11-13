@@ -315,7 +315,7 @@ async def test_ing21_handler_failure_returns_500_and_requeues_with_last_error(h:
     assert response.status_code == 500
     job = await h.job(job_id)
     assert job.status == "queued" and job.lease_expires_at is None and job.claimed_by is None
-    assert "handler exploded" in job.last_error
+    assert job.last_error == "RuntimeError"  # the type name only, never the message (MON-05)
     # The retried delivery runs again (and succeeds once the handler recovers).
     h.handler.fail = False
     async with h.client() as c:

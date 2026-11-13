@@ -11,9 +11,11 @@ waits for the transaction), so the check and the writes behave as one step.
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class LostClaimError(Exception):
@@ -41,3 +43,16 @@ async def assert_claimed(session: AsyncSession, job_id: uuid.UUID, claimed_by: s
     held = (await session.execute(_FENCE, {"id": job_id, "me": claimed_by})).first()
     if held is None:
         raise LostClaimError(f"job {job_id} is no longer claimed by this worker")
+
+
+@asynccontextmanager
+async def fenced_session(
+    factory: async_sessionmaker[AsyncSession], job_id: uuid.UUID, claimed_by: str
+) -> AsyncIterator[AsyncSession]:
+    """A transaction whose first statement is the fence. Every write a handler makes for a job
+    (phase changes, chunks, publication) goes through this, so a stale worker's write cannot
+    happen by forgetting a call. It commits on a clean exit and rolls back on any exception,
+    including ``LostClaimError`` from the fence itself."""
+    async with factory() as session, session.begin():
+        await assert_claimed(session, job_id, claimed_by)
+        yield session

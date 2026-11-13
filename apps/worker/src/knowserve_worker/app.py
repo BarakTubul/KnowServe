@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -36,7 +36,7 @@ from knowserve_core.job_claims import (
     release_job,
     renew_lease,
 )
-from knowserve_core.job_fencing import LostClaimError, assert_claimed
+from knowserve_core.job_fencing import LostClaimError, assert_claimed, fenced_session
 from knowserve_core.job_hooks import NonRetryableJobError, RetryableJobError, TerminalFailureHook
 from knowserve_core.jobs import MANUAL_RETRY_MARKER
 from knowserve_core.logging import configure_logging
@@ -69,6 +69,14 @@ class JobContext:
     previous_error: str | None = None
     # The claim this worker holds. Pipeline writes call ``fence`` first (F7).
     claimed_by: str = ""
+    session_factory: Any = None
+
+    def fenced_session(self) -> AbstractAsyncContextManager[AsyncSession]:
+        """The one way for a handler to write: a transaction that first checks this worker still
+        holds the job (``LostClaimError`` otherwise). Use it for every write, phase updates
+        included. Handlers also wrap parser and database errors in ``NonRetryableJobError`` or
+        ``RetryableJobError``: a raw exception can carry document text (MON-05, SEC-18)."""
+        return fenced_session(self.session_factory, self.job_id, self.claimed_by)
 
     async def fence(self, session: AsyncSession) -> None:
         """Lock the job row and require that this worker still holds it, or raise
@@ -294,6 +302,7 @@ async def run_job(request: Request) -> JSONResponse:
         claim.job.attempts,
         claim.job.last_error,
         claimed_by=me,
+        session_factory=factory,
     )
     handler: Handler | None = state.handlers.get(ctx.job_type)
     if handler is None:
@@ -320,7 +329,10 @@ async def run_job(request: Request) -> JSONResponse:
             await _fail_permanently(factory, hook, job_id, me, code, error, ctx.attempts)
         if not await release_job(factory, job_id, me, error):
             raise _claim_lost(job_id) from None
-        logger.error("job handler failed", extra={"job_id": str(job_id)}, exc_info=True)
+        logger.error(
+            "job handler failed",
+            extra={"job_id": str(job_id), "failure_code": code.value, "error": error},
+        )
         raise AppError(500, "JOB_FAILED", "Job failed; delivery will be retried") from None
     if not await complete_job(factory, job_id, me):
         raise _claim_lost(job_id)
@@ -334,7 +346,18 @@ def _classify(exc: Exception) -> tuple[FailureCode, str]:
         return exc.failure_code, exc.failure_code.value
     if isinstance(exc, TimeoutError):
         return FailureCode.PROCESSING_TIMEOUT, "handler timed out"
-    return FailureCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}"[:500]
+    # Only type names: the message of a SQLAlchemy or parser error can quote document or chunk
+    # text (MON-05, SEC-18). Handlers wrap such errors in the typed job errors above.
+    return FailureCode.INTERNAL_ERROR, _error_types(exc)
+
+
+def _error_types(exc: BaseException) -> str:
+    """``RuntimeError`` or ``RuntimeError <- ValueError``: exception class names, never text."""
+    names = [type(exc).__name__]
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None:
+        names.append(type(cause).__name__)
+    return " <- ".join(names)
 
 
 def _claim_lost(job_id: uuid.UUID) -> AppError:
@@ -357,8 +380,12 @@ async def _fail_permanently(
         raise _claim_lost(job_id)
     logger.error(
         "job failed permanently",
-        extra={"job_id": str(job_id), "attempts": attempts, "failure_code": code.value},
-        exc_info=True,
+        extra={
+            "job_id": str(job_id),
+            "attempts": attempts,
+            "failure_code": code.value,
+            "error": error,
+        },
     )
     raise AppError(500, "JOB_FAILED_PERMANENTLY", FAILURES[code].message) from None
 
@@ -388,10 +415,14 @@ async def _run_with_heartbeat(
                 alive = await renew_lease(
                     factory, ctx.job_id, ctx.claimed_by, settings.job_lease_seconds
                 )
-            except Exception:
+            except Exception as exc:
                 # A database blip must not kill the handler; the next beat tries again and the
-                # fencing check protects the writes if the lease really lapsed.
-                logger.warning("lease renewal failed", extra={"job_id": str(ctx.job_id)})
+                # fencing check protects the writes if the lease really lapsed. Only the type
+                # name is logged: a database error message can carry statement parameters.
+                logger.warning(
+                    "lease renewal failed",
+                    extra={"job_id": str(ctx.job_id), "error": type(exc).__name__},
+                )
                 continue
             if not alive:
                 lost.set()

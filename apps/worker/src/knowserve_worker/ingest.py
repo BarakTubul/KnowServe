@@ -151,8 +151,7 @@ class IngestHandler:
 
     async def _phase(self, ctx: Any, revision: _Revision, phase: str, reindex: bool) -> None:
         """Fenced phase write. Reindex mode leaves the ready revision untouched."""
-        async with self._factory() as session, session.begin():
-            await ctx.fence(session)
+        async with ctx.fenced_session() as session:
             if not reindex:
                 await session.execute(_PHASE, {"id": revision.id, "phase": phase})
 
@@ -220,9 +219,8 @@ class IngestHandler:
             self._settings.chunk_overlap_tokens,
         )
         params = {"id": revision.id, "model": self._provider.model, "identity": identity}
-        async with self._factory() as session, session.begin():
-            # 1. Still ours? Locks the job row, so a reclaim waits for this transaction.
-            await ctx.fence(session)
+        # 1. Still ours? The fence locks the job row, so a reclaim waits for this transaction.
+        async with ctx.fenced_session() as session:
             # 2. Lock the document row: a soft delete either landed before this (we stop) or
             #    waits until we commit (D7).
             deleted = (await session.execute(_LOCK_DOCUMENT, {"id": revision.document_id})).scalar()
