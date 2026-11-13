@@ -15,3 +15,7 @@ Two flows stay `fixme` in real mode on purpose: an expired Demo (needs clock con
 # Library flow (M2), mocked API
 
 `pnpm --filter @knowserve/frontend e2e:library` runs `library.mocked.spec.ts` in Chromium against a `page.route` fake of the documents API, with a committed seed PDF rendered by the real pdf.js. It needs no Firebase Emulator, no Java and no database. It is not backend evidence and does not test sign-in: real authentication is covered by the M1 auth flows (above) and the backend tests. It stays out of the PR gate (`ci-cd-proposals.md`); run it locally and before the milestone PR.
+
+# Admin flows (M3), mocked API
+
+`pnpm --filter @knowserve/frontend e2e:admin` runs `admin.mocked.spec.ts` in Chromium against the stateful `page.route` fake in `support/admin-fake-api.ts` (upload to ready, failed to replace to ready, ZIP preview, confirm and retry, non-Admin). It follows `docs/contracts/admin-api.md`, is not backend evidence and needs no emulator or database. The real-API wiring is covered by the lead's single local trial at CP6, not by a duplicate spec.

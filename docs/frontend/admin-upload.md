@@ -1,6 +1,6 @@
 # Frontend admin document management
 
-**Status:** Target spec (M3 upload, ZIP, status and failed-file replacement; M5 ready-document replacement/delete hardening). Not implemented: the legacy `/admin/upload` page posts Google Drive URLs and listens on a WebSocket.
+**Status:** Target spec (M3 upload, ZIP, status and failed-file replacement; M5 ready-document replacement/delete hardening). M3 is implemented in `apps/frontend/src/features/admin/` against the mocked API (see Current implementation, target). The legacy `/admin/upload` page (Google Drive URLs, WebSocket) is not migrated.
 
 ## Target requirements
 | ID | Requirement | Milestone |
@@ -47,8 +47,21 @@ None. FE-ADM-01..10 are kept with updated meaning.
 - The status badge checks `'error'` while the backend writes `'failed'`, so failed documents look pending.
 - Dialogs use `window.confirm`/`alert`. There is no file upload, ZIP import, replace or retry.
 
+## Current implementation (target, M3-06a/06b)
+- **Route and guard:** `/admin/documents` inside `RequireAuth`, behind `RequireAdmin` (`guards.tsx`, identity `kind === 'admin'`; others see a "not available" view, FE-ADM-01). The dashboard shows a "Manage documents" link only for the Admin. Admin pages need no active department.
+- **List** (`admin-documents-page.tsx`, `document-row.tsx`, `status-badge.tsx`): cursor paging, title search, status filter, a badge per status with the processing phase (FE-ADM-02/10). Failure reasons come from the frontend catalog by `failure_code`, never from the server text. Retry and Replace file show only where the server sends `can_retry` / `can_replace`; for terminal failure codes Replace file is placed first (presentation only).
+- **Status stream** (`lib/api/sse.ts`, `use-document-events.ts`): one `EventSource` per `queued`/`processing` row. `status` events patch the cached row, `end` with `terminal` stops and refetches the list, `end` with `timeout` reconnects. A dropped stream is retried after 1 s, 3 s and 10 s, then the list is polled every 10 s and the row shows a notice. No event ids or replay; connecting never creates a job.
+- **Forms:** `upload/upload-form.tsx` (React Hook Form + Zod; owner starts as the active department; choosing an owner adds it to the allowed set; allowed departments are explicit; the 20 MiB / PDF checks mirror D1), `upload/replace-dialog.tsx` (FE-ADM-13), `import/import-panel.tsx` (preview, explicit confirm, per-file results, retry of rejected files). One `Idempotency-Key` per user action (`use-action-key.ts`): reused on a retry of the same request, new for different content.
+- **Access editor and delete dialog** (`access-editor.tsx`, `delete-dialog.tsx`) on an accessible `modal-dialog.tsx` (focus in, Escape, focus restore).
+- **Errors:** `admin-error-messages.ts` (English and Hebrew, typed on the generated codes) via `describeAdminError`; client-side validation uses the same catalog. Screens are English only (D8).
+- **Tests:** Vitest in `features/admin/*.test.ts(x)` and `upload/forms.test.tsx`; Playwright `tests/e2e/admin.mocked.spec.ts` (`pnpm e2e:admin`) against `tests/e2e/support/admin-fake-api.ts`. Not yet run against the real API (lead's trial at CP6).
+
 ## Known gaps
-Every FE-ADM requirement is unimplemented on the target stack.
+- FE-ADM-12 (replace a ready document) is M5 and not built.
+- **ZIP retry (FE-ADM-11):** "Retry the files that were not imported" re-sends the whole ZIP with a new Idempotency-Key. The contract does not say whether a new key skips entries that an earlier confirmation already created, so a retry could duplicate them. Needs the backend rule (M3-04) before the real-API trial.
+- The access editor and delete dialog are mocked-API tested only; the stream's reconnect/polling fallback is unit-tested, not exercised in a browser.
+- The SSE `DocumentProcessingStatus` payload is typed locally because the OpenAPI schema does not expose it as a component.
+- jsdom drops the multipart file name when undici re-reads it, so the file name is asserted only in the Playwright run.
 
 ## Related docs
 `architecture.md`, `../backend/admin-docs.md`, `../backend/ingestion.md`, `../cross-cutting/document-lifecycle.md`
