@@ -46,7 +46,10 @@ ROUTES: tuple[tuple[str, str, bool, bool], ...] = (
     ("POST", "/v1/admin/imports/preview", True, True),
     ("POST", "/v1/admin/imports/confirm", True, True),
 )
-STUBS = [r for r in ROUTES if r[1] != "/v1/admin/ping"]
+# Routes that are implemented leave this list as their slice lands (M3-03: create, M3-04: imports).
+IMPLEMENTED = {("POST", "/v1/admin/documents")}
+STUBS = [r for r in ROUTES if r[1] != "/v1/admin/ping" and (r[0], r[1]) not in IMPLEMENTED]
+UPLOAD_ROUTES = [r for r in ROUTES if r[3]]
 
 
 def _app(engine: AsyncEngine, clock: FakeClock, **overrides: Any) -> FastAPI:
@@ -197,7 +200,9 @@ async def test_m3_sec17_admin_routes_need_no_active_department(
 # --- KS_UPLOADS_ENABLED (OPEN-31 D14, M3-AC26) ---
 
 
-@pytest.mark.parametrize(("method", "path"), [(m, p) for m, p, _, uploads in STUBS if uploads])
+@pytest.mark.parametrize(
+    ("method", "path"), [(m, p) for m, p, _, uploads in UPLOAD_ROUTES if uploads]
+)
 async def test_m3_ac26_disabled_uploads_answer_503_on_upload_producing_routes(
     engine: AsyncEngine, clock: FakeClock, make_user: Any, make_session: Any, method: str, path: str
 ) -> None:
