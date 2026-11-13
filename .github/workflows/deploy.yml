@@ -218,6 +218,7 @@ jobs:
       # its own secret. `--wait` returns non-zero if the execution fails, which fails this step and
       # skips every later step (the rollout below), so the old revisions keep serving.
       - name: Database migration (Cloud Run job; unless RUN_MIGRATIONS is false)
+        id: migrate
         if: ${{ inputs.mode == 'deploy' && vars.RUN_MIGRATIONS != 'false' }}
         timeout-minutes: 15
         run: |
@@ -234,13 +235,14 @@ jobs:
           echo "::warning::RUN_MIGRATIONS=false, so migrations were skipped. The rollout proceeds against the current schema."
 
       - name: Deploy Cloud Run revisions (image roll only; env, flags and secrets untouched)
-        if: ${{ inputs.mode == 'deploy' }}
+        id: rollout
+        if: ${{ inputs.mode == 'deploy' && (steps.migrate.outcome == 'success' || vars.RUN_MIGRATIONS == 'false') }}
         run: |
           gcloud run deploy knowserve-api    --image "${API_IMAGE}"    --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --quiet
           gcloud run deploy knowserve-worker --image "${WORKER_IMAGE}" --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --quiet
 
       - name: Resolve service URLs
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.rollout.outcome == 'success' }}
         id: urls
         run: |
           api_url="$(gcloud run services describe knowserve-api --region "${GCP_REGION}" --project "${GCP_PROJECT_ID}" --format='value(status.url)')"
@@ -249,16 +251,16 @@ jobs:
           echo "worker_url=${worker_url}" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.rollout.outcome == 'success' }}
         # version is taken from the "packageManager" field in the root package.json
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.rollout.outcome == 'success' }}
         with:
           node-version: 22
           cache: pnpm
 
       - name: Build frontend
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.rollout.outcome == 'success' }}
         env:
           # Same-origin: the browser calls /api/* on the pages.dev host and the Pages Function
           # forwards to Cloud Run (docs/contracts/proxy.md). Never the Cloud Run URL.
@@ -276,7 +278,8 @@ jobs:
           pnpm --filter ./apps/frontend build
 
       - name: Deploy frontend and Pages Function to Cloudflare Pages
-        if: ${{ inputs.mode == 'deploy' }}
+        id: pages
+        if: ${{ inputs.mode == 'deploy' && steps.rollout.outcome == 'success' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -292,11 +295,11 @@ jobs:
           pnpm exec wrangler pages deploy dist --project-name "${PAGES_PROJECT}" --branch main --commit-hash "${GITHUB_SHA}"
 
       - name: Smoke check API status through the Pages proxy
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.pages.outcome == 'success' }}
         run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${PAGES_URL%/}/api/v1/status"
 
       - name: Assert direct Cloud Run API access without the proxy secret is denied
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.pages.outcome == 'success' }}
         env:
           API_URL: ${{ steps.urls.outputs.api_url }}
         run: |
@@ -308,13 +311,13 @@ jobs:
           fi
 
       - name: Smoke check worker readiness
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.pages.outcome == 'success' }}
         env:
           WORKER_URL: ${{ steps.urls.outputs.worker_url }}
         run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${WORKER_URL}/health/ready"
 
       - name: Deployed Playwright smoke (tests/e2e/smoke.spec.ts)
-        if: ${{ inputs.mode == 'deploy' }}
+        if: ${{ inputs.mode == 'deploy' && steps.pages.outcome == 'success' }}
         env:
           E2E_BASE_URL: ${{ env.PAGES_URL }}
         working-directory: apps/frontend
