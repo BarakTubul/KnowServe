@@ -188,6 +188,10 @@ async def add_revision_with_job(
     return revision
 
 
+class _AlreadyDone(Exception):
+    """Another request with the same idempotency key committed while this one waited."""
+
+
 class UploadService:
     def __init__(
         self,
@@ -350,6 +354,13 @@ class UploadService:
                 await session.execute(
                     text("SELECT pg_advisory_xact_lock(:k)"), {"k": UPLOAD_LIMITS_LOCK}
                 )
+                if scope is not None and await session.scalar(
+                    select(AdminIdempotencyKey.id).where(
+                        AdminIdempotencyKey.admin_user_id == admin_id,
+                        AdminIdempotencyKey.idempotency_key == scope.key,
+                    )
+                ):
+                    raise _AlreadyDone  # replay instead of failing a limit this request caused
                 await self._enforce_limits(session, count_new_document=count_new_document)
                 document = await apply(session, prepared)
                 if scope is not None:
@@ -357,7 +368,7 @@ class UploadService:
                         session, admin_id, scope, 202, document.model_dump(mode="json")
                     )
                     await session.flush()
-        except IntegrityError:
+        except (IntegrityError, _AlreadyDone):
             await self._discard(key, revision_id)
             if scope is not None:
                 stored = await self.lookup(admin_id, scope.key)

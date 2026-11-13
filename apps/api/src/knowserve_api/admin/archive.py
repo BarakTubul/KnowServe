@@ -20,8 +20,10 @@ import io
 import json
 import re
 import stat
+import struct
 import unicodedata
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +48,18 @@ from .validation import (
 )
 
 _EOCD = b"PK\x05\x06"
+_ZIP64_LOCATOR = b"PK\x06\x07"
+_LOCAL_HEADER = b"PK\x03\x04"
+_BAD_ARCHIVE = (
+    zipfile.BadZipFile,
+    ValueError,
+    OSError,
+    NotImplementedError,
+    EOFError,
+    zlib.error,
+    struct.error,
+    RuntimeError,
+)
 _EOCD_SEARCH = 65_557
 _CD_ALLOWANCE = 4096  # central directory bytes allowed per entry (name, extra field, comment)
 _ENTRY_SLACK = 64  # directory entries and the manifest on top of the file limit
@@ -68,6 +82,20 @@ class EntryPlan:
     @property
     def valid(self) -> bool:
         return self.error_code is None
+
+    @property
+    def shown_file(self) -> str:
+        """The manifest ``file`` value as echoed to the client: no control or bidirectional
+        characters, at most 200 characters."""
+        clean = "".join(
+            "?"
+            if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp")
+            or c in _BIDI_FORMATTING
+            or c in _BIDI_MARKS
+            else c
+            for c in self.file
+        )
+        return clean[:200]
 
     @property
     def error_message(self) -> str | None:
@@ -96,6 +124,10 @@ def _check_directory_size(data: bytes, settings: Settings) -> None:
     at = data.rfind(_EOCD, max(0, len(data) - _EOCD_SEARCH))
     if at == -1 or len(data) < at + 22:
         raise _fail(AdminErrorCode.ZIP_INVALID)
+    # A Zip64 locator makes ``zipfile`` read the central directory from the Zip64 record instead,
+    # which these EOCD fields do not describe. Zip64 is not needed below the size limits.
+    if at >= 20 and data[at - 20 : at - 16] == _ZIP64_LOCATOR:
+        raise _fail(AdminErrorCode.ZIP_INVALID)
     total = int.from_bytes(data[at + 10 : at + 12], "little")
     cd_size = int.from_bytes(data[at + 12 : at + 16], "little")
     limit = settings.upload_max_zip_files + _ENTRY_SLACK
@@ -106,19 +138,43 @@ def _check_directory_size(data: bytes, settings: Settings) -> None:
 def _open(data: bytes) -> zipfile.ZipFile:
     try:
         return zipfile.ZipFile(io.BytesIO(data))
-    except (zipfile.BadZipFile, ValueError, OSError, NotImplementedError, EOFError):
+    except _BAD_ARCHIVE:
         raise _fail(AdminErrorCode.ZIP_INVALID) from None
 
 
 def _read(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
     try:
         return archive.read(info)
-    except (zipfile.BadZipFile, RuntimeError, ValueError, OSError, NotImplementedError, EOFError):
+    except _BAD_ARCHIVE:
         raise _fail(AdminErrorCode.ZIP_INVALID) from None
 
 
-def _validate_members(archive: zipfile.ZipFile, settings: Settings) -> dict[str, zipfile.ZipInfo]:
+def _stored_spans(archive: zipfile.ZipFile, data: bytes) -> dict[int, int]:
+    """Real compressed bytes per header offset: the distance to the next entry (or the central
+    directory) minus the local header. The declared ``compress_size`` is attacker controlled, so
+    the ratio limit uses this instead. Overlapping or out-of-range entries are invalid."""
+    infos = sorted(archive.infolist(), key=lambda i: i.header_offset)
+    ends = [i.header_offset for i in infos[1:]] + [archive.start_dir]
+    spans: dict[int, int] = {}
+    for info, end in zip(infos, ends, strict=True):
+        start = info.header_offset
+        if data[start : start + 4] != _LOCAL_HEADER or len(data) < start + 30:
+            raise _fail(AdminErrorCode.ZIP_INVALID)
+        name_len, extra_len = struct.unpack("<HH", data[start + 26 : start + 30])
+        span = end - start - 30 - name_len - extra_len
+        if span < 0 or (span == 0 and info.file_size > 0):
+            raise _fail(AdminErrorCode.ZIP_INVALID)
+        spans[start] = span
+    return spans
+
+
+def _validate_members(
+    archive: zipfile.ZipFile, settings: Settings, data: bytes
+) -> dict[str, zipfile.ZipInfo]:
     """Archive-level checks on the headers only. Returns the file members by exact name."""
+    if len(archive.infolist()) > settings.upload_max_zip_files + _ENTRY_SLACK:
+        raise _fail(AdminErrorCode.ZIP_TOO_MANY_FILES)
+    spans = _stored_spans(archive, data)
     members: dict[str, zipfile.ZipInfo] = {}
     seen: set[str] = set()
     total = 0
@@ -146,7 +202,8 @@ def _validate_members(archive: zipfile.ZipFile, settings: Settings) -> dict[str,
             continue
         if name.lower().endswith(_ARCHIVE_SUFFIXES):
             raise _fail(AdminErrorCode.ZIP_NESTED_ARCHIVE)
-        if info.file_size > settings.upload_max_zip_ratio * max(info.compress_size, 1):
+        real_size = min(info.compress_size, spans[info.header_offset])
+        if info.file_size > settings.upload_max_zip_ratio * max(real_size, 1):
             raise _fail(AdminErrorCode.ZIP_RATIO_EXCEEDED)
         total += info.file_size
         if total > settings.upload_max_zip_uncompressed_bytes:
@@ -269,7 +326,7 @@ def inspect_zip(
         raise _fail(AdminErrorCode.ZIP_TOO_LARGE)
     _check_directory_size(data, settings)
     with _open(data) as archive:
-        members = _validate_members(archive, settings)
+        members = _validate_members(archive, settings, data)
         manifest = members.get(MANIFEST_FILENAME)
         if manifest is None:
             raise _fail(AdminErrorCode.MANIFEST_MISSING)

@@ -88,7 +88,7 @@ async def preview_import(
     entries = [
         ImportEntryPreview(
             index=p.index,
-            file=p.file,
+            file=p.shown_file,
             title=p.title,
             owner_department=p.owner,
             allowed_departments=p.allowed,
@@ -108,13 +108,16 @@ async def preview_import(
 def _result(plan: EntryPlan, outcome: ImportBatchEntry | None) -> ImportEntryResult:
     if outcome is not None and outcome.outcome == "created":
         return ImportEntryResult(
-            index=plan.index, file=plan.file, status="created", document_id=outcome.document_id
+            index=plan.index,
+            file=plan.shown_file,
+            status="created",
+            document_id=outcome.document_id,
         )
     code = AdminErrorCode(outcome.error_code) if outcome is not None else plan.error_code
     assert code is not None
     return ImportEntryResult(
         index=plan.index,
-        file=plan.file,
+        file=plan.shown_file,
         status="rejected",
         error_code=code,
         error_message=ADMIN_ERRORS[code].message,
@@ -229,18 +232,23 @@ async def confirm_import(
         rejected_count=sum(1 for r in results if r.status == "rejected"),
     )
     async with service.session_factory() as session, session.begin():
-        await session.execute(
+        # Only the confirm that finishes the batch writes the result and the audit row.
+        finished = await session.execute(
             update(AdminIdempotencyKey)
-            .where(AdminIdempotencyKey.id == key_row_id)
+            .where(
+                AdminIdempotencyKey.id == key_row_id,
+                AdminIdempotencyKey.result_status == IN_PROGRESS_STATUS,
+            )
             .values(result_status=200, result=body.model_dump(mode="json"))
         )
-        await audit.record(
-            session,
-            "admin.import.confirmed",
-            user_id=admin.user_id,
-            created_count=body.created_count,
-            rejected_count=body.rejected_count,
-        )
+        if finished.rowcount == 1:  # type: ignore[attr-defined]
+            await audit.record(
+                session,
+                "admin.import.confirmed",
+                user_id=admin.user_id,
+                created_count=body.created_count,
+                rejected_count=body.rejected_count,
+            )
     return body
 
 
