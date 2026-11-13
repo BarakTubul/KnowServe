@@ -3,7 +3,7 @@
 Status: **run on 2026-11-13.** Stage 1 counted 21 / 0 / 0. The owner then approved a narrower scrub
 than Stage 2 below: only `audit_events.ip`, no counter `DELETE`. It committed at 14:10:04 UTC, and
 the counts afterwards are 0 / 0 / 0. The backup branch `backup-open30-pre-scrub-20261113`
-(`br-withered-bread-b9ntw8p6`) was kept. Details are in `docs/milestones/M2/handoff.md`. The text
+(`br-withered-bread-b9ntw8p6`) was deleted at about 14:12 UTC after the owner approved it. Details are in `docs/milestones/M2/handoff.md`. The text
 below is the procedure as prepared.
 Related: OPEN-30 in `docs/open-decisions.md`, `docs/milestones/M2/handoff.md`, M2-PRIV in
 `docs/milestones/M2/tasks.md`, and the earlier proposal in

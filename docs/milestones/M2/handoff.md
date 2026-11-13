@@ -45,7 +45,7 @@ Each was approved separately and recorded in `tasks.md`.
 - Rate-limit rows become eligible for deletion 15 minutes after their window ends (about 75 minutes with the default 60-minute window). Deletion is lazy, so this is not a retention guarantee.
 - Historical client IPs in production (OPEN-30) were checked and scrubbed on 2026-11-13, with the owner's approval. No address value was read or recorded. The procedure is in `docs/runbooks/open-30-historical-ip-check.md`.
   - Stage 1, read-only count as `ks_runtime`: it ran between 13:16 and 13:19 UTC. The exact time was not captured.
-  - Backup: Neon branch `backup-open30-pre-scrub-20261113` (ID `br-withered-bread-b9ntw8p6`), a copy of `production`, created at 14:09 UTC, with auto-delete set to Never.
+  - Backup: Neon branch `backup-open30-pre-scrub-20261113` (ID `br-withered-bread-b9ntw8p6`), a copy of `production`, created at 14:09 UTC, with auto-delete set to Never. The owner approved deleting it and it was deleted at about 14:12 UTC after the scrub was verified, so only `production` remains.
   - Scrub: one transaction as `neondb_owner`, started at 14:10:02 UTC and committed at 14:10:04 UTC. It repeated the count, ran `UPDATE audit_events SET ip = NULL WHERE ip IS NOT NULL`, got `UPDATE 21`, checked that the counts were 0 and committed.
   - Only `audit_events.ip` was changed. The `demo:ip:` counter rows were already 0, so no `DELETE` ran.
 
@@ -55,7 +55,7 @@ Each was approved separately and recorded in `tasks.md`.
   | `rate_limit_counters` with a key starting `demo:ip:` | 0 | 0 | 0 |
   | `audit_events` with `ip` or `client_ip` in `details` | 0 | 0 | 0 |
 
-  The backup branch still holds the 21 old addresses. It was kept on the owner's instruction and is not deleted. Deleting it is a separate decision for the owner, and until then the addresses exist in that second place. Rollback path: copy the affected rows back from the backup branch in a new reviewed transaction. Do not restore the whole database over newer data.
+  With the backup branch deleted, the old addresses no longer exist in the application database or a Neon branch. There is no restore path for the 21 old `ip` values, which is the intent. Neon's 6-hour history retention on `production` may still cover the pre-scrub state for a short time.
 - Real Firebase sign-in is not part of the M2 browser tests. The mocked-API flow and the deployed smoke (which uses a Demo visitor) cover M2; sign-in is covered by the M1 evidence.
 - Localization covers the M2 screens only. The login, dashboard and other screens stay English.
 - OPEN-22 (CI for docs-only changes) and OPEN-27 (approval-gated deploy workflow with the migration before deployment) are decided or approved in principle but not implemented. `deploy.yml` is unchanged and still runs only by manual dispatch.
@@ -74,7 +74,7 @@ Each was approved separately and recorded in `tasks.md`.
 
 ## Open items
 
-- OPEN-30 (historical IP data): the scrub is done (see Limits and known gaps). Still to decide: when to delete the Neon backup branch `backup-open30-pre-scrub-20261113`, which holds the old addresses, and whether to close OPEN-30 in `docs/open-decisions.md`.
+- OPEN-30 (historical IP data): the scrub is done and the backup branch is deleted (see Limits and known gaps). Still to decide: whether to close OPEN-30 in `docs/open-decisions.md`.
 - Decide whether to implement OPEN-22 and OPEN-27. Both need separate approval.
 - PR #31 (the Demo cleanup signature fix) was open when last checked, and the 2026-11-08 run it was waiting on has now authenticated.
 - Q13 covers English and Hebrew for M2 only. A wider rollout is a separate decision.
