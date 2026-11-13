@@ -206,6 +206,18 @@ class UploadService:
         self._clock = clock
         self._pdf_check = pdf_check
 
+    @property
+    def settings(self) -> Settings:
+        return self._settings
+
+    @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        return self._sf
+
+    @property
+    def pdf_check(self) -> PdfCheck:
+        return self._pdf_check
+
     # --- validation -------------------------------------------------------------------------
 
     def validate_pdf_upload(self, filename: str | None, data: bytes) -> str:
