@@ -43,15 +43,19 @@ Each was approved separately and recorded in `tasks.md`.
 
 - A stream that fails after the response headers are sent ends early, with no error envelope. The viewer shows its load-failure message. This is an accepted limitation.
 - Rate-limit rows become eligible for deletion 15 minutes after their window ends (about 75 minutes with the default 60-minute window). Deletion is lazy, so this is not a retention guarantee.
-- Historical client IPs already in production were checked on 2026-11-13 and not scrubbed. That is OPEN-30, and it must be handled before real users are onboarded. The check was the read-only Stage 1 count in `docs/runbooks/open-30-historical-ip-check.md`, run against production as `ks_runtime` in a read-only transaction. It read no address values and changed nothing. The exact run time was not captured. It ran between 13:16 and 13:19 UTC.
+- Historical client IPs in production (OPEN-30) were checked and scrubbed on 2026-11-13, with the owner's approval. No address value was read or recorded. The procedure is in `docs/runbooks/open-30-historical-ip-check.md`.
+  - Stage 1, read-only count as `ks_runtime`: it ran between 13:16 and 13:19 UTC. The exact time was not captured.
+  - Backup: Neon branch `backup-open30-pre-scrub-20261113` (ID `br-withered-bread-b9ntw8p6`), a copy of `production`, created at 14:09 UTC, with auto-delete set to Never.
+  - Scrub: one transaction as `neondb_owner`, started at 14:10:02 UTC and committed at 14:10:04 UTC. It repeated the count, ran `UPDATE audit_events SET ip = NULL WHERE ip IS NOT NULL`, got `UPDATE 21`, checked that the counts were 0 and committed.
+  - Only `audit_events.ip` was changed. The `demo:ip:` counter rows were already 0, so no `DELETE` ran.
 
-  | Check | Rows |
-  |---|---|
-  | `audit_events` with a non-null `ip` | 21 |
-  | `rate_limit_counters` with a key starting `demo:ip:` | 0 |
-  | `audit_events` with `ip` or `client_ip` in `details` | 0 |
+  | Check | Stage 1 | Before the scrub (14:10:02 UTC) | After the commit (14:10:04 UTC) |
+  |---|---|---|---|
+  | `audit_events` with a non-null `ip` | 21 | 21 | 0 |
+  | `rate_limit_counters` with a key starting `demo:ip:` | 0 | 0 | 0 |
+  | `audit_events` with `ip` or `client_ip` in `details` | 0 | 0 | 0 |
 
-  So 21 audit rows still hold addresses. The Stage 2 scrub is written but not approved and not run, and the production data is not clean.
+  The backup branch still holds the 21 old addresses. It was kept on the owner's instruction and is not deleted. Deleting it is a separate decision for the owner, and until then the addresses exist in that second place. Rollback path: copy the affected rows back from the backup branch in a new reviewed transaction. Do not restore the whole database over newer data.
 - Real Firebase sign-in is not part of the M2 browser tests. The mocked-API flow and the deployed smoke (which uses a Demo visitor) cover M2; sign-in is covered by the M1 evidence.
 - Localization covers the M2 screens only. The login, dashboard and other screens stay English.
 - OPEN-22 (CI for docs-only changes) and OPEN-27 (approval-gated deploy workflow with the migration before deployment) are decided or approved in principle but not implemented. `deploy.yml` is unchanged and still runs only by manual dispatch.
@@ -70,7 +74,7 @@ Each was approved separately and recorded in `tasks.md`.
 
 ## Open items
 
-- Decide OPEN-30 (historical IP data) before real users are onboarded. The count found 21 `audit_events` rows with an `ip`; the scrub needs the user's separate approval.
+- OPEN-30 (historical IP data): the scrub is done (see Limits and known gaps). Still to decide: when to delete the Neon backup branch `backup-open30-pre-scrub-20261113`, which holds the old addresses, and whether to close OPEN-30 in `docs/open-decisions.md`.
 - Decide whether to implement OPEN-22 and OPEN-27. Both need separate approval.
 - PR #31 (the Demo cleanup signature fix) was open when last checked, and the 2026-11-08 run it was waiting on has now authenticated.
 - Q13 covers English and Hebrew for M2 only. A wider rollout is a separate decision.
