@@ -5,7 +5,7 @@
 ## Flow
 1. **Submit** (`../frontend/admin-upload.md`): the Admin uploads a single PDF with metadata, or a ZIP + `manifest.json` through preview and explicit confirm (ADM-03, ADM-11 to ADM-14). Single upload preselects the owner department as a reader in the form; every ZIP entry must list `allowed_departments` explicitly, with no default (ADM-05).
 2. **Store and record** (`../backend/admin-docs.md`): the bytes go to private R2. The document, revision, access rows, job and outbox row are written in one transaction (ING-12), and the status is `queued`.
-3. **Dispatch** (`../backend/ingestion.md`): an immediate QStash publish after commit, plus the Cloud Scheduler recovery dispatcher (ING-13). Delivery is at-least-once.
+3. **Dispatch** (`../backend/ingestion.md`): an immediate QStash publish after commit. A publish that was lost is republished once by the Admin's manual retry; the Cloud Scheduler dispatcher is optional and off (ING-13, STACK-23). Delivery is at-least-once.
 4. **Process**: the Worker verifies the signature and job (ING-14), claims it with a lease (ING-15), and runs `ProcessDocument`: extract per page, chunk 512/64 within pages, embed, write pgvector, then atomically publish (ING-17). The status becomes `processing` (with a phase), then `ready` or `failed`.
 5. **Observe**: the Admin UI follows the DB-derived SSE status (ING-07).
 6. **Consume** (`../backend/documents.md`, `../backend/chat.md`): departments with access rows see the ready, current revision in the library and viewer and can retrieve it in chat (SEC-07, SEC-08).
@@ -22,7 +22,7 @@
 | LIFE-06 | Soft delete blocks every user path immediately. Objects, chunks and vectors are cleaned up asynchronously and durably (ADM-08, ING-20). | M5 (basic M3) |
 | LIFE-07 | Retries and duplicate deliveries never duplicate chunks or publish a partial index (ING-10). | M0/M3 |
 | LIFE-08 | Replacement keeps the old ready revision served until the new one is fully published, and keeps the old one if the new one fails (ADM-15). | M5 |
-| LIFE-09 | An outbox row whose immediate publish was lost is published by the recovery dispatcher (ING-13). | M0/M3 |
+| LIFE-09 | An outbox row whose immediate publish was lost is published once by the Admin's manual retry (ING-13, ADM-16). The optional recovery dispatcher does the same when enabled. | M0/M3 |
 | LIFE-10 | Failed-document recovery: `failed` (no current revision) → replacement accepted → `queued` → `processing` → `ready` (now visible to permitted users) or `failed` again (recoverable again). Replacement is refused for `ready`/`queued`/`processing` documents; ready-document replacement is LIFE-08 (M5) (ADM-18). | M3 |
 
 ## Required tests (end-to-end; component tests are in the linked specs)
@@ -33,10 +33,10 @@
 | LIFE-03 | integration | Provider always fails | `failed` + reason after the cap; manual retry re-queues |
 | LIFE-04 | e2e | Upload a fixture on the local stack | the Admin UI shows the stages then `ready`; a user in a permitted department sees it |
 | LIFE-05 | integration | Change access A→B | A loses and B gains access to the list, bytes and retrieval immediately; no job created |
-| LIFE-06 | integration | Soft delete a ready doc, then run cleanup | blocked immediately; storage and vectors removed later |
+| LIFE-06 | integration | Soft delete a ready doc (M3); then run cleanup (M5) | blocked on the next request; a job in flight never publishes it (M3); storage and vectors removed later (M5) |
 | LIFE-07 | integration | Duplicate delivery | chunk count unchanged |
 | LIFE-08 | integration | Replace with a failing / succeeding revision | old served / new served after publish only |
-| LIFE-09 | integration | Lose the immediate publish; run recovery | job processed once |
+| LIFE-09 | integration | Lose the immediate publish; manual retry | job shows `unpublished_stuck`, the retry publishes it once, the job is processed once |
 | LIFE-10 | e2e | Upload an image-only PDF → `failed`; replace with a text PDF on the local stack | Admin sees `failed` → `queued` → `ready`; a permitted user sees the doc only after `ready`, under the same ID |
 | happy path | e2e | Upload → ready → a user asks about the content | answer cites filename + page; the citation opens the viewer at that page |
 

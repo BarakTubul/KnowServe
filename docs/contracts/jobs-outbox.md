@@ -62,3 +62,13 @@ One exception to the job-row requirement: `POST /internal/maintenance/demo-clean
 
 ## Correlation
 `correlation_id` is copied from the request context into `jobs` and `outbox` at enqueue time and set again from the job row when the Worker processes it, so one id appears in API and Worker logs (MON-03).
+
+## M3 changes (`admin-api.md`, `../milestones/M3/plan.md`, OPEN-31)
+Fixed by M3-01 and implemented by M3-00a and M3-02b. The envelope does not change.
+
+- Job to revision link: `document_revisions.job_id` (unique where set). The handler loads the revision from the job id. Seeded revisions have none until the reindex run.
+- Job type `ingest_revision`. The Worker sets the revision `phase` before each stage and `status` to `processing` after the claim.
+- Hooks (`knowserve_core/job_hooks.py`): a handler raises `NonRetryableJobError(code)` to fail the job at once or `RetryableJobError(code)` for a failure that a later attempt may fix. `TerminalFailureHook` runs in the transaction that marks a job `failed` (terminal error, attempt cap, or the crash guard) and sets the revision `failed`; it never touches a `ready` revision (reindex mode, D4). `RequeueHook` runs in the transaction that `retry_job` uses to requeue and sets the revision back to `queued`.
+- Claim: checks `attempts < KS_JOB_MAX_ATTEMPTS`. A job past the cap is marked `failed` with `PROCESSING_CRASHED` instead of running again. The Worker keeps the lease alive while a handler runs. Every pipeline write is conditional on the job still being claimed by this worker (fencing), so a late writer after a Cloud Run timeout changes nothing.
+- No persisted outbox dead state (D13). Delivery states stay derived.
+- Deliveries and attempts are different counters. A delivery is one HTTP call from QStash; an attempt is one successful claim (`jobs.attempts`). A 409 or a 200 for a finished job uses a delivery and no attempt. QStash retries any non-2xx answer (default 3 retries, 4 deliveries, delay `min(86400, e^(2.5 n))` seconds; a 489 with `Upstash-NonRetryable-Error: true` stops retries; the destination sees `Upstash-Retried`). Changing a job row to `queued` does not make QStash deliver again; only a new publish does. The D15 experiment (plan section 12.2) checks this against the real service.

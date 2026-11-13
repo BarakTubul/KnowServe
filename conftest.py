@@ -7,14 +7,19 @@ The test database comes from KS_TEST_DATABASE_URL (default: the compose `db` ser
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import os
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
+import jwt
 import pytest
 import pytest_asyncio
 from alembic import command
@@ -188,3 +193,24 @@ async def make_session(
         return SessionHandle(user.id, row.id, token, csrf, cookies, headers)
 
     return _make
+
+
+def sign_qstash_delivery(payload: bytes, key: str, url: str, **overrides: Any) -> str:
+    """An ``Upstash-Signature`` JWT for ``payload`` delivered to ``url``, as QStash signs it.
+
+    ``overrides`` replaces claims, or removes them when the value is ``None``, so tests can build
+    invalid tokens. It lives here and not in ``knowserve_core`` because the hardening test forbids
+    ``jwt.encode`` in target code (AUTH-18). Import it with ``from conftest import ...``.
+    """
+    now = int(time.time())
+    claims: dict[str, Any] = {
+        "iss": "Upstash",
+        "sub": url,
+        "iat": now,
+        "nbf": now,
+        "exp": now + 300,
+        "jti": uuid.uuid4().hex,
+        "body": base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode().rstrip("="),
+    }
+    claims.update(overrides)
+    return jwt.encode({k: v for k, v in claims.items() if v is not None}, key, algorithm="HS256")

@@ -10,7 +10,7 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 |---|---|---|
 | ADM-01 | All admin document routes require the Admin: other identities get 403 (SEC-03) and requests without a session get 401. | M3 |
 | ADM-02 | The admin list returns every non-deleted document regardless of the Admin's active department (Admin endpoints only, SEC-17), including non-ready and `failed` ones (e.g. `NO_EXTRACTABLE_TEXT`), with title/filename, owner department, allowed departments (ids + names), current revision status and phase, and the last failure reason code and message. | M3 |
-| ADM-03 | Single upload: a multipart PDF plus metadata (title, owner department, allowed departments) is validated (ADM-10) and stored in private R2. Then the document, revision, access rows, job and outbox row are written **in one DB transaction** (ING-12), and the response returns the document id with status `queued`. | M3 |
+| ADM-03 | Single upload: a multipart PDF plus metadata (title, owner department, allowed departments) is validated (ADM-10) and stored in private R2. Then the document, revision, access rows, job and outbox row are written **in one DB transaction** (ING-12), and the response (202) returns the document with status `queued`. Requires an `Idempotency-Key` (`../contracts/admin-api.md`). | M3 |
 | ADM-04 | Unknown department ids (owner or allowed) are rejected and nothing is created, in either the DB or R2 (any uploaded object is cleaned up). | M3 |
 | ADM-05 | At least one authorized (allowed) department is **required** on single upload, ZIP confirmation and access update; an empty list is rejected with 422 (OPEN-16). The backend writes **only** the explicitly submitted `document_department_access` rows and never derives access from `owner_department_id` (SEC-04, SEC-05). **Single-PDF upload:** preselecting the owner department is UI behavior only (FE-ADM-03); the Admin may change it, and the submitted list must be nonempty. **ZIP/manifest import (intentionally different):** there is **no default**. Every manifest entry must carry an explicit, nonempty `allowed_departments` list of known department ids; the backend never infers access from the entry's `owner_department` (ADM-11). | M3 |
 | ADM-07 | Updating access replaces the allowed departments in one DB update. It takes effect immediately on every path (SEC-09) and **does not re-embed** or reprocess the document. Unknown documents return 404. | M3 |
@@ -36,14 +36,14 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 |---|---|---|---|
 | ADM-01 | integration | Each route as visitor / registered user / anonymous | 403 / 403 / 401 |
 | ADM-02 | integration | Docs in queued, processing, ready and failed states | all listed with status, phase and reason |
-| ADM-03 | integration | Valid upload (R2 and QStash faked) | 200 `{id}`; document+revision+access+job+outbox rows exist; object stored |
+| ADM-03 | integration | Valid upload (R2 and QStash faked) | 202 with the document (`status` `queued`); document+revision+access+job+outbox rows exist; object stored |
 | ADM-03 | integration | DB failure after the R2 put | no DB rows; orphan object cleaned or tracked for cleanup |
 | ADM-04 | integration | Unknown department id | 4xx; no rows; no object |
 | ADM-05 | integration | Single upload with an empty allowed list; access update to `[]` | 422; nothing created / access unchanged |
 | ADM-05 | integration | Upload with owner = A and allowed = [B] | access rows exactly {B}; a user active in A cannot see the doc (SEC-04) |
 | ADM-05 | integration | Single upload with owner = A and allowed = [A] (the UI default) | accepted; access rows {A} written explicitly, not derived from the owner |
 | ADM-07 | integration | A,B → B,C | A loses and C gains access on the next request; no new job or embeddings |
-| ADM-08 | integration | Soft delete, then user list / bytes / search | absent / 404 / absent; cleanup job enqueued |
+| ADM-08 | integration | Soft delete, then user list / bytes / search | absent / 404 / absent. M3: only `deleted_at` is set and no job is created; the cleanup job is M5 (OPEN-31 D7) |
 | ADM-09 | integration | Create, change access and delete; request the admin list and a permitted user's library after each | each change reflected on the next request |
 | ADM-10 | integration | Non-PDF renamed `.pdf`, oversize file, `../` in the filename | rejected with a reason |
 | ADM-11 | integration | ZIP with traversal, symlink, bomb, too many files, a manifest missing a file, bad JSON | each rejected with a reason |
@@ -76,3 +76,6 @@ Every ADM requirement is unimplemented on the target. ADM-04 (reject unknown dep
 
 ## Related docs
 `ingestion.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../frontend/admin-upload.md`
+
+## M3 contract notes (OPEN-31)
+Routes, models, idempotency, error codes and the status stream are fixed in `../contracts/admin-api.md`. ZIP manifests name departments by slug (D10). Upload-producing routes answer 503 `UPLOADS_DISABLED` while `KS_UPLOADS_ENABLED=false` (D14). Upload limits are the D1 values; the 429 codes are `UPLOAD_BACKLOG_FULL` and `DAILY_UPLOAD_LIMIT`.

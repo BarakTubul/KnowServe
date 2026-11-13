@@ -8,7 +8,7 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 ## Flow
 1. The API transaction writes the document, revision, job and **outbox** row together (ING-12).
 2. After commit, the API publishes immediately to **QStash**, awaited inside the request with a bounded timeout (never unawaited background work). An outbox row left `pending` (publish failed, or the API crashed after commit) is recovered by an **admin-initiated manual retry** (ING-13, ADM-16). A scheduled dispatcher is optional and disabled by default.
-3. QStash calls the **Worker** Cloud Run HTTPS service with `{schema_version, job_id}`. The Worker verifies the signature and job eligibility (ING-14) and atomically claims the job with a lease (ING-15).
+3. QStash calls the **Worker** Cloud Run HTTPS service with `{schema_version, job_id}`. The job is linked to its revision by `document_revisions.job_id`, so the handler finds the revision from the job id. The Worker verifies the signature and job eligibility (ING-14) and atomically claims the job with a lease (ING-15).
 4. `ProcessDocument(job_id)` runs these stages: secure read from R2 → PyMuPDF4LLM per-page extraction → SentenceSplitter chunks bounded by page → OpenAI embeddings → pgvector write → atomic publish (ING-17).
 5. The DB status moves `queued` → `processing` (with a phase) → `ready` or `failed`, and an admin SSE stream reports it (ING-05, ING-07).
 
@@ -24,11 +24,11 @@ Turn an uploaded revision into page-aware, embedded chunks in pgvector and publi
 | ING-12 | **Transactional outbox**: the document, revision, job and outbox rows are committed in a single PostgreSQL transaction. | M0 (feasibility) / M3 |
 | ING-13 | **Immediate publish + admin manual retry; scheduled recovery optional/deferred.** After commit the API publishes to QStash immediately, awaited in the request with a bounded timeout. A row left `pending` is made discoverable (`publish_pending`, `unpublished_stuck`, `publish_failed`) and is republished by an admin manual retry that atomically claims the outbox row and publishes through the shared outbox code. QStash's own delivery retries are preserved. A periodic Recovery Dispatcher (Cloud Scheduler) is OPTIONAL and DISABLED by default (`KS_ENABLE_RECOVERY_DISPATCHER=false`, STACK-23); if enabled it uses the same DB claims and leases. No unawaited fire-and-forget delivery is relied on. | M0 (feasibility) / M3 |
 | ING-14 | The Worker verifies the QStash signature, then checks that the job exists and is eligible, before doing any work (SEC-14). | M0 |
-| ING-15 | Delivery is **at-least-once**. An atomic DB claim, leases, idempotency and checkpoints make duplicates safe. Docs and code must not claim exactly-once. | M0 (minimal) / M3 |
+| ING-15 | Delivery is **at-least-once**. An atomic DB claim, leases, idempotent writes and fencing make duplicates safe. Docs and code must not claim exactly-once. | M0 (minimal) / M3 |
 | ING-16 | Retries are bounded. Processing is limited to **4 total attempts** (`KS_JOB_MAX_ATTEMPTS=4`); the Worker releases the job to `queued` with `last_error` and returns HTTP 500 so QStash retries, and when `jobs.attempts` reaches the cap it marks the job `failed` and returns a non-2xx (it never acknowledges a failure with 200 while an automatic retry is pending; later redeliveries of a `failed` job get `200 {"result":"failed"}` to stop QStash). Reconciliation with QStash's real retry count/backoff is UNVERIFIED until a live test. Once `failed` (or stuck) the job can be retried manually (ADM-16). | M0 (mechanism) / M3 |
 | ING-17 | A single `ProcessDocument(job_id)` orchestrates the stages (secure R2 read, extraction, chunking, embedding, vector write, atomic publish). It is split into more jobs only for demonstrated necessity. | M3 |
 | ING-18 | Embeddings use OpenAI `text-embedding-3-small` directly. The embedding model/version and the index identity are recorded per revision. Changing the model requires rebuilding and revalidating the index, and vector spaces are never mixed. | M3 |
-| ING-19 | After a Worker crash, an expired lease lets the job be reclaimed and resumed or retried from a checkpoint. | M3 |
+| ING-19 | After a Worker crash, an expired lease lets the job be reclaimed and retried from the start with idempotent writes; there are no stage checkpoints in M3 (OPEN-31 D9). The claim checks the attempt cap, so a crash loop ends `failed` with `PROCESSING_CRASHED`. | M3 |
 | ING-20 | Durable asynchronous cleanup eventually removes objects, chunks and vectors of soft-deleted documents and orphaned revisions. | M5 |
 | ING-21 | The job envelope is minimal and versioned: `{schema_version, job_id}`. All other data is read from the DB. | M0 |
 | ING-22 | Worker processing is independent of the HTTP request lifecycle, so it can move to Cloud Run Jobs if limits require it. The Cloud Run request timeout vs job size is measured in the M0 spike (INFRA-03). | M0/M3 |
@@ -92,3 +92,12 @@ Every ING requirement is unimplemented in the target system except the M0 mechan
 
 ## Related docs
 `admin-docs.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../architecture/infrastructure.md`, `../milestones/M0/plan.md`, `../frontend/admin-upload.md`
+
+## M3 contracts (fixed in M3-01, OPEN-31)
+- Schema (migration `0004`): `document_chunks` with `embedding vector(1536)` and no vector index (D5), `document_revisions.job_id`, `admin_idempotency_keys`, `import_batch_entries`. See `../contracts/admin-api.md`.
+- Seed reindex mode (D4): for a revision that is already `ready` and has no chunks, the handler writes the chunks and the index identity without changing the status, the current pointer or the ids. A failure in this mode leaves the revision `ready` and does not mark it `failed`. A second run changes nothing.
+- A job whose document was soft deleted while it ran ends with `DOCUMENT_DELETED` and publishes nothing (D7).
+- Extraction runs in a child process with a hard timeout (D11). A hang or crash fails the attempt and the Worker survives.
+- Phases written before each stage: `fetching`, `extracting`, `chunking`, `embedding`, `publishing`. Failure codes and their retry class are in `../contracts/admin-api.md`.
+- Worker credentials: the R2 token is read only (D6). The Worker never deletes objects.
+- Deliveries and attempts are different counters (`../contracts/jobs-outbox.md`). The D15 experiment verifies the real QStash behavior; until it runs, the reconciliation with `KS_JOB_MAX_ATTEMPTS=4` stays UNVERIFIED.

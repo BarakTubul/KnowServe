@@ -56,6 +56,14 @@ class ByteRange:
 class ObjectStore(Protocol):
     async def put(self, key: str, data: bytes, content_type: str) -> None: ...
 
+    async def delete(self, key: str) -> None:
+        """Remove the object. Deleting a missing key is not an error (the call is idempotent).
+
+        Used by the API to clean up an object whose database transaction failed (M3-AC03). The
+        Worker's credential is read-only and never calls it (OPEN-31 D6).
+        """
+        ...
+
     async def size(self, key: str) -> int:
         """Size in bytes (head). Raises ``ObjectNotFound``."""
         ...
@@ -73,6 +81,9 @@ class FakeObjectStore:
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
         self._objects[key] = data
+
+    async def delete(self, key: str) -> None:
+        self._objects.pop(key, None)
 
     async def size(self, key: str) -> int:
         try:
@@ -107,6 +118,13 @@ class FilesystemObjectStore:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+    async def delete(self, key: str) -> None:
+        try:
+            path = self._path(key)
+        except ObjectNotFound:
+            return
+        path.unlink(missing_ok=True)
 
     async def size(self, key: str) -> int:
         path = self._path(key)
@@ -259,6 +277,12 @@ class R2ObjectStore:
             self._request("PUT", key, headers={"content-type": content_type}, body=data)
         )
         if response.status_code not in (200, 201, 204):
+            raise self._fail(response.status_code)
+
+    async def delete(self, key: str) -> None:
+        response = await self._send(self._request("DELETE", key))
+        # S3 answers 204 for a missing key; a 404 is treated the same way.
+        if response.status_code not in (200, 204, 404):
             raise self._fail(response.status_code)
 
     async def size(self, key: str) -> int:

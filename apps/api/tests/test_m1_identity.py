@@ -562,8 +562,21 @@ async def test_auth_04_no_http_route_creates_or_elevates_an_admin(
 ) -> None:
     paths = openapi_paths(client)
     assert not [p for p in paths if "role" in p or "promote" in p or "elevate" in p]
-    assert {p: sorted(m) for p, m in paths.items() if p.startswith("/v1/admin")} == {
-        "/v1/admin/ping": ["get"]
+    # M3 adds the Admin document and import routes (docs/contracts/admin-api.md). None of them
+    # manages users or roles; the full matrix is in test_m3_admin_contract.py.
+    admin_paths = {p: sorted(m) for p, m in paths.items() if p.startswith("/v1/admin")}
+    assert admin_paths["/v1/admin/ping"] == ["get"]
+    assert not [p for p in admin_paths if "user" in p or "admin-" in p or "grant" in p]
+    assert set(admin_paths) <= {
+        "/v1/admin/ping",
+        "/v1/admin/documents",
+        "/v1/admin/documents/{document_id}",
+        "/v1/admin/documents/{document_id}/access",
+        "/v1/admin/documents/{document_id}/events",
+        "/v1/admin/documents/{document_id}/replace",
+        "/v1/admin/documents/{document_id}/retry",
+        "/v1/admin/imports/confirm",
+        "/v1/admin/imports/preview",
     }
 
 

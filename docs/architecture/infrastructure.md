@@ -44,3 +44,10 @@ None of this exists. The legacy app runs locally only: `uvicorn` plus a Celery w
 
 ## Related docs
 `tech-stack.md`, `rollback.md`, `ci-cd-proposals.md`, `../backend/monitoring.md`, `../milestones/M0/plan.md`, `../open-decisions.md`
+
+## M3 credential and infrastructure ownership (OPEN-31, M3-09)
+- R2 uses two bucket-scoped tokens that the Owner creates in Cloudflare: the API's token allows read, write and delete, and the Worker's token is read only (D6). Whether the API token can delete is unverified (Cloudflare's documentation does not list delete per permission level) and is checked with a test object before the first deployed upload.
+- The OpenAI key lives in a dedicated OpenAI project with an initial budget of 5 USD per month and is read only by the Worker (D3). Pricing, budget controls and whether the limits are enforced get verified before production setup.
+- Terraform (M3-09) creates secret containers and per-service access bindings only. Each service reads only the secrets it needs. The Worker gets no write token and no database role beyond what the Worker already has.
+- Worker memory, concurrency and request timeout change only as far as the M3-00b measurements justify (D2). M3-09 prepares and plans the change; applying it needs the Owner's separate approval.
+- No credential is created or rotated, no IAM binding is changed and no `terraform apply` runs without the Owner's approval.
