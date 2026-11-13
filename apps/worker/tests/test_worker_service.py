@@ -775,4 +775,4 @@ def test_m0_ac17_worker_starts_with_only_the_failure_hooks_flag_as_terraform_set
         enable_spike_failure_hooks=True,
     )
     app = create_app(settings=settings)
-    assert sorted(app.state.handlers) == ["always_fail", "fail_then_ok", "noop"]
+    assert sorted(app.state.handlers) == ["always_fail", "fail_then_ok", "ingest_revision", "noop"]

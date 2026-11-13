@@ -1,8 +1,8 @@
 """Embedding provider interface (ING-17, ING-18, OPEN-31 D3) and a deterministic fake.
 
 M3-01 fixes the interface and the fake. The OpenAI implementation (batching, timeouts, retries for
-429 and 5xx) is written in M3-02b behind ``build_embedding_provider``. The fake is refused in
-production, like the fake object store.
+429 and 5xx) is in ``embeddings_openai.py`` behind ``build_embedding_provider``. The fake is
+refused in production, like the fake object store.
 """
 
 from __future__ import annotations
@@ -72,6 +72,8 @@ def build_embedding_provider(
     model: str,
     dimensions: int,
     api_key: str | None = None,
+    batch_size: int = 64,
+    timeout_seconds: float = 30.0,
 ) -> EmbeddingProvider:
     """Choose the provider. The fake is refused in production (KS_ENV=production)."""
     if kind == "fake":
@@ -80,4 +82,12 @@ def build_embedding_provider(
         return FakeEmbeddingProvider(dimensions)
     if not api_key:
         raise RuntimeError("KS_OPENAI_API_KEY is required for the openai embedding provider")
-    raise NotImplementedError("the OpenAI provider is written in M3-02b")
+    from .embeddings_openai import OpenAIEmbeddingProvider
+
+    return OpenAIEmbeddingProvider(
+        api_key,
+        model=model,
+        dimensions=dimensions,
+        batch_size=batch_size,
+        timeout_seconds=timeout_seconds,
+    )

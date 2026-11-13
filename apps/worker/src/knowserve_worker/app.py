@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any, NoReturn
 
 from fastapi import APIRouter, FastAPI, Request
@@ -26,7 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from knowserve_core import demo_cleanup, request_context
 from knowserve_core.clock import Clock, SystemClock
 from knowserve_core.db import check_database, create_engine, create_session_factory
-from knowserve_core.ingestion_contract import FAILURES, FailureCode
+from knowserve_core.embeddings import EmbeddingProvider, build_embedding_provider
+from knowserve_core.ingestion_contract import FAILURES, INGEST_JOB_TYPE, FailureCode
 from knowserve_core.job_claims import (
     claim_job,
     complete_job,
@@ -38,6 +40,7 @@ from knowserve_core.job_fencing import LostClaimError, assert_claimed
 from knowserve_core.job_hooks import NonRetryableJobError, RetryableJobError, TerminalFailureHook
 from knowserve_core.jobs import MANUAL_RETRY_MARKER
 from knowserve_core.logging import configure_logging
+from knowserve_core.object_store import ObjectStore, R2Config, build_object_store
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
 from knowserve_core.outbox import dispatch_pending
 from knowserve_core.qstash import (
@@ -51,6 +54,8 @@ from knowserve_core.qstash import (
 from knowserve_core.revision_hooks import mark_revision_failed
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, install_web
+
+from .ingest import lazy_ingest_handler
 
 logger = logging.getLogger("knowserve.worker")
 
@@ -134,6 +139,37 @@ async def _read_capped_body(request: Request) -> bytes | None:
             return None
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def _build_object_store(settings: Settings) -> ObjectStore:
+    """The Worker only reads: in production its R2 token is read-only (OPEN-31 D6) and no code
+    path here deletes or writes."""
+    key_id = settings.r2_access_key_id
+    secret = settings.r2_secret_access_key
+    return build_object_store(
+        settings.object_store,
+        env=settings.env,
+        filesystem_root=Path(settings.object_store_path),
+        r2=R2Config(
+            endpoint=settings.r2_endpoint,
+            bucket=settings.r2_bucket,
+            access_key_id=key_id.get_secret_value() if key_id else None,
+            secret_access_key=secret.get_secret_value() if secret else None,
+        ),
+    )
+
+
+def _build_embedding_provider(settings: Settings) -> EmbeddingProvider:
+    key = settings.openai_api_key
+    return build_embedding_provider(
+        settings.embedding_provider,
+        settings.env,
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dimensions,
+        api_key=key.get_secret_value() if key else None,
+        batch_size=settings.embedding_batch_size,
+        timeout_seconds=settings.embedding_timeout_seconds,
+    )
 
 
 def _build_publisher(settings: Settings) -> Publisher:
@@ -339,10 +375,15 @@ async def _run_with_heartbeat(
     interval: float = state.heartbeat_interval
     task = asyncio.ensure_future(handler(ctx))
     lost = asyncio.Event()
+    stop = asyncio.Event()
 
     async def beat() -> None:
         while True:
-            await asyncio.sleep(interval)
+            try:
+                await asyncio.wait_for(stop.wait(), interval)
+                return  # the handler finished; stop without cutting a renewal short
+            except TimeoutError:
+                pass
             try:
                 alive = await renew_lease(
                     factory, ctx.job_id, ctx.claimed_by, settings.job_lease_seconds
@@ -365,7 +406,7 @@ async def _run_with_heartbeat(
             raise LostClaimError("lease renewal found the claim gone") from None
         raise
     finally:
-        heartbeat.cancel()
+        stop.set()
         await asyncio.gather(heartbeat, return_exceptions=True)
     if lost.is_set():
         raise LostClaimError("lease renewal found the claim gone")
@@ -468,6 +509,8 @@ def create_app(
     clock: Clock | None = None,
     terminal_hook: TerminalFailureHook | None = None,
     heartbeat_interval: float | None = None,
+    object_store: ObjectStore | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     if settings.env == "production":
@@ -494,7 +537,15 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.publisher = publisher or _build_publisher(settings)
-    default_handlers: dict[str, Handler] = {"noop": noop_handler}
+    default_handlers: dict[str, Handler] = {
+        "noop": noop_handler,
+        INGEST_JOB_TYPE: lazy_ingest_handler(
+            app.state.session_factory,
+            settings,
+            lambda: object_store or _build_object_store(settings),
+            lambda: embedding_provider or _build_embedding_provider(settings),
+        ),
+    }
     if settings.enable_spike_failure_hooks:
         default_handlers["always_fail"] = always_fail_handler
         default_handlers["fail_then_ok"] = fail_then_ok_handler
