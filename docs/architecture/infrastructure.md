@@ -51,3 +51,26 @@ None of this exists. The legacy app runs locally only: `uvicorn` plus a Celery w
 - Terraform (M3-09) creates secret containers and per-service access bindings only. Each service reads only the secrets it needs. The Worker gets no write token and no database role beyond what the Worker already has.
 - Worker memory, concurrency and request timeout change only as far as the M3-00b measurements justify (D2). M3-09 prepares and plans the change; applying it needs the Owner's separate approval.
 - No credential is created or rotated, no IAM binding is changed and no `terraform apply` runs without the Owner's approval.
+
+### M3-09 Terraform preparation (written, validated locally, not planned or applied)
+The exact plan command, the expected diff, the Owner-only apply order, rollback and cost are in `../milestones/M3/infra-apply-runbook.md`.
+
+Secrets, one container per credential, no versions in Terraform:
+
+| Secret container | Env name | Read by |
+|---|---|---|
+| `r2-access-key-id`, `r2-secret-access-key` (existing) | `KS_R2_ACCESS_KEY_ID`, `KS_R2_SECRET_ACCESS_KEY` | API (read, write and delete token), and the seed job while it exists |
+| `r2-worker-access-key-id`, `r2-worker-secret-access-key` (new) | the same two names | Worker only (read-only token) |
+| `openai-api-key` (new) | `KS_OPENAI_API_KEY` | Worker only |
+
+The API and the Worker use the same variable names with different secrets, as `config-and-deploy.md` requires. The Worker has no binding on the API's R2 containers, so it holds no write credential. The API has no binding on the three new containers. If the existing API token turns out unable to delete, the Owner adds a new version to the existing containers; no rename is needed.
+
+Environment: the API gets `KS_UPLOADS_ENABLED` (variable `uploads_enabled`, default true). The Worker gets `KS_OBJECT_STORE=r2`, the R2 endpoint and bucket, and `KS_EMBEDDING_PROVIDER=openai`. The provider is fixed in Terraform and cannot be set to `fake`, and the application refuses `fake` in production as well. The remaining M3 keys (upload limits, chunking, embedding, extraction timeout, SSE timing) are optional allow-listed maps, `api_m3_settings` and `worker_m3_settings`, empty by default so the OPEN-31 D1 defaults in the application apply. The Worker map mirrors three application guards (handler timeout below lease, overlap below chunk size, 1536 dimensions).
+
+Worker sizing is pending the M3-00b measurements (D2). `worker_memory`, `worker_cpu`, `worker_concurrency` and `worker_request_timeout_seconds` exist as variables and default to null, which leaves the attributes unmanaged: 512 MiB, 300 s and concurrency 80 stay as in M2. The timeout variable must exceed `KS_JOB_HANDLER_TIMEOUT_SECONDS`. No value is proposed until `docs/milestones/M3/measurements.md` exists.
+
+Alerts (MON-06, M3-AC24) sit behind `enable_m3_alerts`, default false, and create nothing while it is off. When on, they are two log-based metrics counting application ERROR logs of the Worker and the API, two alert policies and one email channel (`alert_email`). They do not cover stuck outbox rows or stuck jobs: those states are derived from the database when the Admin list is read, and nothing is logged for them. Cloud Run request logs are not matched, so a 5xx that QStash retries does not alert. The Worker also logs an error for each failed attempt that will be retried, so a transient failure can alert until the filter is narrowed to a permanent-failure event.
+
+QStash is not changed. Two facts from plan section 12.2 matter for infrastructure sizing and timeouts. A delivery is one HTTP call from QStash. A processing attempt is one successful claim of the job. A request that Cloud Run rejects before the app runs (a cold start 500) or that the Worker answers with 409 uses a delivery and no attempt, and a delivery cut by the Cloud Run request timeout may leave the container running, which the publish fencing check covers. The QStash retry behaviour itself stays unverified until the D15 experiment.
+
+Database access: the Worker keeps the same runtime role. Migration `0004` is run by the DDL role, and the default privileges in `infra/neon/runtime-roles.sql` give `ks_runtime` DML on tables that role creates later. The Owner confirms this on the first deployed run (the publish transaction deletes and inserts chunks).

@@ -338,7 +338,7 @@ describe('FE-ADM-07 edit access', () => {
     await user.click(await within(dialog).findByLabelText(A.name));
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'Choose at least one department',
+      'Choose at least one department that can read',
     );
     expect(api.count(adminDocKey('PATCH', doc.document_id, '/access'))).toBe(0);
   });

@@ -87,7 +87,13 @@ Derived from existing columns; no migration. Thresholds: `KS_PUBLISH_GRACE_SECON
 - `core/websocket_manager.py` pushes to an **unauthenticated WebSocket** that keeps one socket per document and leaks buffered messages.
 - There is no retry, lease, idempotency or duplicate-chunk protection, and no revision model.
 
+## M3-02a implementation (extraction and chunking)
+- `knowserve_core/pdf_extraction.py`: `extract_pdf(data, *, timeout_seconds, max_pages)` and `extract_pdf_async`. A fresh interpreter (`_pdf_extract_child`) parses the PDF with PyMuPDF4LLM, with no secrets in its environment and a hard timeout. Failures raise `PdfExtractionError` with a `FailureCode`: `INVALID_PDF`, `PDF_ENCRYPTED`, `TOO_MANY_PAGES`, `NO_EXTRACTABLE_TEXT` (terminal) and `PROCESSING_TIMEOUT`, `PROCESSING_CRASHED`, `INTERNAL_ERROR` (retryable). NUL characters are stripped. Page numbers are 1-based and empty pages are kept.
+- `knowserve_core/chunking.py`: `chunk_pages(pages, *, chunk_size_tokens, chunk_overlap_tokens)` runs LlamaIndex `SentenceSplitter` on each page alone, so no chunk spans pages. Ordinals are 0-based and contiguous. The tokenizer is the `cl100k_base` vocabulary bundled in `knowserve_core/data/` (hash checked) and the sentence splitter is a regular expression, so nothing is downloaded (F17).
+- Tests: `packages/backend_core/tests/test_m3_extraction.py` (ING-02, ING-23, SEC-11 extraction pieces, F17). Measurements and Worker sizing input: `../milestones/M3/measurements.md`.
+
 ## Known gaps
+- M3-02a: PyMuPDF4LLM takes about 0.11 s per dense text page with graphics analysis, so a 300-page file needs about 34 s on a fast machine against the 60 s default timeout (`../milestones/M3/measurements.md`). Table quality and Hebrew or right-to-left order are not measured. Extraction is single-threaded and uses no OCR.
 Every ING requirement is unimplemented in the target system except the M0 mechanism work tracked in `../milestones/M0/tasks.md`; none of the failure-class behaviour above is verified against live QStash/Cloud Run. The QStash retry count/backoff vs `KS_JOB_MAX_ATTEMPTS=4` reconciliation is UNVERIFIED until a live test. The batch dispatcher's lease-expiry issue (a 20-row batch claimed with one lease then published sequentially can outlive the lease) is DEFERRED and matters only if scheduled recovery is enabled (`KS_ENABLE_RECOVERY_DISPATCHER=true`). The legacy pipeline contradicts ING-05 (Redis holds the status), ING-07/ING-11 (WebSocket, no auth), ING-10 (duplicates possible) and ING-12/ING-13 (fire-and-forget).
 
 ## Related docs

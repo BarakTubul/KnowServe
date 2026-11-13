@@ -1,17 +1,26 @@
 locals {
-  api_secret_env    = ["database-url", "qstash-token", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key", "ip-hash-pepper"]
-  worker_secret_env = ["database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key"]
+  api_secret_env = ["database-url", "qstash-token", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key", "ip-hash-pepper"]
+  # M3: the Worker gets its own read-only R2 token (same KS_R2_* names, different secrets) and the
+  # OpenAI key. It never references r2-access-key-id / r2-secret-access-key (the API's read, write
+  # and delete token), and the API never references the three M3 Worker secrets.
+  worker_secret_env = [
+    "database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key",
+    "r2-worker-access-key-id", "r2-worker-secret-access-key", "openai-api-key",
+  ]
 
   # Secret id -> environment variable name (names fixed by docs/contracts/config-and-deploy.md).
   secret_env_names = {
-    "database-url"               = "KS_DATABASE_URL"
-    "qstash-token"               = "KS_QSTASH_TOKEN"
-    "qstash-current-signing-key" = "KS_QSTASH_CURRENT_SIGNING_KEY"
-    "qstash-next-signing-key"    = "KS_QSTASH_NEXT_SIGNING_KEY"
-    "proxy-shared-secret"        = "KS_PROXY_SHARED_SECRET"
-    "r2-access-key-id"           = "KS_R2_ACCESS_KEY_ID"
-    "r2-secret-access-key"       = "KS_R2_SECRET_ACCESS_KEY"
-    "ip-hash-pepper"             = "KS_IP_HASH_PEPPER"
+    "database-url"                = "KS_DATABASE_URL"
+    "qstash-token"                = "KS_QSTASH_TOKEN"
+    "qstash-current-signing-key"  = "KS_QSTASH_CURRENT_SIGNING_KEY"
+    "qstash-next-signing-key"     = "KS_QSTASH_NEXT_SIGNING_KEY"
+    "proxy-shared-secret"         = "KS_PROXY_SHARED_SECRET"
+    "r2-access-key-id"            = "KS_R2_ACCESS_KEY_ID"
+    "r2-secret-access-key"        = "KS_R2_SECRET_ACCESS_KEY"
+    "ip-hash-pepper"              = "KS_IP_HASH_PEPPER"
+    "r2-worker-access-key-id"     = "KS_R2_ACCESS_KEY_ID"
+    "r2-worker-secret-access-key" = "KS_R2_SECRET_ACCESS_KEY"
+    "openai-api-key"              = "KS_OPENAI_API_KEY"
   }
 }
 
@@ -80,6 +89,22 @@ resource "google_cloud_run_v2_service" "api" {
       # Optional non-secret M1 overrides; empty map = application defaults.
       dynamic "env" {
         for_each = var.api_m1_settings
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      # M3 (OPEN-31 D14): stop switch for new uploads. Changing it needs a Terraform apply (or
+      # `gcloud run services update --update-env-vars`, which Terraform would then report as drift).
+      env {
+        name  = "KS_UPLOADS_ENABLED"
+        value = var.uploads_enabled ? "true" : "false"
+      }
+      # Optional non-secret M3 overrides (upload limits, SSE timing); empty map = the OPEN-31 D1
+      # defaults compiled into the application.
+      dynamic "env" {
+        for_each = var.api_m3_settings
         content {
           name  = env.key
           value = env.value
@@ -160,8 +185,25 @@ resource "google_cloud_run_v2_service" "worker" {
       max_instance_count = 2
     }
 
+    # M3 sizing (OPEN-31 D2): PENDING the M3-00b measurements (docs/milestones/M3/measurements.md).
+    # All three default to null, which leaves the attribute unmanaged: the platform defaults stay
+    # (512 MiB, 300 s request timeout, concurrency 80), exactly as in M2. Set them only to what the
+    # measurements justify, and apply only with the Owner's separate approval.
+    timeout                          = var.worker_request_timeout_seconds == null ? null : "${var.worker_request_timeout_seconds}s"
+    max_instance_request_concurrency = var.worker_concurrency
+
     containers {
       image = var.worker_image
+
+      dynamic "resources" {
+        for_each = (var.worker_memory != null || var.worker_cpu != null) ? [1] : []
+        content {
+          limits = merge(
+            var.worker_cpu != null ? { cpu = var.worker_cpu } : {},
+            var.worker_memory != null ? { memory = var.worker_memory } : {},
+          )
+        }
+      }
 
       env {
         name  = "KS_ENV"
@@ -183,6 +225,37 @@ resource "google_cloud_run_v2_service" "worker" {
       # Optional non-secret M1 overrides (Demo cleanup); empty map = application defaults.
       dynamic "env" {
         for_each = var.worker_m1_settings
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      # M3 ingestion (docs/contracts/config-and-deploy.md). The Worker reads document objects with
+      # its own READ-ONLY R2 token (secrets r2-worker-*, wired below) and embeds through OpenAI
+      # (openai-api-key). Endpoint and bucket are the same non-secret values the API uses.
+      env {
+        name  = "KS_OBJECT_STORE"
+        value = "r2"
+      }
+      env {
+        name  = "KS_R2_ENDPOINT"
+        value = var.r2_endpoint
+      }
+      env {
+        name  = "KS_R2_BUCKET"
+        value = var.r2_bucket
+      }
+      # Fixed on purpose and not a variable: the fake embedder is refused in production by the
+      # application and must never be selectable through Terraform either.
+      env {
+        name  = "KS_EMBEDDING_PROVIDER"
+        value = "openai"
+      }
+      # Optional non-secret M3 overrides (chunking, embedding, extraction timeout, job timing);
+      # empty map = the application defaults.
+      dynamic "env" {
+        for_each = var.worker_m3_settings
         content {
           name  = env.key
           value = env.value

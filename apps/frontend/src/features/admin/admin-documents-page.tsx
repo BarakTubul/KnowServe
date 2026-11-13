@@ -13,6 +13,10 @@ import { describeAdminError } from './admin-error-messages';
 import { STATUS_LABEL, adminText } from './admin-text';
 import { DeleteDialog } from './delete-dialog';
 import { DocumentRow } from './document-row';
+import { ImportPanel } from './import/import-panel';
+import { ReplaceDialog } from './upload/replace-dialog';
+import { UploadForm } from './upload/upload-form';
+import { uploadText } from './upload/upload-text';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const STATUSES: DocumentStatus[] = ['queued', 'processing', 'ready', 'failed'];
@@ -34,6 +38,8 @@ export function AdminDocumentsPage() {
   const [status, setStatus] = useState<DocumentStatus | ''>('');
   const [editing, setEditing] = useState<AdminDocument | null>(null);
   const [deleting, setDeleting] = useState<AdminDocument | null>(null);
+  const [replacing, setReplacing] = useState<AdminDocument | null>(null);
+  const [panel, setPanel] = useState<'upload' | 'import' | null>(null);
   const q = useDebounced(search.trim(), SEARCH_DEBOUNCE_MS);
 
   const documents = useInfiniteQuery({
@@ -55,6 +61,25 @@ export function AdminDocumentsPage() {
           {adminText.backToDashboard}
         </Link>
       </header>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={panel === 'upload' ? 'default' : 'outline'}
+          aria-expanded={panel === 'upload'}
+          onClick={() => setPanel(panel === 'upload' ? null : 'upload')}
+        >
+          {uploadText.open}
+        </Button>
+        <Button
+          variant={panel === 'import' ? 'default' : 'outline'}
+          aria-expanded={panel === 'import'}
+          onClick={() => setPanel(panel === 'import' ? null : 'import')}
+        >
+          {uploadText.importer.open}
+        </Button>
+      </div>
+      {panel === 'upload' && <UploadForm />}
+      {panel === 'import' && <ImportPanel onClose={() => setPanel(null)} />}
 
       <div className="flex flex-wrap gap-3">
         <label className="flex min-w-48 flex-1 flex-col gap-1 text-sm">
@@ -105,6 +130,7 @@ export function AdminDocumentsPage() {
               document={item}
               onEditAccess={setEditing}
               onDelete={setDeleting}
+              onReplace={setReplacing}
             />
           ))}
         </ul>
@@ -121,6 +147,7 @@ export function AdminDocumentsPage() {
       )}
 
       {editing && <AccessEditor document={editing} onClose={() => setEditing(null)} />}
+      {replacing && <ReplaceDialog document={replacing} onClose={() => setReplacing(null)} />}
       {deleting && <DeleteDialog document={deleting} onClose={() => setDeleting(null)} />}
     </main>
   );
