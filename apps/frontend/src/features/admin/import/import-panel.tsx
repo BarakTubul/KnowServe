@@ -216,17 +216,9 @@ export function ImportPanel({ onClose }: { onClose?: () => void }) {
             ))}
           </ul>
           {rejected.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <Button
-                variant="outline"
-                className="self-start"
-                disabled={busy}
-                onClick={() => file && confirmMutation.mutate(file)}
-              >
-                {confirmMutation.isPending ? t.confirming : t.retryFailed}
-              </Button>
-              <p className="text-sm text-muted-foreground">{t.retryNote}</p>
-            </div>
+            <p data-testid="import-partial-guidance" className="text-sm text-muted-foreground">
+              {t.partialGuidance}
+            </p>
           )}
           <Button variant="outline" className="self-start" onClick={() => choose(null)}>
             {t.cancel}

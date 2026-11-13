@@ -67,7 +67,7 @@ export const uploadText = {
     rejected: 'Not imported',
     resultSummary: (created: number, rejected: number) =>
       `${created} created, ${rejected} not imported.`,
-    retryFailed: 'Retry the files that were not imported',
-    retryNote: 'This sends the ZIP again as a new import.',
+    partialGuidance:
+      'Fix the problems above, then import a new ZIP that contains only the files that were not imported. The files that were created stay as they are, and importing them again would create duplicates.',
   },
 } as const;
