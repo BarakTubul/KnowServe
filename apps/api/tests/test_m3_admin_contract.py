@@ -57,6 +57,7 @@ IMPLEMENTED = {
     ("PATCH", "/v1/admin/documents/{document_id}/access"),
     ("DELETE", "/v1/admin/documents/{document_id}"),
     ("POST", "/v1/admin/documents/{document_id}/retry"),
+    ("POST", "/v1/admin/documents/{document_id}/replace"),
 }
 STUBS = [r for r in ROUTES if (r[0], r[1]) not in IMPLEMENTED]
 UPLOAD_ROUTES = [r for r in ROUTES if r[3]]
