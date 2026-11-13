@@ -1,6 +1,6 @@
 # Admin API contract (M3)
 
-**Status:** Shapes fixed by M3-01 for approval at CP1 (`docs/milestones/M3/plan.md`). The routes are 501 stubs until their slices land. A change to anything here needs Owner approval and a regenerated `openapi.json` (WF-03). The behavior stays in `../backend/admin-docs.md` and `../backend/ingestion.md`; this file fixes the concrete names.
+**Status:** Shapes fixed by M3-01 and approved at CP1 (`docs/milestones/M3/plan.md`). All routes are implemented (M3-03 to M3-05b). A change to anything here needs Owner approval and a regenerated `openapi.json` (WF-03). The behavior stays in `../backend/admin-docs.md` and `../backend/ingestion.md`; this file fixes the concrete names.
 
 Code: `apps/api/src/knowserve_api/admin/` (routes and `schemas.py`), `packages/backend_core/src/knowserve_core/ingestion_contract.py` (codes, phases, messages), `job_hooks.py` (Worker interfaces), `embeddings.py`, `object_store.py`. The frontend catalogs are in `apps/frontend/src/features/admin/admin-error-messages.ts`.
 
@@ -105,7 +105,7 @@ Failure codes (stored in `document_revisions.failure_reason`, shown through `fai
 ## Interfaces
 
 - `ObjectStore.delete(key)`: idempotent. The API uses it to remove an object when the database transaction fails. The Worker's credential is read-only and never calls it.
-- `EmbeddingProvider.embed(texts)`: one vector per text, all or nothing, raising `EmbeddingError`. `FakeEmbeddingProvider` is deterministic and refused in production. The OpenAI provider is written in M3-02b.
+- `EmbeddingProvider.embed(texts)`: one vector per text, all or nothing, raising `EmbeddingError`. `FakeEmbeddingProvider` is deterministic and refused in production. The OpenAI provider is `embeddings_openai.py` in the Worker (M3-02b).
 - `job_hooks.py`: `NonRetryableJobError` and `RetryableJobError` (raised by handlers with a `FailureCode`), `TerminalFailureHook` (called in the transaction that marks a job `failed`; sets the revision `failed`, and never touches a `ready` revision) and `RequeueHook` (called by `retry_job`; sets the revision back to `queued`). M3-00a implements them in the Worker and `job_recovery`; M3-05a calls `retry_job`.
 
 ## Schema (migration `0004`)

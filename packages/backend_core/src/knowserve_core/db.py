@@ -25,8 +25,12 @@ def _connect_args(database_url: str) -> dict[str, int]:
 def create_engine(database_url: str, *, null_pool: bool = False) -> AsyncEngine:
     connect_args = _connect_args(database_url)
     if null_pool:
-        return create_async_engine(database_url, poolclass=NullPool, connect_args=connect_args)
-    return create_async_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
+        return create_async_engine(
+            database_url, poolclass=NullPool, connect_args=connect_args, hide_parameters=True
+        )
+    return create_async_engine(
+        database_url, pool_pre_ping=True, connect_args=connect_args, hide_parameters=True
+    )
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

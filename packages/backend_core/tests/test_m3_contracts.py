@@ -292,3 +292,12 @@ def test_m3_sec14_signed_delivery_helper_matches_the_real_verifier() -> None:
     ):
         with pytest.raises(SignatureError):
             verify_signature(token=bad, body=body, signing_keys=[key], expected_url=url)
+
+
+def test_mon05_engines_hide_sql_parameters_from_error_text() -> None:
+    """A database error must not carry the bound values (titles, file names) into logs (MON-05)."""
+    from knowserve_core.db import create_engine
+
+    url = "postgresql+asyncpg://u:p@localhost:5433/x"
+    assert create_engine(url).sync_engine.hide_parameters is True
+    assert create_engine(url, null_pool=True).sync_engine.hide_parameters is True

@@ -1,6 +1,6 @@
 # Document lifecycle (submission → ready → change → delete)
 
-**Status:** Target spec (M2/M3 core including failed-file recovery, M5 ready-document replace/delete hardening). Not implemented: the legacy flow is Drive URL → Celery → Chroma → Redis → WebSocket. Read this first for any submission, upload or ingestion task, then the linked detailed specs.
+**Status:** Target spec (M2/M3 core including failed-file recovery, M5 ready-document replace/delete hardening). M3 (Admin upload, ZIP import, ingestion, failed-document replace, status stream) is implemented locally and not yet deployed; ready-document replace and delete hardening are M5. The legacy flow (Drive URL → Celery → Chroma → Redis → WebSocket) is not migrated. Read this first for any submission, upload or ingestion task, then the linked detailed specs.
 
 ## Flow
 1. **Submit** (`../frontend/admin-upload.md`): the Admin uploads a single PDF with metadata, or a ZIP + `manifest.json` through preview and explicit confirm (ADM-03, ADM-11 to ADM-14). Single upload preselects the owner department as a reader in the form; every ZIP entry must list `allowed_departments` explicitly, with no default (ADM-05).

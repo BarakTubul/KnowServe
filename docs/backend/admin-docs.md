@@ -1,6 +1,6 @@
 # Backend admin document management
 
-**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). M3-05a (list, detail, access, delete, retry, status stream) is implemented; upload, ZIP import and replace are not yet. The legacy code takes Google Drive URLs and dispatches Celery.
+**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). M3 is implemented locally: list, detail, access, delete, retry and the status stream (M3-05a), single upload (M3-03), ZIP import (M3-04) and failed-document replace (M3-05b). Nothing has run in the cloud yet. The legacy code takes Google Drive URLs and dispatches Celery.
 
 ## Purpose
 Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a manifest, change access, replace the file of a failed document (M3) or a ready version (M5), soft delete, and retry failed jobs. Processing is described in `ingestion.md`; the end-to-end flow is in `../cross-cutting/document-lifecycle.md`.
@@ -79,10 +79,10 @@ Implemented and tested in `apps/api/src/knowserve_api/admin/` (`manage.py`, `eve
 - Access update locks the document row, validates the list (empty is 422 `ALLOWED_DEPARTMENTS_EMPTY`, unknown is 422 `UNKNOWN_DEPARTMENT`, an unknown or deleted document is 404 first) and writes exactly the submitted set as a diff. It starts no job.
 - The stream reads the database every second (`POLL_SECONDS` in `events.py`), sends a keepalive comment every `KS_SSE_KEEPALIVE_SECONDS` and ends after `KS_SSE_MAX_SECONDS`. It holds no pool connection between reads. A document deleted while watched ends the stream with `terminal`.
 - Replace (M3-05b, ADM-18, `admin/replace.py`): 404 for an unknown or deleted id, then 409 `DOCUMENT_NOT_REPLACEABLE` unless the document has no current revision and its latest revision and job are `failed`. The check runs before anything is stored and again inside the creating transaction under row locks on the document and the job, so concurrent requests with different keys start one attempt and a retry that got there first makes the replacement a 409. A replacement adds a revision, job and outbox row; the failed revision, owner and access stay. Storage, limits, idempotency and publish are the creation service's (the per-day cap does not apply, the in-flight cap does).
-- Audit events: `admin.document.replaced`, `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace audit rows belong to M3-03, M3-04 and M3-05b.
+- Audit events: `admin.document.replaced`, `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace write `admin.document.created`, `admin.import.confirmed` and `admin.document.replaced` rows with ids and counts only.
 
 ## Known gaps
-ADM-15 (ready-document replace) is M5. ADM-03, ADM-10 to ADM-14 belong to M3-03 and M3-04. ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
+ADM-15 (ready-document replace) is M5. ADM-03 and ADM-10 to ADM-14 are implemented in M3-03 and M3-04 (see `../contracts/admin-api.md`, 'Implemented behaviour'). Known behaviour: a limit refusal in the middle of a ZIP confirmation is recorded as that entry's final outcome; a ZIP with more than 10 valid entries meets the default in-flight cap of 10. ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
 
 ## Related docs
 `ingestion.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../frontend/admin-upload.md`
