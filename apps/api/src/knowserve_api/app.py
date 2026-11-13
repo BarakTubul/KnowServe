@@ -260,6 +260,7 @@ def create_app(
     app.add_middleware(
         AdminBodyLimit,
         max_body_bytes=max(settings.upload_max_zip_bytes, settings.upload_max_pdf_bytes),
+        session_cookie_name=settings.session_cookie_name,
     )
     install_web(app)
     if not proxy_secret:
