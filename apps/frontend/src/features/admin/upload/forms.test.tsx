@@ -444,32 +444,17 @@ describe('FE-ADM-11 ZIP import preview and confirm', () => {
     expect(results.queryByRole('button', { name: /Retry/ })).not.toBeInTheDocument();
   });
 
-  it('fe_adm_11_retry_of_the_failed_file_sends_the_zip_again_with_a_new_key_and_creates_it', async () => {
-    let calls = 0;
+  it('fe_adm_11_a_partial_result_names_the_rejected_file_and_offers_no_retry_only_guidance', async () => {
     const { api, panel, user } = await openImport({
       [ADMIN_CONFIRM]: () =>
-        jsonResponse(
-          200,
-          ++calls === 1
-            ? {
-                created_count: 1,
-                rejected_count: 1,
-                results: [
-                  { index: 0, file: 'ok.pdf', status: 'created', document_id: 'd1' },
-                  {
-                    index: 1,
-                    file: 'later.pdf',
-                    status: 'rejected',
-                    error_code: 'UPLOAD_BACKLOG_FULL',
-                  },
-                ],
-              }
-            : {
-                created_count: 1,
-                rejected_count: 0,
-                results: [{ index: 1, file: 'later.pdf', status: 'created', document_id: 'd2' }],
-              },
-        ),
+        jsonResponse(200, {
+          created_count: 1,
+          rejected_count: 1,
+          results: [
+            { index: 0, file: 'ok.pdf', status: 'created', document_id: 'd1' },
+            { index: 1, file: 'later.pdf', status: 'rejected', error_code: 'UPLOAD_BACKLOG_FULL' },
+          ],
+        }),
     });
     const box = within(await previewIt(panel, user));
     await user.click(box.getByRole('button', { name: /^Import 1 valid/ }));
@@ -477,15 +462,27 @@ describe('FE-ADM-11 ZIP import preview and confirm', () => {
     expect(results.getByTestId('import-result-rejected')).toHaveTextContent(
       ADMIN_ERROR_CATALOGS.en.UPLOAD_BACKLOG_FULL,
     );
-    await user.click(
-      results.getByRole('button', { name: 'Retry the files that were not imported' }),
+    // Re-sending the ZIP under a new key would create the created entries again, so there is no retry.
+    expect(results.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(results.getByTestId('import-partial-guidance')).toHaveTextContent(
+      'import a new ZIP that contains only the files that were not imported',
     );
-    await waitFor(() => expect(api.count(ADMIN_CONFIRM)).toBe(2));
-    const keys = api.calls
-      .filter((c) => c.key === ADMIN_CONFIRM)
-      .map((c) => c.request.headers.get('Idempotency-Key'));
-    expect(keys[0]).not.toBe(keys[1]);
-    expect(await panel.findByText('1 created, 0 not imported.')).toBeInTheDocument();
+    expect(api.count(ADMIN_CONFIRM)).toBe(1);
+  });
+
+  it('fe_adm_11_a_fully_created_result_shows_no_guidance', async () => {
+    const { panel, user } = await openImport({
+      [ADMIN_CONFIRM]: () =>
+        jsonResponse(200, {
+          created_count: 1,
+          rejected_count: 0,
+          results: [{ index: 0, file: 'ok.pdf', status: 'created', document_id: 'd1' }],
+        }),
+    });
+    const box = within(await previewIt(panel, user));
+    await user.click(box.getByRole('button', { name: /^Import 1 valid/ }));
+    await panel.findByTestId('import-results');
+    expect(panel.queryByTestId('import-partial-guidance')).not.toBeInTheDocument();
   });
 
   it('fe_adm_11_a_zip_error_from_the_server_shows_the_catalog_message_and_nothing_is_confirmed', async () => {
