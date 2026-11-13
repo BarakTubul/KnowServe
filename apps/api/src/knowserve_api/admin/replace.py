@@ -45,33 +45,54 @@ def not_replaceable() -> AppError:
     return AppError(*admin_error(AdminErrorCode.DOCUMENT_NOT_REPLACEABLE))
 
 
+async def _latest_revision(
+    session: AsyncSession, document_id: uuid.UUID
+) -> DocumentRevision | None:
+    return (
+        await session.execute(
+            select(DocumentRevision)
+            .where(
+                DocumentRevision.document_id == document_id,
+                DocumentRevision.id == latest_revision_id(),
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
 async def _checked_state(
     session: AsyncSession, document_id: uuid.UUID, *, lock: bool
 ) -> tuple[Document, DocumentRevision]:
-    """The non-deleted document and its latest revision, or 404. With ``lock`` the document row
-    and the revision's job row stay locked until the transaction ends. 409 unless the document
-    has no current revision, its latest revision is ``failed`` and its job (if any) is too."""
+    """The non-deleted document and its latest revision, or 404. 409 unless the document has no
+    current revision, its latest revision is ``failed`` and its job (if any) is too.
+
+    With ``lock`` the failed revision's job row is locked first and the document row second, the
+    order the Worker's publication uses (docs/contracts/jobs-outbox.md, "Lock order"), so the two
+    cannot deadlock. The job is not known until the revision is read, so the revision is read
+    once without a lock, the locks are taken, and the state is read again: if the latest revision
+    changed in between (another replacement won), the request is a 409."""
+    first = await _latest_revision(session, document_id)
+    if lock and first is not None and first.job_id is not None:
+        await session.execute(select(Job.id).where(Job.id == first.job_id).with_for_update())
     doc_stmt = select(Document).where(Document.id == document_id, Document.deleted_at.is_(None))
     if lock:
         doc_stmt = doc_stmt.with_for_update()
     document = (await session.execute(doc_stmt)).scalar_one_or_none()
     if document is None:
         raise document_not_found()
-    revision = (
-        await session.execute(
-            select(DocumentRevision).where(
-                DocumentRevision.document_id == document_id,
-                DocumentRevision.id == latest_revision_id(),
-            )
-        )
-    ).scalar_one_or_none()
-    if document.current_revision_id is not None or revision is None or revision.status != "failed":
+    revision = await _latest_revision(session, document_id) if lock else first
+    if (
+        revision is None
+        or (first is not None and revision.id != first.id)
+        or document.current_revision_id is not None
+        or revision.status != "failed"
+    ):
         raise not_replaceable()
     if revision.job_id is not None:
-        job_stmt = select(Job.status).where(Job.id == revision.job_id)
-        if lock:
-            job_stmt = job_stmt.with_for_update()
-        if (await session.execute(job_stmt)).scalar() != "failed":
+        job_status = (
+            await session.execute(select(Job.status).where(Job.id == revision.job_id))
+        ).scalar()
+        if job_status != "failed":
             raise not_replaceable()
     return document, revision
 
