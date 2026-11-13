@@ -6,7 +6,7 @@ Code: `apps/api/src/knowserve_api/admin/` (routes and `schemas.py`), `packages/b
 
 ## Routes
 
-All routes live under `/v1/admin`. Every one needs a session (401) and the Admin role (403). Mutations also need the allowed Origin and the CSRF token (`X-CSRF-Token`), multipart ones included. None needs an active department, and none is affected by it (SEC-17 applies to the user routes). Ids in paths are uuids. A malformed, unknown or deleted document id is the same 404 `DOCUMENT_NOT_FOUND`, and it is checked after the session and the Admin role, so 401 and 403 always come first (OPEN-28 Q7). The id is a string in the OpenAPI schema for that reason; the `admin_document_id` dependency parses it.
+All routes live under `/v1/admin`. A second `DELETE` of a deleted document is 404 (the id is deleted, as for any route), changes nothing and writes no second audit row. Every one needs a session (401) and the Admin role (403). Mutations also need the allowed Origin and the CSRF token (`X-CSRF-Token`), multipart ones included. None needs an active department, and none is affected by it (SEC-17 applies to the user routes). Ids in paths are uuids. A malformed, unknown or deleted document id is the same 404 `DOCUMENT_NOT_FOUND`, and it is checked after the session and the Admin role, so 401 and 403 always come first (OPEN-28 Q7). The id is a string in the OpenAPI schema for that reason; the `admin_document_id` dependency parses it.
 
 | Method and path | Request | Success | Errors |
 |---|---|---|---|
@@ -44,7 +44,7 @@ Upload and replace answer 202 because processing continues in the Worker (the sp
 | `phase` | `fetching`, `extracting`, `chunking`, `embedding` or `publishing` while processing; no percentages (ING-07). |
 | `failure_code`, `failure_message` | A `FailureCode` and its English fallback text. The interface text comes from the frontend catalog by code. |
 | `delivery_state` | The derived job state from `job_recovery.py` (`publish_failed`, `unpublished_stuck`, `queued_stuck`, `processing_stuck`, `failed` and the rest), or null. |
-| `can_retry`, `can_replace` | Computed on the server, so the client keeps no action rules (ADM-16, ADM-18). `can_retry` stays true for a failed `NO_EXTRACTABLE_TEXT` document, as FE-ADM-06 requires; the UI puts Replace file first for terminal reasons. Each mutation re-checks its precondition atomically, whatever the flags said when the screen loaded. |
+| `can_retry`, `can_replace` | Computed on the server, so the client keeps no action rules (ADM-16, ADM-18). `can_retry` stays true for a failed `NO_EXTRACTABLE_TEXT` document, as FE-ADM-06 requires; the UI puts Replace file first for terminal reasons. Each mutation re-checks its precondition atomically, whatever the flags said when the screen loaded. Both are computed in `admin/document_views.py` only. `can_retry`: the latest revision is not `ready` and its job's delivery state is one `retry_job` accepts. `can_replace`: no current revision, latest revision `failed`, and no active job. |
 | `title`, `filename`, `owner_department`, `allowed_departments`, `page_count`, `size_bytes`, `created_at`, `updated_at` | Document data. Departments are `{id, slug, name}`. |
 
 `ImportEntryPreview` and `ImportEntryResult` identify an entry by `index` and `file`, carry an `error_code` (an `AdminErrorCode`), the English fallback `error_message` and an optional `detail` (for example the unknown slug). Preview never creates anything.
@@ -78,6 +78,8 @@ data: {"reason": "terminal"}
 ```
 
 `status` carries `DocumentProcessingStatus`, sent on connect and on every change. A comment line goes out every `KS_SSE_KEEPALIVE_SECONDS` (15). `end` follows a `ready` or `failed` status (`terminal`), or comes after `KS_SSE_MAX_SECONDS` (120) with reason `timeout`, and the client reconnects. There are no event ids, no persisted event history and no replay, because a reconnect starts with a fresh `status` read from the database. Connecting or reconnecting never creates or requeues a job. The document list is the fallback when the stream fails.
+
+Implemented (M3-05a): the snapshot is read before the response starts, so 401, 403 and 404 are real statuses. After that the stream reads the database once a second and sends a `status` event whenever the payload changes (a phase, the delivery state or an action flag counts), a keepalive comment after `KS_SSE_KEEPALIVE_SECONDS` without an event, and `end` with `terminal` after `ready` or `failed`, or when the document is deleted while watched, or with `timeout` after `KS_SSE_MAX_SECONDS`. The Pages proxy already passes `text/event-stream` through unbuffered (`proxy.md`), so it needs no change.
 
 ## Error codes
 

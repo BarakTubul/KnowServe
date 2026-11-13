@@ -46,7 +46,17 @@ ROUTES: tuple[tuple[str, str, bool, bool], ...] = (
     ("POST", "/v1/admin/imports/preview", True, True),
     ("POST", "/v1/admin/imports/confirm", True, True),
 )
-STUBS = [r for r in ROUTES if r[1] != "/v1/admin/ping"]
+# Implemented by M3-05a (test_m3_admin_manage.py); the others are still 501 stubs.
+IMPLEMENTED = {
+    ("GET", "/v1/admin/ping"),
+    ("GET", "/v1/admin/documents"),
+    ("GET", "/v1/admin/documents/{document_id}"),
+    ("GET", "/v1/admin/documents/{document_id}/events"),
+    ("PATCH", "/v1/admin/documents/{document_id}/access"),
+    ("DELETE", "/v1/admin/documents/{document_id}"),
+    ("POST", "/v1/admin/documents/{document_id}/retry"),
+}
+STUBS = [r for r in ROUTES if (r[0], r[1]) not in IMPLEMENTED]
 
 
 def _app(engine: AsyncEngine, clock: FakeClock, **overrides: Any) -> FastAPI:
@@ -191,7 +201,7 @@ async def test_m3_sec17_admin_routes_need_no_active_department(
 ) -> None:
     admin = await make_session(await make_user("admin"), department_id=None)
     response = await _call(client, "GET", "/v1/admin/documents", session=admin)
-    assert response.status_code == 501  # not 409 ACTIVE_DEPARTMENT_REQUIRED
+    assert response.status_code == 200  # not 409 ACTIVE_DEPARTMENT_REQUIRED
 
 
 # --- KS_UPLOADS_ENABLED (OPEN-31 D14, M3-AC26) ---
@@ -210,16 +220,6 @@ async def test_m3_ac26_disabled_uploads_answer_503_on_upload_producing_routes(
         user = await make_session(await make_user("registered"))
         assert (await _call(client, method, path, session=user)).status_code == 403
         assert (await _call(client, method, path)).status_code == 401
-
-
-@pytest.mark.parametrize(("method", "path"), [(m, p) for m, p, _, uploads in STUBS if not uploads])
-async def test_m3_ac26_disabled_uploads_leave_reads_access_delete_and_retry_alone(
-    engine: AsyncEngine, clock: FakeClock, make_user: Any, make_session: Any, method: str, path: str
-) -> None:
-    async with _client(_app(engine, clock, uploads_enabled=False)) as client:
-        admin = await make_session(await make_user("admin"))
-        response = await _call(client, method, path, session=admin)
-        assert response.status_code == 501  # the stub, not 503
 
 
 # --- Contract shape ---
@@ -296,7 +296,7 @@ async def test_m3_access_update_accepts_an_empty_list_so_the_route_can_return_it
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "writes", "uploads"), [r for r in STUBS if "{document_id}" in r[1]]
+    ("method", "path", "writes", "uploads"), [r for r in ROUTES if "{document_id}" in r[1]]
 )
 async def test_m3_sec02_malformed_document_id_is_404_after_the_auth_checks(
     client: httpx.AsyncClient,
