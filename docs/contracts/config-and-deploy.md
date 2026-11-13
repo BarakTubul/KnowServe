@@ -25,7 +25,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_STUCK_AFTER_SECONDS` | API/core | default `2400` (above QStash's longest default retry gap, about 1808 s, measured live): a published `queued` job with no activity for longer than this is `queued_stuck` |
 | `KS_PUBLISH_GRACE_SECONDS` | API/core | default `120`: a `pending` outbox row without error older than this is `unpublished_stuck` |
 | `KS_PUBLISH_TIMEOUT_SECONDS` | API/Worker | default `5`: bound on one QStash publish; a timeout is recorded as `delivery unconfirmed` and the row stays retryable |
-| `KS_JOB_HANDLER_TIMEOUT_SECONDS` | Worker | default `90`: a handler that runs longer counts as a failed attempt. The lease heartbeat (M3-00a) keeps a running job claimed, so it no longer has to stay below `KS_JOB_LEASE_SECONDS` |
+| `KS_JOB_HANDLER_TIMEOUT_SECONDS` | Worker | default `240` (was 90 before M3): a handler that runs longer counts as a failed attempt. Keep it below the Worker's Cloud Run request timeout (300 s). The lease heartbeat (M3-00a) keeps a running job claimed, so it no longer has to stay below `KS_JOB_LEASE_SECONDS` |
 | `KS_ENABLE_SPIKE_JOB_OPS` | API | default `false`. Mounts the spike-only operator routes `/internal/spike/jobs` only when `KS_SPIKE_OPERATOR_EMAILS` and `KS_SPIKE_OIDC_AUDIENCE` are also set; otherwise 404 |
 | `KS_SPIKE_OPERATOR_EMAILS` | API | comma list of the identities allowed on the operator routes (non-secret). In the spike this is the operator **service account** `ks-spike-operator@<project>.iam.gserviceaccount.com` (Terraform sets it), never a human account |
 | `KS_SPIKE_OIDC_AUDIENCE` | API | audience the operator's Google OIDC ID token must carry (Terraform sets it to the API origin). Human accounts mint it by impersonating the operator service account (`jobs-outbox.md`) |
@@ -54,7 +54,7 @@ All keys use the `KS_` prefix, are read by `knowserve_core.settings.Settings`, a
 | `KS_EMBEDDING_PROVIDER` | Worker | `openai` (default) or `fake` (deterministic, local and tests). `fake` is refused when `KS_ENV=production`, like the fake object store. The API does not need it or the key |
 | `KS_EMBEDDING_MODEL`, `KS_EMBEDDING_DIMENSIONS`, `KS_EMBEDDING_BATCH_SIZE`, `KS_EMBEDDING_TIMEOUT_SECONDS` | Worker | defaults `text-embedding-3-small`, 1536, 64 and 30. The dimension must equal the width of `document_chunks.embedding`; another width needs a new migration and a re-embed |
 | `KS_OPENAI_API_KEY` | Worker | secret, Secret Manager only, in a dedicated OpenAI project with a monthly budget (OPEN-31 D3). Required when the provider is `openai` and the Worker builds it |
-| `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` | Worker | default 60. Hard limit for the child process that extracts text (OPEN-31 D11) |
+| `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` | Worker | default 120 (measured 34 s for 300 pages on a fast machine, `docs/milestones/M3/measurements.md`). Hard limit for the child process that extracts text (OPEN-31 D11) |
 | `KS_SSE_KEEPALIVE_SECONDS`, `KS_SSE_MAX_SECONDS` | API | defaults 15 and 120 for the Admin status stream |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_AUTH_EMULATOR_URL` | Frontend | public Firebase web config (not secrets, build-time); the emulator URL only in local/e2e builds |
 | `VITE_API_BASE_URL` | Frontend | optional; defaults to `/api` (same-origin proxy); no secrets in `VITE_*` |

@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     outbox_lease_seconds: int = 60
     outbox_batch_size: int = 20
     job_lease_seconds: int = 120
-    job_handler_timeout_seconds: int = Field(default=90, ge=1)
+    job_handler_timeout_seconds: int = Field(default=240, ge=1)
     # Total processing attempts per job (QStash deliveries included). Reconcile with QStash's
     # retry count: UNVERIFIED against a live QStash (docs/contracts/jobs-outbox.md).
     job_max_attempts: int = Field(default=4, ge=1)
@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
     openai_api_key: SecretStr | None = None
     # Hard limit for the child process that extracts PDF text (D11).
-    pdf_extraction_timeout_seconds: int = Field(default=60, ge=1)
+    pdf_extraction_timeout_seconds: int = Field(default=120, ge=1)
     # Status stream: keepalive comment interval and the length after which the server ends the
     # stream so the client reconnects.
     sse_keepalive_seconds: int = Field(default=15, ge=1)
