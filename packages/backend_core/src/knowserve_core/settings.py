@@ -9,6 +9,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .ingestion_contract import EMBEDDING_DIMENSIONS
+
 
 def normalize_database_url(url: str) -> str:
     """Return an asyncpg SQLAlchemy URL.
@@ -61,7 +63,7 @@ class Settings(BaseSettings):
     outbox_lease_seconds: int = 60
     outbox_batch_size: int = 20
     job_lease_seconds: int = 120
-    job_handler_timeout_seconds: int = Field(default=90, ge=1)
+    job_handler_timeout_seconds: int = Field(default=240, ge=1)
     # Total processing attempts per job (QStash deliveries included). Reconcile with QStash's
     # retry count: UNVERIFIED against a live QStash (docs/contracts/jobs-outbox.md).
     job_max_attempts: int = Field(default=4, ge=1)
@@ -121,6 +123,36 @@ class Settings(BaseSettings):
     documents_page_default: int = Field(default=20, ge=1)
     documents_page_max: int = Field(default=50, ge=1)
 
+    # --- M3 upload and ingestion (docs/contracts/config-and-deploy.md; defaults are OPEN-31 D1) ---
+    # Stop switch for new uploads (D14). Reads, access changes, delete and retry keep working.
+    uploads_enabled: bool = True
+    upload_max_pdf_bytes: int = Field(default=20 * 1024 * 1024, ge=1)
+    upload_max_pdf_pages: int = Field(default=300, ge=1)
+    upload_max_zip_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
+    upload_max_zip_files: int = Field(default=20, ge=1)
+    upload_max_zip_uncompressed_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
+    upload_max_zip_ratio: int = Field(default=20, ge=1)
+    upload_max_manifest_bytes: int = Field(default=256 * 1024, ge=1)
+    # Documents `queued` or `processing` at once, and new documents per UTC day.
+    upload_max_in_flight: int = Field(default=10, ge=1)
+    upload_max_per_day: int = Field(default=50, ge=1)
+    chunk_size_tokens: int = Field(default=512, ge=16)
+    chunk_overlap_tokens: int = Field(default=64, ge=0)
+    # `openai` calls the provider; `fake` is deterministic and refused in production.
+    embedding_provider: Literal["openai", "fake"] = "openai"
+    embedding_model: str = "text-embedding-3-small"
+    # Must equal the width of `document_chunks.embedding` (migration 0004).
+    embedding_dimensions: int = Field(default=1536, ge=1)
+    embedding_batch_size: int = Field(default=64, ge=1)
+    embedding_timeout_seconds: float = Field(default=30.0, gt=0)
+    openai_api_key: SecretStr | None = None
+    # Hard limit for the child process that extracts PDF text (D11).
+    pdf_extraction_timeout_seconds: int = Field(default=120, ge=1)
+    # Status stream: keepalive comment interval and the length after which the server ends the
+    # stream so the client reconnects.
+    sse_keepalive_seconds: int = Field(default=15, ge=1)
+    sse_max_seconds: int = Field(default=120, ge=1)
+
     @field_validator("database_url")
     @classmethod
     def _normalize_url(cls, value: str) -> str:
@@ -153,8 +185,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "KS_ENABLE_SPIKE_JOB_OPS needs KS_SPIKE_OPERATOR_EMAILS and KS_SPIKE_OIDC_AUDIENCE"
             )
-        if self.job_handler_timeout_seconds >= self.job_lease_seconds:
-            raise ValueError("KS_JOB_HANDLER_TIMEOUT_SECONDS must be below KS_JOB_LEASE_SECONDS")
+        # No handler-timeout < lease rule since M3-00a: the lease heartbeat keeps the job claimed.
+        return self
+
+    @model_validator(mode="after")
+    def _ingestion_limits(self) -> Settings:
+        if self.chunk_overlap_tokens >= self.chunk_size_tokens:
+            raise ValueError("KS_CHUNK_OVERLAP_TOKENS must be below KS_CHUNK_SIZE_TOKENS")
+        if self.embedding_dimensions != EMBEDDING_DIMENSIONS:
+            raise ValueError(
+                f"KS_EMBEDDING_DIMENSIONS must be {EMBEDDING_DIMENSIONS}, the width of the "
+                "document_chunks.embedding column; a different width needs a new migration"
+            )
+        if self.upload_max_zip_bytes > self.upload_max_zip_uncompressed_bytes:
+            raise ValueError("KS_UPLOAD_MAX_ZIP_BYTES must not exceed the uncompressed total")
         return self
 
     @model_validator(mode="after")
@@ -169,6 +213,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "KS_FIREBASE_AUTH_EMULATOR_HOST must not be set when KS_ENV=production"
                 )
+            # Fake embeddings would index meaningless vectors, so they never run in production.
+            if self.embedding_provider == "fake":
+                raise ValueError("KS_EMBEDDING_PROVIDER=fake is not allowed when KS_ENV=production")
         return self
 
 

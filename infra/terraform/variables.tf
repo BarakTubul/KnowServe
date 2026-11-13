@@ -183,6 +183,162 @@ variable "worker_m1_settings" {
   }
 }
 
+############ M3 Admin upload and ingestion (OPEN-31) ############
+
+variable "uploads_enabled" {
+  type        = bool
+  description = "KS_UPLOADS_ENABLED on the API (D14). When false, upload, replace and ZIP preview/confirm answer 503 UPLOADS_DISABLED; reads, access changes, delete and retry keep working and running jobs continue. Default true (the application default)."
+  default     = true
+}
+
+variable "api_m3_settings" {
+  type        = map(string)
+  description = "Optional non-secret M3 settings for the API, as KEY = \"value\" (upload limits, SSE timing). Leave empty to keep the OPEN-31 D1 defaults compiled into the application. Allow-listed; a secret key name or KS_UPLOADS_ENABLED (use uploads_enabled) fails validation. A changed limit needs the Owner's approval (OPEN-31)."
+  default     = {}
+
+  validation {
+    condition = alltrue([for k in keys(var.api_m3_settings) : contains([
+      "KS_UPLOAD_MAX_PDF_BYTES", "KS_UPLOAD_MAX_PDF_PAGES", "KS_UPLOAD_MAX_ZIP_BYTES",
+      "KS_UPLOAD_MAX_ZIP_FILES", "KS_UPLOAD_MAX_ZIP_UNCOMPRESSED_BYTES", "KS_UPLOAD_MAX_ZIP_RATIO",
+      "KS_UPLOAD_MAX_MANIFEST_BYTES", "KS_UPLOAD_MAX_IN_FLIGHT", "KS_UPLOAD_MAX_PER_DAY",
+      "KS_SSE_KEEPALIVE_SECONDS", "KS_SSE_MAX_SECONDS",
+    ], k)])
+    error_message = "api_m3_settings accepts only the documented non-secret M3 API keys (see variables.tf)."
+  }
+
+  # Every allow-listed API key is a positive whole number (bytes, counts, seconds, ratio).
+  validation {
+    condition     = alltrue([for k, v in var.api_m3_settings : can(regex("^[1-9][0-9]*$", v))])
+    error_message = "Every api_m3_settings value must be a positive whole number (no units, no quotes inside the value)."
+  }
+
+  # Mirrors the application guard: the compressed ZIP limit must not exceed the uncompressed total.
+  validation {
+    condition     = try(tonumber(lookup(var.api_m3_settings, "KS_UPLOAD_MAX_ZIP_BYTES", "26214400")) <= tonumber(lookup(var.api_m3_settings, "KS_UPLOAD_MAX_ZIP_UNCOMPRESSED_BYTES", "104857600")), false)
+    error_message = "KS_UPLOAD_MAX_ZIP_BYTES (default 26214400) must not exceed KS_UPLOAD_MAX_ZIP_UNCOMPRESSED_BYTES (default 104857600)."
+  }
+}
+
+variable "worker_m3_settings" {
+  type        = map(string)
+  description = "Optional non-secret M3 settings for the Worker (page cap, chunking, embedding, extraction timeout, job timing), as KEY = \"value\". Leave empty to keep the application defaults. KS_EMBEDDING_PROVIDER is deliberately not accepted: it is fixed to openai in gcp_cloud_run.tf. The application's own guards are mirrored where cheap (overlap below size, 1536 dimensions). Since M3-00a the handler timeout need not stay below the lease (the lease heartbeat keeps a long job claimed), so no such rule exists. Application defaults after M3-00b: KS_JOB_HANDLER_TIMEOUT_SECONDS 240, KS_PDF_EXTRACTION_TIMEOUT_SECONDS 120."
+  default     = {}
+
+  validation {
+    condition = alltrue([for k in keys(var.worker_m3_settings) : contains([
+      "KS_UPLOAD_MAX_PDF_PAGES", "KS_CHUNK_SIZE_TOKENS", "KS_CHUNK_OVERLAP_TOKENS",
+      "KS_EMBEDDING_MODEL", "KS_EMBEDDING_DIMENSIONS", "KS_EMBEDDING_BATCH_SIZE",
+      "KS_EMBEDDING_TIMEOUT_SECONDS", "KS_PDF_EXTRACTION_TIMEOUT_SECONDS",
+      "KS_JOB_HANDLER_TIMEOUT_SECONDS", "KS_JOB_LEASE_SECONDS",
+    ], k)])
+    error_message = "worker_m3_settings accepts only the documented non-secret M3 Worker keys (see variables.tf); KS_EMBEDDING_PROVIDER cannot be set here."
+  }
+
+  # Value types. Integer keys are positive whole numbers, the overlap may be 0, the embedding
+  # timeout may be fractional, and the model is a plain identifier.
+  validation {
+    condition = alltrue([
+      for k, v in var.worker_m3_settings : (
+        k == "KS_EMBEDDING_MODEL" ? can(regex("^[A-Za-z0-9._:-]+$", v)) :
+        k == "KS_EMBEDDING_TIMEOUT_SECONDS" ? (can(regex("^[0-9]+(\\.[0-9]+)?$", v)) && try(tonumber(v) > 0, false)) :
+        k == "KS_CHUNK_OVERLAP_TOKENS" ? can(regex("^[0-9]+$", v)) :
+        can(regex("^[1-9][0-9]*$", v))
+      )
+    ])
+    error_message = "worker_m3_settings values must be numbers of the right kind: positive whole numbers, KS_CHUNK_OVERLAP_TOKENS a whole number from 0, KS_EMBEDDING_TIMEOUT_SECONDS a positive number, KS_EMBEDDING_MODEL an identifier."
+  }
+
+  validation {
+    condition     = try(tonumber(lookup(var.worker_m3_settings, "KS_CHUNK_OVERLAP_TOKENS", "64")) < tonumber(lookup(var.worker_m3_settings, "KS_CHUNK_SIZE_TOKENS", "512")), false)
+    error_message = "KS_CHUNK_OVERLAP_TOKENS (default 64) must be a number below KS_CHUNK_SIZE_TOKENS (default 512)."
+  }
+
+  validation {
+    condition     = try(tonumber(lookup(var.worker_m3_settings, "KS_EMBEDDING_DIMENSIONS", "1536")) == 1536, false)
+    error_message = "KS_EMBEDDING_DIMENSIONS must be 1536, the width of document_chunks.embedding; another width needs a new migration."
+  }
+}
+
+# Worker sizing (OPEN-31 D2), decided from the M3-00b measurements (docs/milestones/M3/measurements.md):
+#   * concurrency 1 (the default below): the Cloud Run default of 80 would put up to 10 in-flight
+#     jobs on one 512 MiB instance. This lowers a limit and costs nothing extra.
+#   * memory stays 512 MiB and the request timeout stays 300 s: both are left null (unmanaged).
+#   * CPU stays unmanaged (one vCPU is enough, extraction is single-threaded).
+# The first real large-document run on Cloud Run (M3-AC23) must confirm memory and time before
+# anything else changes. null leaves an attribute unmanaged, so the platform default applies.
+
+variable "worker_memory" {
+  type        = string
+  description = "Worker memory limit, for example \"1Gi\". Default null: unmanaged, the Cloud Run default 512Mi applies. Set only from the M3-00b measurements (D2); applying needs the Owner's separate approval."
+  default     = null
+
+  validation {
+    condition     = var.worker_memory == null || can(regex("^[1-9][0-9]*(Mi|Gi)$", coalesce(var.worker_memory, "x")))
+    error_message = "worker_memory must look like 512Mi or 1Gi."
+  }
+}
+
+variable "worker_cpu" {
+  type        = string
+  description = "Worker CPU limit, for example \"1\" or \"2\". Default null: unmanaged (the Cloud Run default applies). Cloud Run allows more than 512Mi only with enough CPU; check the Cloud Run limits before setting it together with worker_memory. Set only from the M3-00b measurements (D2)."
+  default     = null
+
+  validation {
+    condition     = var.worker_cpu == null || can(regex("^[1-9][0-9]*$", coalesce(var.worker_cpu, "x")))
+    error_message = "worker_cpu must be a whole number of CPUs such as 1 or 2."
+  }
+}
+
+variable "worker_concurrency" {
+  type        = number
+  description = "Maximum concurrent requests per Worker instance (max_instance_request_concurrency). Default 1 (OPEN-31 D2, from the M3-00b measurements): one ingestion job per 512 MiB instance. With max_instance_count 2, at most two jobs run at once; further deliveries wait or are rejected by Cloud Run and QStash retries them (a rejected delivery uses no processing attempt). Set null to leave it unmanaged (Cloud Run default 80)."
+  default     = 1
+
+  validation {
+    condition     = var.worker_concurrency == null || (coalesce(var.worker_concurrency, 1) >= 1 && coalesce(var.worker_concurrency, 1) <= 1000 && floor(coalesce(var.worker_concurrency, 1)) == coalesce(var.worker_concurrency, 1))
+    error_message = "worker_concurrency must be a whole number from 1 to 1000."
+  }
+}
+
+variable "worker_request_timeout_seconds" {
+  type        = number
+  description = "Cloud Run request timeout of the Worker in seconds. Default null: unmanaged (300 s), which the M3-00b measurements keep (D2). It must stay above KS_JOB_HANDLER_TIMEOUT_SECONDS (application default 240; see worker_m3_settings)."
+  default     = null
+
+  validation {
+    condition     = var.worker_request_timeout_seconds == null || (coalesce(var.worker_request_timeout_seconds, 1) >= 1 && coalesce(var.worker_request_timeout_seconds, 1) <= 3600 && floor(coalesce(var.worker_request_timeout_seconds, 1)) == coalesce(var.worker_request_timeout_seconds, 1))
+    error_message = "worker_request_timeout_seconds must be a whole number from 1 to 3600."
+  }
+
+  # Also checked while this variable is null: the effective timeout is then the Cloud Run default
+  # of 300 s (documented in docs/milestones/M3/plan.md, section 6), so raising the handler timeout
+  # in worker_m3_settings to 300 or more requires setting this variable too.
+  validation {
+    condition     = coalesce(var.worker_request_timeout_seconds, 300) > try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "240")), 240)
+    error_message = "The Worker request timeout (this variable, or the Cloud Run default of 300 s while it is null) must exceed KS_JOB_HANDLER_TIMEOUT_SECONDS (application default 240), or Cloud Run cuts the request before the handler's own timeout."
+  }
+}
+
+# Monitoring (MON-06, M3-AC24). Off by default: no new always-on resource.
+
+variable "enable_m3_alerts" {
+  type        = bool
+  description = "Create two log-based metrics (application ERROR logs of knowserve-worker and knowserve-api), two alert policies on them and one email notification channel (MON-06, M3-AC24). Default false: nothing is created. Needs alert_email. Stuck outbox rows are derived states in the database and are not logged, so they are not covered (see docs/architecture/infrastructure.md)."
+  default     = false
+}
+
+variable "alert_email" {
+  type        = string
+  description = "Address that receives the M3 alerts. Required only when enable_m3_alerts is true. Put it only in the git-ignored terraform.tfvars."
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = !var.enable_m3_alerts || (var.alert_email != null && can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", coalesce(var.alert_email, "x"))))
+    error_message = "alert_email must be a valid address when enable_m3_alerts is true."
+  }
+}
+
 variable "enable_admin_seed_job" {
   type        = bool
   description = "Create the Cloud Run job knowserve-admin-seed that runs the idempotent Admin provisioning command (python -m knowserve_api.admin_seed) with the runtime (DML-only) service account and the `database-url` secret. Default false: enable only for the Owner-run provisioning (D4), then set back to false and apply. KS_ADMIN_FIREBASE_UID / KS_ADMIN_EMAIL are never stored in Terraform; the Owner passes them when executing the job."

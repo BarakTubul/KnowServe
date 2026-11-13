@@ -1,6 +1,6 @@
 # Backend admin document management
 
-**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). Not implemented: the legacy code takes Google Drive URLs and dispatches Celery.
+**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). M3 is implemented locally: list, detail, access, delete, retry and the status stream (M3-05a), single upload (M3-03), ZIP import (M3-04) and failed-document replace (M3-05b). Nothing has run in the cloud yet. The legacy code takes Google Drive URLs and dispatches Celery.
 
 ## Purpose
 Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a manifest, change access, replace the file of a failed document (M3) or a ready version (M5), soft delete, and retry failed jobs. Processing is described in `ingestion.md`; the end-to-end flow is in `../cross-cutting/document-lifecycle.md`.
@@ -10,7 +10,7 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 |---|---|---|
 | ADM-01 | All admin document routes require the Admin: other identities get 403 (SEC-03) and requests without a session get 401. | M3 |
 | ADM-02 | The admin list returns every non-deleted document regardless of the Admin's active department (Admin endpoints only, SEC-17), including non-ready and `failed` ones (e.g. `NO_EXTRACTABLE_TEXT`), with title/filename, owner department, allowed departments (ids + names), current revision status and phase, and the last failure reason code and message. | M3 |
-| ADM-03 | Single upload: a multipart PDF plus metadata (title, owner department, allowed departments) is validated (ADM-10) and stored in private R2. Then the document, revision, access rows, job and outbox row are written **in one DB transaction** (ING-12), and the response returns the document id with status `queued`. | M3 |
+| ADM-03 | Single upload: a multipart PDF plus metadata (title, owner department, allowed departments) is validated (ADM-10) and stored in private R2. Then the document, revision, access rows, job and outbox row are written **in one DB transaction** (ING-12), and the response (202) returns the document with status `queued`. Requires an `Idempotency-Key` (`../contracts/admin-api.md`). | M3 |
 | ADM-04 | Unknown department ids (owner or allowed) are rejected and nothing is created, in either the DB or R2 (any uploaded object is cleaned up). | M3 |
 | ADM-05 | At least one authorized (allowed) department is **required** on single upload, ZIP confirmation and access update; an empty list is rejected with 422 (OPEN-16). The backend writes **only** the explicitly submitted `document_department_access` rows and never derives access from `owner_department_id` (SEC-04, SEC-05). **Single-PDF upload:** preselecting the owner department is UI behavior only (FE-ADM-03); the Admin may change it, and the submitted list must be nonempty. **ZIP/manifest import (intentionally different):** there is **no default**. Every manifest entry must carry an explicit, nonempty `allowed_departments` list of known department ids; the backend never infers access from the entry's `owner_department` (ADM-11). | M3 |
 | ADM-07 | Updating access replaces the allowed departments in one DB update. It takes effect immediately on every path (SEC-09) and **does not re-embed** or reprocess the document. Unknown documents return 404. | M3 |
@@ -36,14 +36,14 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 |---|---|---|---|
 | ADM-01 | integration | Each route as visitor / registered user / anonymous | 403 / 403 / 401 |
 | ADM-02 | integration | Docs in queued, processing, ready and failed states | all listed with status, phase and reason |
-| ADM-03 | integration | Valid upload (R2 and QStash faked) | 200 `{id}`; document+revision+access+job+outbox rows exist; object stored |
+| ADM-03 | integration | Valid upload (R2 and QStash faked) | 202 with the document (`status` `queued`); document+revision+access+job+outbox rows exist; object stored |
 | ADM-03 | integration | DB failure after the R2 put | no DB rows; orphan object cleaned or tracked for cleanup |
 | ADM-04 | integration | Unknown department id | 4xx; no rows; no object |
 | ADM-05 | integration | Single upload with an empty allowed list; access update to `[]` | 422; nothing created / access unchanged |
 | ADM-05 | integration | Upload with owner = A and allowed = [B] | access rows exactly {B}; a user active in A cannot see the doc (SEC-04) |
 | ADM-05 | integration | Single upload with owner = A and allowed = [A] (the UI default) | accepted; access rows {A} written explicitly, not derived from the owner |
 | ADM-07 | integration | A,B → B,C | A loses and C gains access on the next request; no new job or embeddings |
-| ADM-08 | integration | Soft delete, then user list / bytes / search | absent / 404 / absent; cleanup job enqueued |
+| ADM-08 | integration | Soft delete, then user list / bytes / search | absent / 404 / absent. M3: only `deleted_at` is set and no job is created; the cleanup job is M5 (OPEN-31 D7) |
 | ADM-09 | integration | Create, change access and delete; request the admin list and a permitted user's library after each | each change reflected on the next request |
 | ADM-10 | integration | Non-PDF renamed `.pdf`, oversize file, `../` in the filename | rejected with a reason |
 | ADM-11 | integration | ZIP with traversal, symlink, bomb, too many files, a manifest missing a file, bad JSON | each rejected with a reason |
@@ -71,8 +71,21 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 - Delete is a hard delete plus a Chroma delete after commit. The PDF file is not removed.
 - There is no owner department, revisions, soft delete, retry or audit log.
 
+## Current implementation (target, M3-05a)
+Implemented and tested in `apps/api/src/knowserve_api/admin/` (`manage.py`, `events.py`, `document_views.py`; tests `apps/api/tests/test_m3_admin_manage.py`): ADM-01, ADM-02, ADM-07, ADM-08 (soft delete only), ADM-09, ADM-16 and ADM-17 for access change, delete and retry, plus the status stream (ING-07).
+- `document_views.py` is the single place that builds `DocumentProcessingStatus` and decides `can_retry` and `can_replace`. Retry is offered when the latest revision is not `ready` and its job is in a state `retry_job` accepts (failed, stuck, publish failure), including a failed `NO_EXTRACTABLE_TEXT` (FE-ADM-06). Replace is offered when the document has no current revision, its latest revision is `failed` and no job is active.
+- Retry calls `job_recovery.retry_job` for the latest revision's job: it republishes or requeues the same job and never creates a second one. A ready revision, a done job, an active lease, an unlinked job or a lost race is 409 `DOCUMENT_NOT_RETRYABLE`. The revision goes back to `queued` through the requeue hook inside `retry_job` (M3-00a).
+- Delete sets `deleted_at` once and nothing else. A repeated DELETE is 404 like any deleted id, keeps the first timestamp and writes no second audit row. A job already running is left to the Worker, which must not publish a deleted document (D7, M3-00a/M3-02b).
+- Access update locks the document row, validates the list (empty is 422 `ALLOWED_DEPARTMENTS_EMPTY`, unknown is 422 `UNKNOWN_DEPARTMENT`, an unknown or deleted document is 404 first) and writes exactly the submitted set as a diff. It starts no job.
+- The stream reads the database every second (`POLL_SECONDS` in `events.py`), sends a keepalive comment every `KS_SSE_KEEPALIVE_SECONDS` and ends after `KS_SSE_MAX_SECONDS`. It holds no pool connection between reads. A document deleted while watched ends the stream with `terminal`.
+- Replace (M3-05b, ADM-18, `admin/replace.py`): 404 for an unknown or deleted id, then 409 `DOCUMENT_NOT_REPLACEABLE` unless the document has no current revision and its latest revision and job are `failed`. The check runs before anything is stored and again inside the creating transaction under row locks on the document and the job, so concurrent requests with different keys start one attempt and a retry that got there first makes the replacement a 409. A replacement adds a revision, job and outbox row; the failed revision, owner and access stay. Storage, limits, idempotency and publish are the creation service's (the per-day cap does not apply, the in-flight cap does).
+- Audit events: `admin.document.replaced`, `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace write `admin.document.created`, `admin.import.confirmed` and `admin.document.replaced` rows with ids and counts only.
+
 ## Known gaps
-Every ADM requirement is unimplemented on the target. ADM-04 (reject unknown departments) is the only one partially present in the legacy code.
+ADM-15 (ready-document replace) is M5. ADM-03 and ADM-10 to ADM-14 are implemented in M3-03 and M3-04 (see `../contracts/admin-api.md`, 'Implemented behaviour'). Known behaviour: a limit refusal in the middle of a ZIP confirmation is recorded as that entry's final outcome; a ZIP with more than 10 valid entries meets the default in-flight cap of 10. ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
 
 ## Related docs
 `ingestion.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../frontend/admin-upload.md`
+
+## M3 contract notes (OPEN-31)
+Routes, models, idempotency, error codes and the status stream are fixed in `../contracts/admin-api.md`. ZIP manifests name departments by slug (D10). Upload-producing routes answer 503 `UPLOADS_DISABLED` while `KS_UPLOADS_ENABLED=false` (D14). Upload limits are the D1 values; the 429 codes are `UPLOAD_BACKLOG_FULL` and `DAILY_UPLOAD_LIMIT`.

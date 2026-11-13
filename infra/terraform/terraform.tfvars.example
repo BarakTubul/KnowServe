@@ -43,6 +43,22 @@ firebase_project_id = "knowserve-m0-spike"
 # api_m1_settings    = { KS_AI_GLOBAL_DAILY_QUOTA = "100" }
 # worker_m1_settings = { KS_DEMO_CLEANUP_BATCH_SIZE = "500" }
 
+# M3 Admin upload and ingestion (OPEN-31). The two R2 tokens, the OpenAI key and their Secret
+# Manager VERSIONS are entered by hand, never here. All of these are optional.
+# uploads_enabled    = true   # D14 stop switch: false answers 503 UPLOADS_DISABLED on upload routes
+# api_m3_settings    = {}     # e.g. { KS_UPLOAD_MAX_PDF_BYTES = "20971520" }; empty keeps the D1 defaults
+# worker_m3_settings = {}     # e.g. { KS_CHUNK_SIZE_TOKENS = "512" }; KS_EMBEDDING_PROVIDER is not accepted
+# Worker sizing (D2, from the M3-00b measurements): concurrency defaults to 1; memory (512 MiB),
+# CPU and the 300 s request timeout stay unmanaged. Set the others only after the first large
+# document run on Cloud Run (M3-AC23) shows they are needed.
+# worker_concurrency             = 1
+# worker_memory                  = "1Gi"
+# worker_cpu                     = "1"
+# worker_request_timeout_seconds = 600
+# Alerts (MON-06): off by default. The address goes only in the git-ignored terraform.tfvars.
+# enable_m3_alerts = false
+# alert_email      = "REPLACE_ALERT_EMAIL"
+
 # Admin provisioning job (D4): true only while the Owner runs it, then back to false and apply.
 # enable_admin_seed_job = false
 

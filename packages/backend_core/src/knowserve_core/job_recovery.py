@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .jobs import MANUAL_RETRY_MARKER, enqueue_job
 from .outbox import publish_after_commit, republish_manual
 from .qstash import Publisher
+from .revision_hooks import requeue_revision
 
 DeliveryState = Literal[
     "publishing",
@@ -203,9 +204,12 @@ async def list_job_views(
 
 
 async def _requeue(
-    session_factory: async_sessionmaker[AsyncSession], job_id: uuid.UUID, stuck_after_seconds: int
+    session_factory: async_sessionmaker[AsyncSession],
+    job_id: uuid.UUID,
+    stuck_after_seconds: int,
 ) -> bool:
-    """Reset the job and re-arm its outbox row atomically. False if the guard did not match."""
+    """Reset the job, re-arm its outbox row and run the requeue hook (the job's revision goes
+    back to ``queued``) in one transaction. False if the guard did not match."""
     try:
         async with session_factory() as session, session.begin():
             reset = await session.execute(
@@ -217,6 +221,8 @@ async def _requeue(
             rearmed = await session.execute(_REARM_OUTBOX, {"id": job_id})
             if rearmed.rowcount != 1:  # type: ignore[attr-defined]
                 raise _Skip  # outbox not published: not a processing failure; roll back
+            # RequeueHook (job_hooks.py): the revision follows the job in the same transaction.
+            await requeue_revision(session, job_id)
     except _Skip:
         return False
     return True

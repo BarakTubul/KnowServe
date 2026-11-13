@@ -10,6 +10,8 @@ export type StatusResponse = components['schemas']['StatusResponse'];
 export type Identity = components['schemas']['IdentityResponse'];
 export type Department = components['schemas']['DepartmentOut'];
 
+export type ApiClient = ReturnType<typeof createApiClient>;
+
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function resolveBaseUrl(): string {
@@ -39,13 +41,13 @@ export function createApiClient(baseUrl: string = resolveBaseUrl()) {
   return client;
 }
 
-interface Result {
+export interface Result {
   data?: unknown;
   error?: unknown;
   response: Response;
 }
 
-interface CallOptions {
+export interface CallOptions {
   /**
    * Calls made without a KnowServe session (status, the session exchange, `me`, logout) handle their
    * errors locally. Everything else reports 401/409/429/503 to the global handler (FE-AUTH-05).
@@ -56,7 +58,7 @@ interface CallOptions {
 }
 
 /** Run a request and unwrap it; every failure becomes an ApiError. */
-async function call<T>(run: () => Promise<Result>, options: CallOptions = {}): Promise<T> {
+export async function call<T>(run: () => Promise<Result>, options: CallOptions = {}): Promise<T> {
   let result: Result;
   try {
     result = await run();
@@ -126,4 +128,22 @@ export function setActiveDepartment(
   return call<Identity>(() =>
     client.PUT('/v1/session/department', { body: { department_id: departmentId } }),
   );
+}
+
+/**
+ * A fresh `Idempotency-Key` (`^[A-Za-z0-9_-]{8,128}$`, docs/contracts/admin-api.md). One key belongs to one
+ * user action: the caller keeps it for retries of that same action and asks for a new one for the next.
+ */
+export function newIdempotencyKey(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+/**
+ * Multipart body for the generated client. The schema types file parts as strings, so the FormData is
+ * passed through a cast; the client then leaves Content-Type to the browser, which adds the boundary.
+ */
+export function multipartBody(fields: Iterable<readonly [string, string | Blob]>): never {
+  const form = new FormData();
+  for (const [name, value] of fields) form.append(name, value);
+  return form as never;
 }

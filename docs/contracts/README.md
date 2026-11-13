@@ -10,6 +10,7 @@ These are the interfaces that more than one workstream depends on. The Planning 
 | Log fields and correlation ids | `logging.md` | API, Worker |
 | Same-origin API proxy (Pages Function), direct-access guard | `proxy.md` | Frontend, API, Infrastructure |
 | Auth, sessions, identity interfaces, M1 error codes (M1) | `auth-session.md` | API slices, Frontend |
+| Admin routes, models, idempotency, status stream, M3 error and failure codes (M3) | `admin-api.md` | API slices, Worker, Frontend |
 | OpenAPI baseline (generated, approved) | `openapi.json` | CI drift check, Frontend client |
 
 Code that implements the shared parts lives in `packages/backend_core/src/knowserve_core/`:

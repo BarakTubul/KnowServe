@@ -41,3 +41,6 @@ Vite proxies `/api` to `http://localhost:8000` (stripping the prefix), so develo
 - The API's `run.app` URL stays publicly reachable. It rejects requests without the secret, but the secret is a shared bearer value: if it leaks, anyone can call the API directly (still bound by auth, CSRF and the Origin check). Rotate it.
 - Free-quota exhaustion (100,000 Function requests/day shared) makes API calls fail while static pages keep loading (fail-closed API).
 - Streaming through a Pages Function, `Set-Cookie` pass-through and the forwarded client IP are verified locally with the Workers runtime only; the deployed spike must confirm them on Cloudflare's edge.
+
+## Upload bodies (M3, OPEN-31 D12)
+Admin uploads are multipart bodies up to 20 MiB (ZIP 25 MiB) streamed through this Function to the API. The Function does not buffer them, but what Cloudflare and Cloud Run (32 MiB request limit) actually accept is unmeasured until the single deployed check in M3-AC22. Until then the limits are the configured values with room below 32 MiB. No presigned direct-to-R2 upload is used.

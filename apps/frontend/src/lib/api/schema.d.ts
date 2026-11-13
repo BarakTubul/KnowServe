@@ -38,6 +38,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin List Documents
+         * @description Every non-deleted document with its latest revision status (ADM-02, ADM-09). Needs no
+         *     active department (SEC-17 applies to the user routes, not here). Order: newest first.
+         */
+        get: operations["admin_list_documents"];
+        put?: never;
+        /**
+         * Create Document
+         * @description Validate, store in R2, then write document, revision, access, job and outbox in one
+         *     transaction (ADM-03). The response is 202: processing continues in the Worker.
+         */
+        post: operations["create_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Get Document */
+        get: operations["admin_get_document"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Document
+         * @description Soft delete only (ADM-08, OPEN-31 D7): ``deleted_at`` is set and nothing else changes.
+         *
+         *     No row is removed, no job is created, objects and chunks stay until M5. ``deleted_at`` keeps
+         *     the first value, so a repeated DELETE changes nothing and writes no second audit row; it
+         *     answers 404 like any deleted id (Q7).
+         */
+        delete: operations["delete_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/documents/{document_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Access
+         * @description Replace the allowed departments in one update. No job, no re-embedding (ADM-07).
+         *
+         *     The list is exactly what the Admin sent: an empty list is rejected and nothing is derived
+         *     from the owner department or from the previous access (ADM-05, SEC-04, SEC-05).
+         */
+        patch: operations["update_access"];
+        trace?: never;
+    };
+    "/v1/admin/documents/{document_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Events */
+        get: operations["document_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/documents/{document_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace Failed Document
+         * @description Replace the file of a document with no current revision whose latest revision failed
+         *     (ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state. The rules are in
+         *     ``replace.py``.
+         */
+        post: operations["replace_failed_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/documents/{document_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Document
+         * @description Manual retry (ADM-16). 409 ``DOCUMENT_NOT_RETRYABLE`` for a ready revision, a done job or a
+         *     job with an active lease.
+         *
+         *     The retry itself is ``job_recovery.retry_job``: it republishes a lost outbox row or requeues
+         *     the same job, never creates a second job, and repeats every guard inside the UPDATE that
+         *     performs it, so of two concurrent retries one wins and the other gets 409.
+         */
+        post: operations["retry_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/imports/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Import
+         * @description Partial success is a 200 with per-file results (ADM-14).
+         */
+        post: operations["confirm_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/imports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Import */
+        post: operations["preview_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/ping": {
         parameters: {
             query?: never;
@@ -280,6 +455,104 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessUpdateRequest
+         * @description Replaces the allowed departments (ADM-07). An empty list is 422
+         *     ``ALLOWED_DEPARTMENTS_EMPTY``; the field is not constrained here so the route can return that
+         *     stable code (ADM-05).
+         */
+        AccessUpdateRequest: {
+            /** Allowed Department Ids */
+            allowed_department_ids: string[];
+        };
+        /**
+         * AdminDocumentList
+         * @description Cursor page in the style of the library list (DOC-01). No total count.
+         */
+        AdminDocumentList: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["AdminDocumentOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** AdminDocumentOut */
+        AdminDocumentOut: {
+            /** Allowed Departments */
+            allowed_departments: components["schemas"]["DepartmentOut"][];
+            /** Can Replace */
+            can_replace: boolean;
+            /** Can Retry */
+            can_retry: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivery State */
+            delivery_state?: ("publishing" | "publish_pending" | "publish_failed" | "unpublished_stuck" | "queued" | "queued_stuck" | "processing" | "processing_stuck" | "failed" | "done") | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            failure_code?: components["schemas"]["FailureCode"] | null;
+            /** Failure Message */
+            failure_message?: string | null;
+            /** Filename */
+            filename: string;
+            owner_department: components["schemas"]["DepartmentOut"];
+            /** Page Count */
+            page_count?: number | null;
+            /** Phase */
+            phase?: ("fetching" | "extracting" | "chunking" | "embedding" | "publishing") | null;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "processing" | "ready" | "failed";
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AdminErrorBody
+         * @description The shared error body with the Admin codes of M3 spelled out in the schema, so the
+         *     frontend catalog is checked against them at compile time. Other routes keep other codes.
+         */
+        AdminErrorBody: {
+            /** Code */
+            code: components["schemas"]["AdminErrorCode"] | string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Message */
+            message: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /**
+         * AdminErrorCode
+         * @enum {string}
+         */
+        AdminErrorCode: "DOCUMENT_NOT_FOUND" | "FILE_EMPTY" | "FILE_TOO_LARGE" | "NOT_A_PDF" | "INVALID_FILENAME" | "TITLE_INVALID" | "UNKNOWN_DEPARTMENT" | "ALLOWED_DEPARTMENTS_MISSING" | "ALLOWED_DEPARTMENTS_EMPTY" | "ZIP_INVALID" | "ZIP_TOO_LARGE" | "ZIP_TOO_MANY_FILES" | "ZIP_UNSAFE_PATH" | "ZIP_SYMLINK" | "ZIP_RATIO_EXCEEDED" | "ZIP_UNCOMPRESSED_TOO_LARGE" | "ZIP_NESTED_ARCHIVE" | "ZIP_ENCRYPTED" | "ZIP_DUPLICATE_NAME" | "ZIP_UNLISTED_FILE" | "MANIFEST_MISSING" | "MANIFEST_INVALID" | "MANIFEST_VERSION_UNSUPPORTED" | "MANIFEST_TOO_LARGE" | "MANIFEST_FILE_MISSING" | "DOCUMENT_NOT_REPLACEABLE" | "DOCUMENT_NOT_RETRYABLE" | "IDEMPOTENCY_KEY_REUSED" | "UPLOAD_BACKLOG_FULL" | "DAILY_UPLOAD_LIMIT" | "UPLOADS_DISABLED";
+        /** AdminErrorEnvelope */
+        AdminErrorEnvelope: {
+            error: components["schemas"]["AdminErrorBody"];
+        };
         /** AdminPingResponse */
         AdminPingResponse: {
             /**
@@ -287,6 +560,35 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** Body_confirm_import */
+        Body_confirm_import: {
+            /** File */
+            file: string;
+        };
+        /** Body_create_document */
+        Body_create_document: {
+            /** Allowed Department Ids */
+            allowed_department_ids?: string[] | null;
+            /** File */
+            file: string;
+            /**
+             * Owner Department Id
+             * Format: uuid
+             */
+            owner_department_id: string;
+            /** Title */
+            title: string;
+        };
+        /** Body_preview_import */
+        Body_preview_import: {
+            /** File */
+            file: string;
+        };
+        /** Body_replace_failed_document */
+        Body_replace_failed_document: {
+            /** File */
+            file: string;
         };
         /** DepartmentOut */
         DepartmentOut: {
@@ -377,6 +679,11 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
         };
+        /**
+         * FailureCode
+         * @enum {string}
+         */
+        FailureCode: "NO_EXTRACTABLE_TEXT" | "INVALID_PDF" | "PDF_ENCRYPTED" | "TOO_MANY_PAGES" | "DOCUMENT_DELETED" | "STORAGE_UNAVAILABLE" | "EMBEDDING_FAILED" | "PROCESSING_TIMEOUT" | "PROCESSING_CRASHED" | "INTERNAL_ERROR";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -419,6 +726,71 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** ImportConfirmResponse */
+        ImportConfirmResponse: {
+            /** Created Count */
+            created_count: number;
+            /** Rejected Count */
+            rejected_count: number;
+            /** Results */
+            results: components["schemas"]["ImportEntryResult"][];
+        };
+        /**
+         * ImportEntryPreview
+         * @description One manifest entry as validated by the backend (ADM-12). Nothing was created.
+         */
+        ImportEntryPreview: {
+            /**
+             * Allowed Departments
+             * @default []
+             */
+            allowed_departments: components["schemas"]["DepartmentOut"][];
+            /** Detail */
+            detail?: string | null;
+            error_code?: components["schemas"]["AdminErrorCode"] | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** File */
+            file: string;
+            /** Index */
+            index: number;
+            owner_department?: components["schemas"]["DepartmentOut"] | null;
+            /** Title */
+            title?: string | null;
+            /** Valid */
+            valid: boolean;
+        };
+        /**
+         * ImportEntryResult
+         * @description Per-file outcome of a confirmation (ADM-14).
+         */
+        ImportEntryResult: {
+            /** Detail */
+            detail?: string | null;
+            /** Document Id */
+            document_id?: string | null;
+            error_code?: components["schemas"]["AdminErrorCode"] | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** File */
+            file: string;
+            /** Index */
+            index: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "rejected";
+        };
+        /** ImportPreviewResponse */
+        ImportPreviewResponse: {
+            /** Entries */
+            entries: components["schemas"]["ImportEntryPreview"][];
+            /** Invalid Count */
+            invalid_count: number;
+            /** Valid Count */
+            valid_count: number;
         };
         /** LiveResponse */
         LiveResponse: {
@@ -536,6 +908,707 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    admin_list_documents: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                q?: string | null;
+                status?: ("queued" | "processing" | "ready" | "failed") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_document: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_document"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+        };
+    };
+    admin_get_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_access: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+        };
+    };
+    document_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-sent events for one document. `event: status` carries DocumentProcessingStatus as JSON, sent on connect and on every change. A comment line keeps the connection open. `event: end` carries `{"reason": "terminal" | "timeout"}`; on "timeout" the client reconnects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_failed_document: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_replace_failed_document"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+        };
+    };
+    retry_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_import: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_confirm_import"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportConfirmResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+        };
+    };
+    preview_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_import"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreviewResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorEnvelope"];
                 };
             };
         };
