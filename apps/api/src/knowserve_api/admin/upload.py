@@ -20,9 +20,9 @@ from knowserve_core.ingestion_contract import (
 )
 from knowserve_core.web import AppError
 
-from ..schemas import not_implemented
 from .creation import UploadService, get_upload_service
 from .deps import AdminDocumentId, require_admin_csrf, require_uploads_enabled
+from .replace import replace_failed_document_file
 from .schemas import AdminDocumentOut, admin_error_responses
 from .validation import read_upload
 
@@ -104,12 +104,30 @@ async def create_document(
     responses=admin_error_responses(401, 403, 404, 409, 413, 422, 429, 503),
 )
 async def replace_failed_document(
-    _: Annotated[Identity, Depends(require_admin_csrf)],
+    request: Request,
+    admin: Annotated[Identity, Depends(require_admin_csrf)],
     __: Annotated[None, Depends(require_uploads_enabled)],
+    service: Annotated[UploadService, Depends(get_upload_service)],
     document_id: AdminDocumentId,
     idempotency_key: IdempotencyKey,
     file: Annotated[UploadFile, File()],
 ) -> AdminDocumentOut:
     """Replace the file of a document with no current revision whose latest revision failed
-    (ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state."""
-    raise not_implemented()
+    (ADM-18). 409 ``DOCUMENT_NOT_REPLACEABLE`` for any other state. The rules are in
+    ``replace.py``."""
+    await reject_unknown_form_fields(request, frozenset({"file"}))
+    state = request.app.state
+    data = await read_upload(
+        file, state.settings.upload_max_pdf_bytes, AdminErrorCode.FILE_TOO_LARGE
+    )
+    outcome = await replace_failed_document_file(
+        service=service,
+        factory=state.session_factory,
+        settings=state.settings,
+        admin_id=admin.user_id,
+        document_id=document_id,
+        idempotency_key=idempotency_key,
+        filename=file.filename,
+        data=data,
+    )
+    return outcome.document

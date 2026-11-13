@@ -78,10 +78,11 @@ Implemented and tested in `apps/api/src/knowserve_api/admin/` (`manage.py`, `eve
 - Delete sets `deleted_at` once and nothing else. A repeated DELETE is 404 like any deleted id, keeps the first timestamp and writes no second audit row. A job already running is left to the Worker, which must not publish a deleted document (D7, M3-00a/M3-02b).
 - Access update locks the document row, validates the list (empty is 422 `ALLOWED_DEPARTMENTS_EMPTY`, unknown is 422 `UNKNOWN_DEPARTMENT`, an unknown or deleted document is 404 first) and writes exactly the submitted set as a diff. It starts no job.
 - The stream reads the database every second (`POLL_SECONDS` in `events.py`), sends a keepalive comment every `KS_SSE_KEEPALIVE_SECONDS` and ends after `KS_SSE_MAX_SECONDS`. It holds no pool connection between reads. A document deleted while watched ends the stream with `terminal`.
-- Audit events: `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace audit rows belong to M3-03, M3-04 and M3-05b.
+- Replace (M3-05b, ADM-18, `admin/replace.py`): 404 for an unknown or deleted id, then 409 `DOCUMENT_NOT_REPLACEABLE` unless the document has no current revision and its latest revision and job are `failed`. The check runs before anything is stored and again inside the creating transaction under row locks on the document and the job, so concurrent requests with different keys start one attempt and a retry that got there first makes the replacement a 409. A replacement adds a revision, job and outbox row; the failed revision, owner and access stay. Storage, limits, idempotency and publish are the creation service's (the per-day cap does not apply, the in-flight cap does).
+- Audit events: `admin.document.replaced`, `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace audit rows belong to M3-03, M3-04 and M3-05b.
 
 ## Known gaps
-ADM-03 to ADM-06, ADM-10 to ADM-15 and ADM-18 are not implemented yet (upload, ZIP import, replace: M3-03, M3-04, M3-05b; ready-document replace: M5). ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
+ADM-15 (ready-document replace) is M5. ADM-03, ADM-10 to ADM-14 belong to M3-03 and M3-04. ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
 
 ## Related docs
 `ingestion.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../frontend/admin-upload.md`
