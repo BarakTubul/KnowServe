@@ -1,6 +1,6 @@
 # Backend admin document management
 
-**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). Not implemented: the legacy code takes Google Drive URLs and dispatches Celery.
+**Status:** Target spec (M3 upload and failed-document file replacement; M5 ready-document replacement/delete/lifecycle hardening). M3-05a (list, detail, access, delete, retry, status stream) is implemented; upload, ZIP import and replace are not yet. The legacy code takes Google Drive URLs and dispatches Celery.
 
 ## Purpose
 Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a manifest, change access, replace the file of a failed document (M3) or a ready version (M5), soft delete, and retry failed jobs. Processing is described in `ingestion.md`; the end-to-end flow is in `../cross-cutting/document-lifecycle.md`.
@@ -71,8 +71,17 @@ Admin-only APIs: list all documents, upload a single PDF, import a ZIP with a ma
 - Delete is a hard delete plus a Chroma delete after commit. The PDF file is not removed.
 - There is no owner department, revisions, soft delete, retry or audit log.
 
+## Current implementation (target, M3-05a)
+Implemented and tested in `apps/api/src/knowserve_api/admin/` (`manage.py`, `events.py`, `document_views.py`; tests `apps/api/tests/test_m3_admin_manage.py`): ADM-01, ADM-02, ADM-07, ADM-08 (soft delete only), ADM-09, ADM-16 and ADM-17 for access change, delete and retry, plus the status stream (ING-07).
+- `document_views.py` is the single place that builds `DocumentProcessingStatus` and decides `can_retry` and `can_replace`. Retry is offered when the latest revision is not `ready` and its job is in a state `retry_job` accepts (failed, stuck, publish failure), including a failed `NO_EXTRACTABLE_TEXT` (FE-ADM-06). Replace is offered when the document has no current revision, its latest revision is `failed` and no job is active.
+- Retry calls `job_recovery.retry_job` for the latest revision's job: it republishes or requeues the same job and never creates a second one. A ready revision, a done job, an active lease, an unlinked job or a lost race is 409 `DOCUMENT_NOT_RETRYABLE`. The revision goes back to `queued` through the requeue hook inside `retry_job` (M3-00a).
+- Delete sets `deleted_at` once and nothing else. A repeated DELETE is 404 like any deleted id, keeps the first timestamp and writes no second audit row. A job already running is left to the Worker, which must not publish a deleted document (D7, M3-00a/M3-02b).
+- Access update locks the document row, validates the list (empty is 422 `ALLOWED_DEPARTMENTS_EMPTY`, unknown is 422 `UNKNOWN_DEPARTMENT`, an unknown or deleted document is 404 first) and writes exactly the submitted set as a diff. It starts no job.
+- The stream reads the database every second (`POLL_SECONDS` in `events.py`), sends a keepalive comment every `KS_SSE_KEEPALIVE_SECONDS` and ends after `KS_SSE_MAX_SECONDS`. It holds no pool connection between reads. A document deleted while watched ends the stream with `terminal`.
+- Audit events: `admin.document.access_changed`, `admin.document.deleted`, `admin.document.retried`, with the admin id, document id and counts or ids only. Upload, import and replace audit rows belong to M3-03, M3-04 and M3-05b.
+
 ## Known gaps
-Every ADM requirement is unimplemented on the target. ADM-04 (reject unknown departments) is the only one partially present in the legacy code.
+ADM-03 to ADM-06, ADM-10 to ADM-15 and ADM-18 are not implemented yet (upload, ZIP import, replace: M3-03, M3-04, M3-05b; ready-document replace: M5). ADM-04 (reject unknown departments) is partially present in the legacy code and is enforced for access updates on the target.
 
 ## Related docs
 `ingestion.md`, `documents.md`, `../cross-cutting/document-lifecycle.md`, `../cross-cutting/security-and-permissions.md`, `../frontend/admin-upload.md`
