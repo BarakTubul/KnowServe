@@ -40,6 +40,7 @@ from ..schemas import DepartmentOut
 from .validation import (
     _BIDI_FORMATTING,
     _BIDI_MARKS,
+    MAX_ALLOWED_DEPARTMENTS,
     PdfCheck,
     check_pdf_structure,
     reject,
@@ -296,6 +297,10 @@ def _plan_entry(
         return plan
     if not allowed:
         plan.error_code = AdminErrorCode.ALLOWED_DEPARTMENTS_EMPTY
+        return plan
+    if len(allowed) > MAX_ALLOWED_DEPARTMENTS:
+        plan.error_code = AdminErrorCode.MANIFEST_INVALID
+        plan.detail = "allowed_departments"
         return plan
     unknown = next((s for s in allowed if s not in departments), None)
     if unknown is not None:

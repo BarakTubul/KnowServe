@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import uuid
 from typing import Any
 
 import pytest
@@ -53,6 +54,9 @@ async def admin(make_user: Any, make_session: Any) -> Any:
 # --- 1. The body is capped before auth and before parsing -------------------------------------
 
 
+FORGED_COOKIE = b"other=1; ks_session=not-a-real-session"
+
+
 async def _asgi(app: Any, headers: list[tuple[bytes, bytes]], chunks: Any) -> tuple[int, dict]:
     sent: dict[str, Any] = {"status": None, "body": b""}
     chunk_iter = iter(chunks)
@@ -92,7 +96,11 @@ async def test_sec11_oversized_unauthenticated_upload_is_413_before_any_body_is_
 ) -> None:
     app = make_app(engine, clock, upload_max_pdf_bytes=1000, upload_max_zip_bytes=1000)
     boundary = b"multipart/form-data; boundary=x"
-    headers = [(b"content-type", boundary), (b"content-length", str(10_000_000).encode())]
+    headers = [
+        (b"content-type", boundary),
+        (b"content-length", str(10_000_000).encode()),
+        (b"cookie", FORGED_COOKIE),
+    ]
     status, info = await _asgi(app, headers, [])
     assert status == 413
     assert b"FILE_TOO_LARGE" in info["body"]
@@ -103,7 +111,7 @@ async def test_sec11_a_body_without_content_length_is_cut_off_at_the_limit(
     engine: AsyncEngine, clock: FakeClock
 ) -> None:
     app = make_app(engine, clock, upload_max_pdf_bytes=1000, upload_max_zip_bytes=1000)
-    headers = [(b"content-type", b"multipart/form-data; boundary=x")]
+    headers = [(b"content-type", b"multipart/form-data; boundary=x"), (b"cookie", FORGED_COOKIE)]
     chunk = b"a" * 16_384
     opening = b'--x\r\nContent-Disposition: form-data; name="file"; filename="a.pdf"\r\n\r\n'
     status, info = await _asgi(app, headers, [opening] + [chunk] * 5_000)  # 80 MB offered
@@ -127,6 +135,44 @@ async def test_sec11_normal_unauthenticated_upload_is_still_401_and_admin_still_
         ok = await post_document(client, admin, pdf=pdf_two_pages())
     assert anonymous.status_code == 401
     assert ok.status_code == 202
+
+
+async def test_sec11_anonymous_oversized_upload_is_401_without_reading_the_body(
+    engine: AsyncEngine, clock: FakeClock
+) -> None:
+    app = make_app(engine, clock, upload_max_pdf_bytes=1000, upload_max_zip_bytes=1000)
+    headers = [
+        (b"content-type", b"multipart/form-data; boundary=x"),
+        (b"content-length", b"10000000"),
+        (b"cookie", b"other=1"),  # a cookie, but not the session cookie
+    ]
+    status, info = await _asgi(app, headers, [])
+    assert status == 401
+    assert b"UNAUTHENTICATED" in info["body"]
+    assert info["reads"] == 0
+
+
+async def test_sec11_anonymous_malformed_multipart_is_401_not_400_and_reads_nothing(
+    engine: AsyncEngine, clock: FakeClock
+) -> None:
+    app = make_app(engine, clock)
+    headers = [(b"content-type", b"multipart/form-data; boundary=x")]
+    status, info = await _asgi(app, headers, [b"garbage" * 1000] * 50)
+    assert status == 401
+    assert info["reads"] == 0
+
+
+async def test_sec11_a_bad_session_cookie_value_still_gets_the_normal_401(
+    engine: AsyncEngine, clock: FakeClock, store: FakeObjectStore, publisher: FakePublisher
+) -> None:
+    class Forged:
+        headers: dict[str, str] = {"X-CSRF-Token": "x", "Origin": "http://localhost:5173"}
+        cookies: dict[str, str] = {"ks_session": "not-a-real-session"}
+
+    async with make_client(make_app(engine, clock, store=store, publisher=publisher)) as client:
+        response = await post_document(client, Forged(), pdf=pdf_two_pages())
+    assert response.status_code == 401  # the auth dependency, not the cheap guard
+    await assert_nothing_created(engine, store)
 
 
 # --- 2, 3, 4. Archive guards ---------------------------------------------------------------------
@@ -278,3 +324,44 @@ async def test_sec11_echoed_file_names_are_truncated_and_stripped_of_bidi_contro
     shown = response.json()["entries"][1]
     assert shown["valid"] is False
     assert "‮" not in shown["file"] and len(shown["file"]) <= 200
+
+
+# --- 9. Department lists are capped --------------------------------------------------------------
+
+
+async def test_adm03_more_than_50_allowed_departments_is_a_validation_error(
+    engine: AsyncEngine,
+    clock: FakeClock,
+    store: FakeObjectStore,
+    publisher: FakePublisher,
+    admin: Any,
+) -> None:
+    from m3_upload_support import upload_data
+
+    data = upload_data()
+    data["allowed_department_ids"] = [str(uuid.uuid4()) for _ in range(51)]
+    async with make_client(make_app(engine, clock, store=store, publisher=publisher)) as client:
+        response = await post_document(client, admin, pdf=pdf_two_pages(), data=data)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    await assert_nothing_created(engine, store)
+
+
+async def test_adm13_a_manifest_entry_with_more_than_50_departments_is_invalid(
+    engine: AsyncEngine,
+    clock: FakeClock,
+    store: FakeObjectStore,
+    publisher: FakePublisher,
+    admin: Any,
+) -> None:
+    entry = manifest_entry("big.pdf")
+    entry["allowed_departments"] = ["finance"] * 51
+    data = make_zip(
+        {"ok.pdf": pdf_two_pages(), "big.pdf": pdf_two_pages()},
+        manifest_json([manifest_entry("ok.pdf"), entry]),
+    )
+    async with _client(engine, clock, store, publisher) as client:
+        response = await _post(client, admin, "preview", data)
+    entries = response.json()["entries"]
+    assert [e["valid"] for e in entries] == [True, False]
+    assert entries[1]["error_code"] == "MANIFEST_INVALID"

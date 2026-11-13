@@ -67,6 +67,7 @@ from knowserve_core.web import AppError
 from ..schemas import DepartmentOut
 from .schemas import AdminDocumentOut
 from .validation import (
+    MAX_ALLOWED_DEPARTMENTS,
     PdfCheck,
     check_pdf_structure,
     reject,
@@ -446,6 +447,8 @@ class UploadService:
         clean_title = validate_title(title)
         if allowed_department_ids is None:
             raise reject(AdminErrorCode.ALLOWED_DEPARTMENTS_MISSING)
+        if len(allowed_department_ids) > MAX_ALLOWED_DEPARTMENTS:
+            raise AppError(422, "VALIDATION_ERROR", "Too many allowed departments")
         allowed = sorted(set(allowed_department_ids), key=str)
         if not allowed:
             raise reject(AdminErrorCode.ALLOWED_DEPARTMENTS_EMPTY)

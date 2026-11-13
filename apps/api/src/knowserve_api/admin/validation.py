@@ -127,3 +127,6 @@ def validate_pdf(
         raise reject(AdminErrorCode.FILE_EMPTY)
     pdf_check(data)
     return name
+
+
+MAX_ALLOWED_DEPARTMENTS = 50  # per document, in the create form and in manifest entries
