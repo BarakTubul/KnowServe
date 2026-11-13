@@ -1,3 +1,4 @@
+import { ApiError } from '@/lib/api/errors';
 import type { components } from '@/lib/api/schema';
 import { DEFAULT_LANGUAGE, messageForCode, type Language } from '@/lib/i18n/languages';
 
@@ -11,10 +12,23 @@ import { DEFAULT_LANGUAGE, messageForCode, type Language } from '@/lib/i18n/lang
 export type AdminErrorCode = components['schemas']['AdminErrorCode'];
 export type FailureCode = components['schemas']['FailureCode'];
 
-type Generic = { generic: string };
+/**
+ * Codes every authenticated route can return (docs/contracts/api.md, plus the transport failure the
+ * client invents). They live in the same catalog so an Admin screen needs only one lookup (M3-06a).
+ */
+export type CommonCode =
+  'NETWORK_ERROR' | 'FORBIDDEN' | 'VALIDATION_ERROR' | 'RATE_LIMITED' | 'DEPENDENCY_UNAVAILABLE';
 
-const adminEn: Record<AdminErrorCode, string> & Generic = {
+type Generic = { generic: string };
+type AdminCatalog = Record<AdminErrorCode | CommonCode, string> & Generic;
+
+const adminEn: AdminCatalog = {
   generic: 'Something went wrong. Please try again.',
+  NETWORK_ERROR: 'Could not reach the server. Check your connection and try again.',
+  FORBIDDEN: 'This account is not allowed to manage documents.',
+  VALIDATION_ERROR: 'Some of the entered values cannot be used. Check them and try again.',
+  RATE_LIMITED: 'Too many requests right now. Wait a moment and try again.',
+  DEPENDENCY_UNAVAILABLE: 'The service is temporarily unavailable. Try again in a few minutes.',
   DOCUMENT_NOT_FOUND: 'This document was not found. It may have been deleted.',
   FILE_EMPTY: 'The file is empty. Choose a file with content.',
   FILE_TOO_LARGE: 'The file is larger than the allowed size. Choose a smaller file.',
@@ -48,8 +62,13 @@ const adminEn: Record<AdminErrorCode, string> & Generic = {
   UPLOADS_DISABLED: 'Uploads are paused for now. You can still manage existing documents.',
 };
 
-const adminHe: Record<AdminErrorCode, string> & Generic = {
+const adminHe: AdminCatalog = {
   generic: 'משהו השתבש. כדאי לנסות שוב.',
+  NETWORK_ERROR: 'לא הצלחנו להתחבר לשרת. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.',
+  FORBIDDEN: 'לחשבון הזה אין הרשאה לנהל מסמכים.',
+  VALIDATION_ERROR: 'אי אפשר להשתמש בחלק מהערכים שהוזנו. כדאי לבדוק אותם ולנסות שוב.',
+  RATE_LIMITED: 'יש כרגע יותר מדי בקשות. אפשר להמתין רגע ולנסות שוב.',
+  DEPENDENCY_UNAVAILABLE: 'השירות אינו זמין כרגע. אפשר לנסות שוב בעוד כמה דקות.',
   DOCUMENT_NOT_FOUND: 'המסמך לא נמצא. ייתכן שהוא נמחק.',
   FILE_EMPTY: 'הקובץ ריק. יש לבחור קובץ עם תוכן.',
   FILE_TOO_LARGE: 'הקובץ גדול מהגודל המותר. יש לבחור קובץ קטן יותר.',
@@ -124,4 +143,20 @@ export function adminErrorMessage(code: string, language: Language = DEFAULT_LAN
 /** Text for a stored failure code. The server's English `failure_message` is never shown. */
 export function failureMessage(code: string, language: Language = DEFAULT_LANGUAGE): string {
   return messageForCode(FAILURE_CATALOGS[language], failureEn, code);
+}
+
+/**
+ * Text for any error an Admin call can raise (FE-ADM-09, FE-ARCH-14): the stable code selects the
+ * catalog text and `error.message` is never shown. A 413 that the proxy answers without our envelope
+ * still reads as "file too large" (M3 plan section 8).
+ */
+export function describeAdminError(error: unknown, language: Language = DEFAULT_LANGUAGE): string {
+  if (!(error instanceof ApiError)) return adminErrorMessage('generic', language);
+  if (error.code === 'UNEXPECTED_RESPONSE' && error.status === 413) {
+    return adminErrorMessage('FILE_TOO_LARGE', language);
+  }
+  if (error.code === 'UNEXPECTED_RESPONSE' && error.status === 503) {
+    return adminErrorMessage('DEPENDENCY_UNAVAILABLE', language);
+  }
+  return adminErrorMessage(error.code, language);
 }
