@@ -77,7 +77,11 @@ export interface paths {
         post?: never;
         /**
          * Delete Document
-         * @description Soft delete only (ADM-08, OPEN-31 D7). Objects and chunks stay until M5.
+         * @description Soft delete only (ADM-08, OPEN-31 D7): ``deleted_at`` is set and nothing else changes.
+         *
+         *     No row is removed, no job is created, objects and chunks stay until M5. ``deleted_at`` keeps
+         *     the first value, so a repeated DELETE changes nothing and writes no second audit row; it
+         *     answers 404 like any deleted id (Q7).
          */
         delete: operations["delete_document"];
         options?: never;
@@ -101,6 +105,9 @@ export interface paths {
         /**
          * Update Access
          * @description Replace the allowed departments in one update. No job, no re-embedding (ADM-07).
+         *
+         *     The list is exactly what the Admin sent: an empty list is rejected and nothing is derived
+         *     from the owner department or from the previous access (ADM-05, SEC-04, SEC-05).
          */
         patch: operations["update_access"];
         trace?: never;
@@ -154,7 +161,12 @@ export interface paths {
         put?: never;
         /**
          * Retry Document
-         * @description Manual retry (ADM-16). 409 ``DOCUMENT_NOT_RETRYABLE`` for a done or actively leased job.
+         * @description Manual retry (ADM-16). 409 ``DOCUMENT_NOT_RETRYABLE`` for a ready revision, a done job or a
+         *     job with an active lease.
+         *
+         *     The retry itself is ``job_recovery.retry_job``: it republishes a lost outbox row or requeues
+         *     the same job, never creates a second job, and repeats every guard inside the UPDATE that
+         *     performs it, so of two concurrent retries one wins and the other gets 409.
          */
         post: operations["retry_document"];
         delete?: never;
