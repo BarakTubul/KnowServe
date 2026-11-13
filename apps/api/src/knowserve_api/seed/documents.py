@@ -1,6 +1,9 @@
 """Idempotent demo document seed (M2-05, D1, Q5).
 
-    python -m knowserve_api.seed.documents
+    python -m knowserve_api.seed.documents [--ingest]
+
+``--ingest`` (M3-02c) then indexes the seeded revisions through the Worker's ingest handler in
+reindex mode (``knowserve_worker.seed_ingest``). It needs the Worker package and its settings.
 
 Reads ``KS_DATABASE_URL``, ``KS_ENV`` (default ``local``), ``KS_OBJECT_STORE`` (default
 ``filesystem``) and ``KS_OBJECT_STORE_PATH``; for ``r2`` it also reads ``KS_R2_ENDPOINT``,
@@ -220,7 +223,19 @@ async def _run() -> int:
         print(f"{slug}: {outcome}")
     counts = Counter(outcomes.values())
     print("document seed: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    return 1 if counts["object_conflict"] or counts["incomplete"] else 0
+    code = 1 if counts["object_conflict"] or counts["incomplete"] else 0
+    if "--ingest" in sys.argv[1:]:
+        # M3-02c (Q8): index the seeded revisions through the Worker's handler in reindex mode.
+        try:
+            from knowserve_worker.seed_ingest import ingest_from_env
+        except ImportError:
+            print(
+                "document seed: --ingest needs the Worker package (run it from its image)",
+                file=sys.stderr,
+            )
+            return 2
+        code = max(code, await ingest_from_env())
+    return code
 
 
 def main() -> None:
