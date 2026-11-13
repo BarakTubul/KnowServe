@@ -92,7 +92,16 @@ locals {
   # `migration-database-url` (M1, OPEN-26 D2) holds the DDL-role connection string used only by the
   # migration job. It has no entry in secret_readers on purpose: the API, the Worker and the deployer
   # never read it. Its single accessor binding is in gcp_migration_job.tf.
-  secret_ids = ["database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key", "qstash-next-signing-key", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key", "ip-hash-pepper"]
+  #
+  # M3 (OPEN-31 D3, D6): `r2-worker-access-key-id` and `r2-worker-secret-access-key` hold the
+  # Worker's READ-ONLY R2 token; `openai-api-key` holds the OpenAI key of the dedicated project.
+  # They are separate containers because the Worker reads them as the same KS_R2_* names the API
+  # uses for its read/write/delete token (see secret_env_names in gcp_cloud_run.tf).
+  secret_ids = [
+    "database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key",
+    "qstash-next-signing-key", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key",
+    "ip-hash-pepper", "r2-worker-access-key-id", "r2-worker-secret-access-key", "openai-api-key",
+  ]
 
   # Which runtime account may read which secret.
   secret_readers = {
@@ -102,10 +111,16 @@ locals {
     "qstash-next-signing-key"    = { api = false, worker = true }
     "proxy-shared-secret"        = { api = true, worker = false } # docs/contracts/proxy.md
     # M2: R2 credentials for the document object store and the pepper for the keyed hash of the
-    # client address in rate-limit keys (SEC-18). API only; the Worker needs R2 from M3.
+    # client address in rate-limit keys (SEC-18). API only. From M3 the API's token must also be
+    # able to delete (D6); the Worker never reads these two, so it holds no write credential.
     "r2-access-key-id"     = { api = true, worker = false }
     "r2-secret-access-key" = { api = true, worker = false }
     "ip-hash-pepper"       = { api = true, worker = false }
+    # M3: the Worker's own read-only R2 token and the OpenAI key. Worker only: the API neither
+    # reads objects as the Worker does nor calls OpenAI (docs/contracts/config-and-deploy.md).
+    "r2-worker-access-key-id"     = { api = false, worker = true }
+    "r2-worker-secret-access-key" = { api = false, worker = true }
+    "openai-api-key"              = { api = false, worker = true }
   }
 }
 
