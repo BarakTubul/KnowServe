@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -29,7 +30,7 @@ pytestmark = [pytest.mark.m0, pytest.mark.worker, pytest.mark.integration]
 Factory = async_sessionmaker[AsyncSession]
 GRACE = 120
 STUCK = 900
-KW = {"grace_seconds": GRACE, "stuck_after_seconds": STUCK}
+KW: dict[str, Any] = {"grace_seconds": GRACE, "stuck_after_seconds": STUCK}
 
 
 async def sql(factory: Factory, statement: str, **params: object) -> None:

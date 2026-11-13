@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -26,6 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from knowserve_core import demo_cleanup, request_context
 from knowserve_core.clock import Clock, SystemClock
 from knowserve_core.db import check_database, create_engine, create_session_factory
+from knowserve_core.ingestion_contract import FAILURES, FailureCode
+from knowserve_core.job_claims import (
+    claim_job,
+    complete_job,
+    fail_job,
+    release_job,
+    renew_lease,
+)
+from knowserve_core.job_fencing import LostClaimError, assert_claimed
+from knowserve_core.job_hooks import NonRetryableJobError, RetryableJobError, TerminalFailureHook
 from knowserve_core.jobs import MANUAL_RETRY_MARKER
 from knowserve_core.logging import configure_logging
 from knowserve_core.oidc import OidcVerifier, google_oidc_verifier
@@ -38,6 +48,7 @@ from knowserve_core.qstash import (
     build_publisher,
     verify_signature,
 )
+from knowserve_core.revision_hooks import mark_revision_failed
 from knowserve_core.settings import Settings, get_settings
 from knowserve_core.web import AppError, install_web
 
@@ -51,6 +62,13 @@ class JobContext:
     correlation_id: str
     attempts: int
     previous_error: str | None = None
+    # The claim this worker holds. Pipeline writes call ``fence`` first (F7).
+    claimed_by: str = ""
+
+    async def fence(self, session: AsyncSession) -> None:
+        """Lock the job row and require that this worker still holds it, or raise
+        ``LostClaimError``. Call it first in every transaction that writes pipeline results."""
+        await assert_claimed(session, self.job_id, self.claimed_by)
 
 
 Handler = Callable[[JobContext], Awaitable[None]]
@@ -158,32 +176,6 @@ async def health_ready(request: Request) -> dict[str, str]:
     return {"status": "ready"}
 
 
-_CLAIM = text(
-    """
-    UPDATE jobs SET status = 'processing', attempts = attempts + 1, claimed_by = :me,
-                    lease_expires_at = now() + make_interval(secs => :lease), updated_at = now()
-    WHERE id = :id AND (status = 'queued'
-                        OR (status = 'processing'
-                            AND (lease_expires_at IS NULL OR lease_expires_at < now())))
-    RETURNING job_type, correlation_id, attempts, last_error
-    """
-)
-_COMPLETE = text(
-    """
-    UPDATE jobs SET status = 'done', completed_at = now(), updated_at = now(),
-                    lease_expires_at = NULL, last_error = NULL
-    WHERE id = :id AND claimed_by = :me AND status = 'processing'
-    """
-)
-_RELEASE = text(
-    """
-    UPDATE jobs SET status = :status, last_error = :error, lease_expires_at = NULL,
-                    claimed_by = NULL, updated_at = now()
-    WHERE id = :id AND claimed_by = :me AND status = 'processing'
-    """
-)
-
-
 def _parse_envelope(body: bytes) -> uuid.UUID:
     try:
         data = json.loads(body)
@@ -235,68 +227,148 @@ async def run_job(request: Request) -> JSONResponse:
     if row.status == "failed":
         return JSONResponse({"result": "failed"})
 
+    hook: TerminalFailureHook = state.terminal_hook
     me = f"{state.instance_id}:{uuid.uuid4().hex[:8]}"
-    async with factory() as session, session.begin():
-        claimed = (
-            await session.execute(
-                _CLAIM, {"id": job_id, "me": me, "lease": settings.job_lease_seconds}
-            )
-        ).first()
-    if claimed is None:
-        async with factory() as session, session.begin():
-            current = (
-                await session.execute(
-                    text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}
-                )
-            ).scalar_one_or_none()
-        if current == "done":
-            return JSONResponse({"result": "already_done"})
-        if current == "failed":
-            return JSONResponse({"result": "failed"})
+    claim = await claim_job(
+        factory,
+        job_id,
+        me,
+        lease_seconds=settings.job_lease_seconds,
+        max_attempts=settings.job_max_attempts,
+        terminal_hook=hook,
+    )
+    if claim.kind == "unknown":
+        return JSONResponse({"result": "unknown_job"})
+    if claim.kind == "done":
+        return JSONResponse({"result": "already_done"})
+    if claim.kind == "failed":
+        return JSONResponse({"result": "failed"})
+    if claim.kind == "busy":
         raise AppError(409, "JOB_IN_PROGRESS", "Job is being processed by another worker")
+    if claim.kind == "crash_failed":
+        # The attempt cap was already used up by claims that never reported back (crash loop).
+        logger.error("job failed permanently: crash guard", extra={"job_id": str(job_id)})
+        raise AppError(500, "JOB_FAILED_PERMANENTLY", "Job failed; attempts exhausted")
+    assert claim.job is not None
 
     ctx = JobContext(
-        job_id, claimed.job_type, claimed.correlation_id, claimed.attempts, claimed.last_error
+        job_id,
+        claim.job.job_type,
+        claim.job.correlation_id,
+        claim.job.attempts,
+        claim.job.last_error,
+        claimed_by=me,
     )
     handler: Handler | None = state.handlers.get(ctx.job_type)
     if handler is None:
-        await _finish(factory, _RELEASE, job_id, me, status="failed", error="no handler")
+        if not await fail_job(factory, job_id, me, FailureCode.INTERNAL_ERROR, "no handler", hook):
+            raise _claim_lost(job_id)
         logger.error("no handler for job type", extra={"job_type": ctx.job_type})
         return JSONResponse({"result": "failed"})
     logger.info("job claimed", extra={"job_id": str(job_id), "attempts": ctx.attempts})
     try:
-        await asyncio.wait_for(handler(ctx), settings.job_handler_timeout_seconds)
+        await _run_with_heartbeat(handler, ctx, state, settings)
+    except LostClaimError:
+        raise _claim_lost(job_id) from None
+    except NonRetryableJobError as exc:
+        # Retrying cannot help (ING-23): failed at once, without waiting for the attempt cap.
+        await _fail_permanently(
+            factory, hook, job_id, me, exc.failure_code, exc.failure_code.value, ctx.attempts
+        )
     except Exception as exc:
-        if isinstance(exc, TimeoutError):
-            error = "handler timed out"
-        else:
-            error = f"{type(exc).__name__}: {exc}"[:500]
+        code, error = _classify(exc)
         if ctx.attempts >= settings.job_max_attempts:
             # Attempts exhausted: the job is terminally failed and visible for a manual retry.
             # The execution still failed, so it is not acknowledged with 2xx; if QStash has
             # retries left, the next delivery finds a `failed` job and answers 200 (no work).
-            await _finish(factory, _RELEASE, job_id, me, status="failed", error=error)
-            logger.error(
-                "job failed permanently",
-                extra={"job_id": str(job_id), "attempts": ctx.attempts},
-                exc_info=True,
-            )
-            raise AppError(
-                500, "JOB_FAILED_PERMANENTLY", "Job failed; attempts exhausted"
-            ) from None
-        await _finish(factory, _RELEASE, job_id, me, status="queued", error=error)
+            await _fail_permanently(factory, hook, job_id, me, code, error, ctx.attempts)
+        if not await release_job(factory, job_id, me, error):
+            raise _claim_lost(job_id) from None
         logger.error("job handler failed", extra={"job_id": str(job_id)}, exc_info=True)
         raise AppError(500, "JOB_FAILED", "Job failed; delivery will be retried") from None
-    await _finish(factory, _COMPLETE, job_id, me)
+    if not await complete_job(factory, job_id, me):
+        raise _claim_lost(job_id)
     logger.info("job done", extra={"job_id": str(job_id)})
     return JSONResponse({"result": "done"})
 
 
-async def _finish(
-    factory: async_sessionmaker[AsyncSession], stmt: Any, job_id: uuid.UUID, me: str, **extra: Any
+def _classify(exc: Exception) -> tuple[FailureCode, str]:
+    """The failure code shown if this was the last attempt, and the text kept in ``last_error``."""
+    if isinstance(exc, RetryableJobError):
+        return exc.failure_code, exc.failure_code.value
+    if isinstance(exc, TimeoutError):
+        return FailureCode.PROCESSING_TIMEOUT, "handler timed out"
+    return FailureCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}"[:500]
+
+
+def _claim_lost(job_id: uuid.UUID) -> AppError:
+    # The job is no longer ours (reclaimed after a lease expiry, or finished elsewhere). Nothing
+    # was changed; the current owner decides the outcome. QStash may redeliver.
+    logger.warning("job claim lost", extra={"job_id": str(job_id)})
+    return AppError(409, "JOB_CLAIM_LOST", "Job is no longer claimed by this worker")
+
+
+async def _fail_permanently(
+    factory: async_sessionmaker[AsyncSession],
+    hook: TerminalFailureHook,
+    job_id: uuid.UUID,
+    me: str,
+    code: FailureCode,
+    error: str,
+    attempts: int,
+) -> NoReturn:
+    if not await fail_job(factory, job_id, me, code, error, hook):
+        raise _claim_lost(job_id)
+    logger.error(
+        "job failed permanently",
+        extra={"job_id": str(job_id), "attempts": attempts, "failure_code": code.value},
+        exc_info=True,
+    )
+    raise AppError(500, "JOB_FAILED_PERMANENTLY", FAILURES[code].message) from None
+
+
+async def _run_with_heartbeat(
+    handler: Handler, ctx: JobContext, state: Any, settings: Settings
 ) -> None:
-    async with factory() as session, session.begin():
-        await session.execute(stmt, {"id": job_id, "me": me, **extra})
+    """Run the handler under the handler timeout while a heartbeat keeps the lease alive.
+
+    If the heartbeat finds the claim gone, the handler is cancelled and ``LostClaimError`` is
+    raised, so a worker that lost its job stops working on it.
+    """
+    factory: async_sessionmaker[AsyncSession] = state.session_factory
+    interval: float = state.heartbeat_interval
+    task = asyncio.ensure_future(handler(ctx))
+    lost = asyncio.Event()
+
+    async def beat() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                alive = await renew_lease(
+                    factory, ctx.job_id, ctx.claimed_by, settings.job_lease_seconds
+                )
+            except Exception:
+                # A database blip must not kill the handler; the next beat tries again and the
+                # fencing check protects the writes if the lease really lapsed.
+                logger.warning("lease renewal failed", extra={"job_id": str(ctx.job_id)})
+                continue
+            if not alive:
+                lost.set()
+                task.cancel()
+                return
+
+    heartbeat = asyncio.ensure_future(beat())
+    try:
+        await asyncio.wait_for(task, settings.job_handler_timeout_seconds)
+    except asyncio.CancelledError:
+        if lost.is_set():
+            raise LostClaimError("lease renewal found the claim gone") from None
+        raise
+    finally:
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
+    if lost.is_set():
+        raise LostClaimError("lease renewal found the claim gone")
 
 
 async def _require_dispatcher(request: Request) -> None:
@@ -394,6 +466,8 @@ def create_app(
     handlers: dict[str, Handler] | None = None,
     oidc_verifier: OidcVerifier | None = None,
     clock: Clock | None = None,
+    terminal_hook: TerminalFailureHook | None = None,
+    heartbeat_interval: float | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     if settings.env == "production":
@@ -428,6 +502,9 @@ def create_app(
     app.state.oidc_verifier = oidc_verifier or google_oidc_verifier
     app.state.clock = clock or SystemClock()
     app.state.instance_id = f"worker-{uuid.uuid4().hex[:8]}"
+    app.state.terminal_hook = terminal_hook or mark_revision_failed
+    # Renew at a third of the lease, so two missed beats still leave the lease alive.
+    app.state.heartbeat_interval = heartbeat_interval or max(0.05, settings.job_lease_seconds / 3)
     app.include_router(router)
     app.include_router(maintenance_router)
     if settings.enable_recovery_dispatcher:

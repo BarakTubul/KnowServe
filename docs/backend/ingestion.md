@@ -88,6 +88,8 @@ Derived from existing columns; no migration. Thresholds: `KS_PUBLISH_GRACE_SECON
 - There is no retry, lease, idempotency or duplicate-chunk protection, and no revision model.
 
 ## Known gaps
+M3-00a (done, local branch): the claim checks the attempt cap and a crash loop ends `failed`/`PROCESSING_CRASHED` (ING-19), the Worker renews the lease while a handler runs, pipeline writes are fenced on the claim, and the terminal-failure and requeue hooks keep job and revision consistent (ING-09, ING-16, ING-23). Details are in `../contracts/jobs-outbox.md`. Still open for this part: the `ingest_revision` handler (M3-02b), `KS_JOB_HANDLER_TIMEOUT_SECONDS` must still stay below the lease because the settings validator was not relaxed (the heartbeat does not need that rule), and nothing here has run against real QStash or Cloud Run.
+
 Every ING requirement is unimplemented in the target system except the M0 mechanism work tracked in `../milestones/M0/tasks.md`; none of the failure-class behaviour above is verified against live QStash/Cloud Run. The QStash retry count/backoff vs `KS_JOB_MAX_ATTEMPTS=4` reconciliation is UNVERIFIED until a live test. The batch dispatcher's lease-expiry issue (a 20-row batch claimed with one lease then published sequentially can outlive the lease) is DEFERRED and matters only if scheduled recovery is enabled (`KS_ENABLE_RECOVERY_DISPATCHER=true`). The legacy pipeline contradicts ING-05 (Redis holds the status), ING-07/ING-11 (WebSocket, no auth), ING-10 (duplicates possible) and ING-12/ING-13 (fire-and-forget).
 
 ## Related docs
