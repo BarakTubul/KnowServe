@@ -1,4 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
+import { AdminDocumentsPage } from '@/features/admin/admin-documents-page';
+import { RequireAdmin } from '@/features/admin/guards';
 import { ActionPage } from '@/features/auth/action-page';
 import { GuestOnly, RequireAuth } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/login-page';
@@ -20,6 +22,9 @@ export function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/documents" element={<LibraryPage />} />
         <Route path="/documents/:id" element={<ViewerPage />} />
+        <Route element={<RequireAdmin />}>
+          <Route path="/admin/documents" element={<AdminDocumentsPage />} />
+        </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

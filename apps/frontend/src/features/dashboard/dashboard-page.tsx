@@ -60,6 +60,15 @@ export function DashboardPage() {
           Browse documents
         </Link>
       </RequireDepartment>
+      {identity.kind === 'admin' && (
+        <Link
+          to="/admin/documents"
+          data-testid="admin-link"
+          className="self-start text-lg font-medium underline"
+        >
+          Manage documents
+        </Link>
+      )}
       {isDemo && <CreateAccountPanel onConverted={() => setConverted(true)} />}
       <DepartmentSelectorDialog />
     </main>
