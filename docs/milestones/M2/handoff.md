@@ -43,7 +43,15 @@ Each was approved separately and recorded in `tasks.md`.
 
 - A stream that fails after the response headers are sent ends early, with no error envelope. The viewer shows its load-failure message. This is an accepted limitation.
 - Rate-limit rows become eligible for deletion 15 minutes after their window ends (about 75 minutes with the default 60-minute window). Deletion is lazy, so this is not a retention guarantee.
-- Historical client IPs already in production (`audit_events.ip`, old `demo:ip:` counter keys) were not checked or scrubbed. That is deferred as OPEN-30 and must be handled before real users are onboarded. The document does not claim the existing data is clean.
+- Historical client IPs already in production were checked on 2026-11-13 and not scrubbed. That is OPEN-30, and it must be handled before real users are onboarded. The check was the read-only Stage 1 count in `docs/runbooks/open-30-historical-ip-check.md`, run against production as `ks_runtime` in a read-only transaction. It read no address values and changed nothing. The exact run time was not captured. It ran between 13:16 and 13:19 UTC.
+
+  | Check | Rows |
+  |---|---|
+  | `audit_events` with a non-null `ip` | 21 |
+  | `rate_limit_counters` with a key starting `demo:ip:` | 0 |
+  | `audit_events` with `ip` or `client_ip` in `details` | 0 |
+
+  So 21 audit rows still hold addresses. The Stage 2 scrub is written but not approved and not run, and the production data is not clean.
 - Real Firebase sign-in is not part of the M2 browser tests. The mocked-API flow and the deployed smoke (which uses a Demo visitor) cover M2; sign-in is covered by the M1 evidence.
 - Localization covers the M2 screens only. The login, dashboard and other screens stay English.
 - OPEN-22 (CI for docs-only changes) and OPEN-27 (approval-gated deploy workflow with the migration before deployment) are decided or approved in principle but not implemented. `deploy.yml` is unchanged and still runs only by manual dispatch.
@@ -62,7 +70,7 @@ Each was approved separately and recorded in `tasks.md`.
 
 ## Open items
 
-- Decide OPEN-30 (historical IP data) before real users are onboarded.
+- Decide OPEN-30 (historical IP data) before real users are onboarded. The count found 21 `audit_events` rows with an `ip`; the scrub needs the user's separate approval.
 - Decide whether to implement OPEN-22 and OPEN-27. Both need separate approval.
 - PR #31 (the Demo cleanup signature fix) was open when last checked, and the 2026-11-08 run it was waiting on has now authenticated.
 - Q13 covers English and Hebrew for M2 only. A wider rollout is a separate decision.
