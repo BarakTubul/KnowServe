@@ -205,6 +205,18 @@ variable "api_m3_settings" {
     ], k)])
     error_message = "api_m3_settings accepts only the documented non-secret M3 API keys (see variables.tf)."
   }
+
+  # Every allow-listed API key is a positive whole number (bytes, counts, seconds, ratio).
+  validation {
+    condition     = alltrue([for k, v in var.api_m3_settings : can(regex("^[1-9][0-9]*$", v))])
+    error_message = "Every api_m3_settings value must be a positive whole number (no units, no quotes inside the value)."
+  }
+
+  # Mirrors the application guard: the compressed ZIP limit must not exceed the uncompressed total.
+  validation {
+    condition     = try(tonumber(lookup(var.api_m3_settings, "KS_UPLOAD_MAX_ZIP_BYTES", "26214400")) <= tonumber(lookup(var.api_m3_settings, "KS_UPLOAD_MAX_ZIP_UNCOMPRESSED_BYTES", "104857600")), false)
+    error_message = "KS_UPLOAD_MAX_ZIP_BYTES (default 26214400) must not exceed KS_UPLOAD_MAX_ZIP_UNCOMPRESSED_BYTES (default 104857600)."
+  }
 }
 
 variable "worker_m3_settings" {
@@ -220,6 +232,20 @@ variable "worker_m3_settings" {
       "KS_JOB_HANDLER_TIMEOUT_SECONDS", "KS_JOB_LEASE_SECONDS",
     ], k)])
     error_message = "worker_m3_settings accepts only the documented non-secret M3 Worker keys (see variables.tf); KS_EMBEDDING_PROVIDER cannot be set here."
+  }
+
+  # Value types. Integer keys are positive whole numbers, the overlap may be 0, the embedding
+  # timeout may be fractional, and the model is a plain identifier.
+  validation {
+    condition = alltrue([
+      for k, v in var.worker_m3_settings : (
+        k == "KS_EMBEDDING_MODEL" ? can(regex("^[A-Za-z0-9._:-]+$", v)) :
+        k == "KS_EMBEDDING_TIMEOUT_SECONDS" ? (can(regex("^[0-9]+(\\.[0-9]+)?$", v)) && try(tonumber(v) > 0, false)) :
+        k == "KS_CHUNK_OVERLAP_TOKENS" ? can(regex("^[0-9]+$", v)) :
+        can(regex("^[1-9][0-9]*$", v))
+      )
+    ])
+    error_message = "worker_m3_settings values must be numbers of the right kind: positive whole numbers, KS_CHUNK_OVERLAP_TOKENS a whole number from 0, KS_EMBEDDING_TIMEOUT_SECONDS a positive number, KS_EMBEDDING_MODEL an identifier."
   }
 
   validation {
@@ -285,9 +311,12 @@ variable "worker_request_timeout_seconds" {
     error_message = "worker_request_timeout_seconds must be a whole number from 1 to 3600."
   }
 
+  # Also checked while this variable is null: the effective timeout is then the Cloud Run default
+  # of 300 s (documented in docs/milestones/M3/plan.md, section 6), so raising the handler timeout
+  # in worker_m3_settings to 300 or more requires setting this variable too.
   validation {
-    condition     = var.worker_request_timeout_seconds == null || coalesce(var.worker_request_timeout_seconds, 0) > try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "90")), 90)
-    error_message = "worker_request_timeout_seconds must exceed KS_JOB_HANDLER_TIMEOUT_SECONDS, or Cloud Run cuts the request before the handler's own timeout."
+    condition     = coalesce(var.worker_request_timeout_seconds, 300) > try(tonumber(lookup(var.worker_m3_settings, "KS_JOB_HANDLER_TIMEOUT_SECONDS", "90")), 90)
+    error_message = "The Worker request timeout (this variable, or the Cloud Run default of 300 s while it is null) must exceed KS_JOB_HANDLER_TIMEOUT_SECONDS (default 90), or Cloud Run cuts the request before the handler's own timeout."
   }
 }
 

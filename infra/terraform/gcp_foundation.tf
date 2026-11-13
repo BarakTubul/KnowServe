@@ -97,6 +97,12 @@ locals {
   # Worker's READ-ONLY R2 token; `openai-api-key` holds the OpenAI key of the dedicated project.
   # They are separate containers because the Worker reads them as the same KS_R2_* names the API
   # uses for its read/write/delete token (see secret_env_names in gcp_cloud_run.tf).
+  #
+  # NEVER remove an id from this list (and never revert a commit that adds one) once its container
+  # holds a version: the plan would destroy the container and every version in it. R2 tokens
+  # cannot be read back from Cloudflare, so a destroyed token has to be created again. To roll
+  # back, remove only the service references (worker_secret_env / api_secret_env) and keep the
+  # id here. The shared for_each has no prevent_destroy on purpose.
   secret_ids = [
     "database-url", "migration-database-url", "qstash-token", "qstash-current-signing-key",
     "qstash-next-signing-key", "proxy-shared-secret", "r2-access-key-id", "r2-secret-access-key",

@@ -39,7 +39,7 @@ The order follows plan section 12.3. A Cloud Run revision that references a secr
 | 4a | Targeted apply of the new secret containers and the Worker bindings (command below). Expected: 6 adds. | Three empty containers and three accessor bindings for `ks-worker-runtime`. Nothing reads them yet. | Leave them in place. Destroying a container deletes its versions, and an empty container costs almost nothing. |
 | 4b | Enter the secret versions from stdin, never from a file in the repo and never in shell history: `r2-worker-access-key-id`, `r2-worker-secret-access-key`, `openai-api-key`. Enter a new version of `r2-access-key-id` and `r2-secret-access-key` only if the existing API token cannot delete. | Versions exist. Secret values never enter Terraform state. | `gcloud secrets versions disable <version> --secret <id>`; re-enable if needed. |
 | 4c | Before the first deployed upload, check with a test object that the API token can delete and that the Worker token can read but not write or delete (D6). Cloudflare's documentation does not list delete per permission level. | Evidence for D6. | Replace the token and add a new version. |
-| 5 | Full plan, review it against the expectation below, then full apply (command below). Expected: 2 changes, 0 adds, 0 destroys after step 4a. | New revisions of `knowserve-api` (one env added) and `knowserve-worker` (four plain envs and three secret references added). The image does not change. | Revert the commit, plan, apply. Cloud Run traffic can also return to the previous revision. Secrets and versions stay. |
+| 5 | Full plan, review it against the expectation below, then full apply (command below). Expected: 2 changes, 0 adds, 0 destroys after step 4a. | New revisions of `knowserve-api` (one env added) and `knowserve-worker` (four plain envs and three secret references added). The image does not change. | Return Cloud Run traffic to the previous revision first (immediate). To roll the Terraform back, remove only the service references (the entries in `worker_secret_env` and the new env blocks), keep `secret_ids` and `secret_readers`, plan and check that nothing is destroyed. Do not revert the whole commit: see the warning under Rollback. |
 | 6 | Migration `0004` and the first `deploy.yml` run (`auth-check` first), the seed reindex, the real upload, and the D15 experiment each follow their own approval (12.3 items 5 to 9, section 13). | Not part of this change. | See plan section 15. |
 
 Do not roll an M3 image to the Worker before step 5, and do not run step 5 before step 4b: the Worker revision would fail to start.
@@ -118,6 +118,8 @@ gcloud secrets get-iam-policy r2-access-key-id --project <project>
 
 The first three list only `ks-worker-runtime`. The last lists `ks-api-runtime` and, only while the seed job exists, `ks-seed-runtime`.
 
+If alerts are enabled, the email notification channel may need verification before it delivers: open it in Cloud Monitoring (Alerting, Notification channels) and confirm its status, and send a test notification. `alert_email` is an input of the channel, so it is stored in Terraform state even though the variable is marked sensitive. State is protected (restricted GCS bucket); use an address you are happy to have there, or leave the flag off and set the alert up by hand in the console.
+
 ## Cost
 
 - Secret Manager: three more containers and up to five more versions. Pricing is unverified here; the amount is expected to be negligible.
@@ -127,7 +129,9 @@ The first three list only `ks-worker-runtime`. The last lists `ks-api-runtime` a
 
 ## Rollback
 
-- Terraform changes revert with a further plan and apply (plan section 15). Secrets are never destroyed by a rollback.
+- Warning: a plain `git revert` of the M3-09 commit removes the three new ids from `secret_ids`, and the next plan would destroy those containers and every version in them (the OpenAI key and both R2 tokens). R2 tokens cannot be read back from Cloudflare, so they would have to be created again. Secrets do not survive a plain revert.
+- Terraform rollback, safe form: edit only the references. Remove the secret ids from `worker_secret_env`, remove the new env blocks and variables if wanted, and keep `secret_ids` and `secret_readers` unchanged. Run a plan and stop if it shows any `destroy` of a `google_secret_manager_secret` or a binding you did not intend. There is deliberately no `prevent_destroy` on the shared `for_each`, so the plan review is the guard.
+- To retire a secret for good, disable its versions first, wait until M3 is accepted, and destroy the container by hand with the Owner's approval.
 - Fast stop for spend: set `uploads_enabled = false` and apply, or revoke the OpenAI key. The daily and in-flight caps bound the damage before either.
 - A bad Worker revision: return traffic to the previous revision with Cloud Run, as in `docs/architecture/rollback.md`.
 - Disabled secret versions can be re-enabled. Do not delete versions until M3 is accepted.
