@@ -1,2 +1,4 @@
 # Seed PDFs are compared byte for byte against the generator output (M2-05).
 apps/api/src/knowserve_api/seed/data/*.pdf binary
+# Bundled tokenizer vocabulary (M3-02a): hash-checked at load, so never rewrite line endings.
+packages/backend_core/src/knowserve_core/data/*.tiktoken binary
