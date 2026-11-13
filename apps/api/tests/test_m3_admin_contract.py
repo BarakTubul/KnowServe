@@ -46,10 +46,12 @@ ROUTES: tuple[tuple[str, str, bool, bool], ...] = (
     ("POST", "/v1/admin/imports/preview", True, True),
     ("POST", "/v1/admin/imports/confirm", True, True),
 )
-# Implemented by M3-05a (test_m3_admin_manage.py); the others are still 501 stubs.
+# Implemented by M3-05a (test_m3_admin_manage.py) and M3-03/04 (test_m3_upload.py and the import
+# tests); the others are still 501 stubs.
 IMPLEMENTED = {
     ("GET", "/v1/admin/ping"),
     ("GET", "/v1/admin/documents"),
+    ("POST", "/v1/admin/documents"),
     ("GET", "/v1/admin/documents/{document_id}"),
     ("GET", "/v1/admin/documents/{document_id}/events"),
     ("PATCH", "/v1/admin/documents/{document_id}/access"),
@@ -57,6 +59,7 @@ IMPLEMENTED = {
     ("POST", "/v1/admin/documents/{document_id}/retry"),
 }
 STUBS = [r for r in ROUTES if (r[0], r[1]) not in IMPLEMENTED]
+UPLOAD_ROUTES = [r for r in ROUTES if r[3]]
 
 
 def _app(engine: AsyncEngine, clock: FakeClock, **overrides: Any) -> FastAPI:
@@ -207,7 +210,9 @@ async def test_m3_sec17_admin_routes_need_no_active_department(
 # --- KS_UPLOADS_ENABLED (OPEN-31 D14, M3-AC26) ---
 
 
-@pytest.mark.parametrize(("method", "path"), [(m, p) for m, p, _, uploads in STUBS if uploads])
+@pytest.mark.parametrize(
+    ("method", "path"), [(m, p) for m, p, _, uploads in UPLOAD_ROUTES if uploads]
+)
 async def test_m3_ac26_disabled_uploads_answer_503_on_upload_producing_routes(
     engine: AsyncEngine, clock: FakeClock, make_user: Any, make_session: Any, method: str, path: str
 ) -> None:
