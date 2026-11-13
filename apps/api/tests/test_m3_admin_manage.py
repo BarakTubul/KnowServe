@@ -109,7 +109,7 @@ async def make_doc(
     factory: Factory,
     publisher: FakePublisher | None = None,
     *,
-    status: str = "queued",
+    status: str | None = "queued",
     job: str | None = None,
     phase: str | None = None,
     failure: str | None = None,
@@ -185,28 +185,29 @@ async def make_doc(
                     document_id=doc_id, department_id=uuid.UUID(DEPARTMENT_IDS[slug])
                 )
             )
-        s.add(
-            DocumentRevision(
-                id=rev_id,
-                document_id=doc_id,
-                storage_key=f"documents/{doc_id}/{rev_id}.pdf",
-                status=status,
-                phase=phase,
-                failure_reason=failure,
-                page_count=3 if status == "ready" else None,
-                size_bytes=2048,
-                content_type="application/pdf",
-                job_id=job_id,
-                created_at=created_at or BASE,
-                ready_at=datetime.now(UTC) if status == "ready" else None,
+        if status is not None:
+            s.add(
+                DocumentRevision(
+                    id=rev_id,
+                    document_id=doc_id,
+                    storage_key=f"documents/{doc_id}/{rev_id}.pdf",
+                    status=status,
+                    phase=phase,
+                    failure_reason=failure,
+                    page_count=3 if status == "ready" else None,
+                    size_bytes=2048,
+                    content_type="application/pdf",
+                    job_id=job_id,
+                    created_at=created_at or BASE,
+                    ready_at=datetime.now(UTC) if status == "ready" else None,
+                )
             )
-        )
-        await s.flush()
-        if is_current:
-            await s.execute(
-                text("UPDATE documents SET current_revision_id = :r WHERE id = :d"),
-                {"r": rev_id, "d": doc_id},
-            )
+            await s.flush()
+            if is_current:
+                await s.execute(
+                    text("UPDATE documents SET current_revision_id = :r WHERE id = :d"),
+                    {"r": rev_id, "d": doc_id},
+                )
     return doc_id
 
 
@@ -1165,3 +1166,102 @@ async def test_ing07_stream_ends_when_the_document_is_deleted_while_watching(
     assert [e[0] for e in events] == ["status", "end"]
     assert events[-1][1] == {"reason": "terminal"}
     assert await count(session_factory, "jobs") == 1  # watching created nothing
+
+
+# --- SEC-07, LIFE-02: a ready revision that is not the current one is never served -------------
+
+
+async def _add_revision(
+    factory: Factory,
+    doc_id: uuid.UUID,
+    *,
+    status: str,
+    created_at: datetime,
+    pages: int | None = None,
+    point_at: bool = False,
+) -> uuid.UUID:
+    rev_id = uuid.uuid4()
+    async with factory() as s, s.begin():
+        s.add(
+            DocumentRevision(
+                id=rev_id,
+                document_id=doc_id,
+                storage_key=f"documents/{doc_id}/{rev_id}.pdf",
+                status=status,
+                page_count=pages if status == "ready" else None,
+                size_bytes=10,
+                content_type="application/pdf",
+                created_at=created_at,
+                ready_at=datetime.now(UTC) if status == "ready" else None,
+            )
+        )
+        await s.flush()
+        if point_at:
+            await s.execute(
+                text("UPDATE documents SET current_revision_id = :r WHERE id = :d"),
+                {"r": rev_id, "d": doc_id},
+            )
+    return rev_id
+
+
+async def test_sec07_life02_a_ready_revision_that_is_not_current_is_never_served(
+    engine: AsyncEngine,
+    clock: FakeClock,
+    publisher: FakePublisher,
+    make_user: Any,
+    make_session: Any,
+    session_factory: Factory,
+) -> None:
+    store = FakeObjectStore()
+    app = create_app(
+        _settings(),
+        engine=engine,
+        publisher=publisher,
+        rate_limiter=PostgresRateLimiter(clock),
+        clock=clock,
+        object_store=store,
+    )
+    older, newer = BASE, BASE + timedelta(hours=1)
+
+    # A: an older ready revision, no current pointer, a newer queued revision (a first attempt
+    #    that was ready, then replaced while the pointer was never set).
+    a = await make_doc(session_factory, publisher, status=None, job=None, allowed=("finance",))
+    await _add_revision(session_factory, a, status="ready", created_at=older, pages=3)
+    await _add_revision(session_factory, a, status="queued", created_at=newer)
+    # B: the pointer sits on the newer queued revision while an older revision is ready.
+    b = await make_doc(session_factory, publisher, status=None, job=None, allowed=("finance",))
+    await _add_revision(session_factory, b, status="ready", created_at=older, pages=3)
+    await _add_revision(session_factory, b, status="queued", created_at=newer, point_at=True)
+    # (A pointer at another document's revision is refused by the database foreign key.)
+    # C: two ready revisions; the current one is the older. Only that one may be served.
+    d = await make_doc(session_factory, publisher, status=None, job=None, allowed=("finance",))
+    current = await _add_revision(
+        session_factory, d, status="ready", created_at=older, pages=2, point_at=True
+    )
+    not_current = await _add_revision(session_factory, d, status="ready", created_at=newer, pages=9)
+    await store.put(f"documents/{d}/{current}.pdf", b"%PDF-current", "application/pdf")
+    await store.put(f"documents/{d}/{not_current}.pdf", b"%PDF-not-current", "application/pdf")
+    for doc_id in (a, b):
+        await store.put(f"documents/{doc_id}/x.pdf", b"%PDF-hidden", "application/pdf")
+
+    sessions = [
+        await make_session(await make_user("registered"), department_id=FIN),
+        await make_session(await make_user("admin"), department_id=FIN),
+    ]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://api.test"
+    ) as client:
+        for session in sessions:
+            listing = (await call(client, "GET", "/v1/documents", session)).json()
+            ids = {item["id"] for item in listing["items"]}
+            assert {str(a), str(b)}.isdisjoint(ids)
+            assert str(d) in ids
+            for hidden in (a, b):
+                for path in (f"/v1/documents/{hidden}", f"/v1/documents/{hidden}/content"):
+                    response = await call(client, "GET", path, session)
+                    assert response.status_code == 404, path
+                    assert response.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+            meta = (await call(client, "GET", f"/v1/documents/{d}", session)).json()
+            assert meta["page_count"] == 2  # the current revision's, not the other ready one's
+            content = await call(client, "GET", f"/v1/documents/{d}/content", session)
+            assert content.status_code == 200 and content.content == b"%PDF-current"
