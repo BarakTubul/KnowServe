@@ -19,7 +19,12 @@ Scope: the Terraform change in `infra/terraform/` for M3-09. Related: `docs/mile
 
 Terraform creates no secret version. The API gets no binding on any of the three new containers. The Worker gets no binding on `r2-access-key-id` or `r2-secret-access-key`, so it has no write credential.
 
-Sizing is pending. `docs/milestones/M3/measurements.md` (M3-00b) has not landed, so no memory, CPU, concurrency or timeout value is proposed (D2). When it lands, the lead merges it and this section is updated with the justified values and a second plan expectation.
+Sizing follows `docs/milestones/M3/measurements.md` (M3-00b, D2):
+
+- Concurrency is 1 (`worker_concurrency`, default 1). The platform default of 80 would put up to 10 in-flight jobs on one 512 MiB instance. This only lowers a limit. With `max_instance_count` 2, at most two jobs run at once. A delivery that finds no free instance waits or is rejected by Cloud Run, and QStash retries it. A rejected delivery uses no processing attempt, so the cap of 4 is not spent.
+- Memory stays 512 MiB, CPU stays unmanaged and the request timeout stays 300 s (all null).
+- The application defaults are `KS_JOB_HANDLER_TIMEOUT_SECONDS=240` and `KS_PDF_EXTRACTION_TIMEOUT_SECONDS=120`. They need no Terraform value. The request timeout must stay above the handler timeout (300 > 240), and Terraform checks it.
+- The measurements are local, on one fast machine and synthetic text PDFs, with no embedding, database or Worker baseline. The first real large-document run on Cloud Run (M3-AC23) must confirm memory and time. If it shows the instance near 512 MiB or a document above about 200 s, stop and bring numbers to the Owner before raising `worker_memory` or `worker_request_timeout_seconds` (a further plan and a separate approval).
 
 ## Preconditions
 
@@ -39,7 +44,7 @@ The order follows plan section 12.3. A Cloud Run revision that references a secr
 | 4a | Targeted apply of the new secret containers and the Worker bindings (command below). Expected: 6 adds. | Three empty containers and three accessor bindings for `ks-worker-runtime`. Nothing reads them yet. | Leave them in place. Destroying a container deletes its versions, and an empty container costs almost nothing. |
 | 4b | Enter the secret versions from stdin, never from a file in the repo and never in shell history: `r2-worker-access-key-id`, `r2-worker-secret-access-key`, `openai-api-key`. Enter a new version of `r2-access-key-id` and `r2-secret-access-key` only if the existing API token cannot delete. | Versions exist. Secret values never enter Terraform state. | `gcloud secrets versions disable <version> --secret <id>`; re-enable if needed. |
 | 4c | Before the first deployed upload, check with a test object that the API token can delete and that the Worker token can read but not write or delete (D6). Cloudflare's documentation does not list delete per permission level. | Evidence for D6. | Replace the token and add a new version. |
-| 5 | Full plan, review it against the expectation below, then full apply (command below). Expected: 2 changes, 0 adds, 0 destroys after step 4a. | New revisions of `knowserve-api` (one env added) and `knowserve-worker` (four plain envs and three secret references added). The image does not change. | Return Cloud Run traffic to the previous revision first (immediate). To roll the Terraform back, remove only the service references (the entries in `worker_secret_env` and the new env blocks), keep `secret_ids` and `secret_readers`, plan and check that nothing is destroyed. Do not revert the whole commit: see the warning under Rollback. |
+| 5 | Full plan, review it against the expectation below, then full apply (command below). Expected: 2 changes, 0 adds, 0 destroys after step 4a. | New revisions of `knowserve-api` (one env added) and `knowserve-worker` (four plain envs and three secret references added, concurrency lowered to 1). The image does not change. | Return Cloud Run traffic to the previous revision first (immediate). To roll the Terraform back, remove only the service references (the entries in `worker_secret_env` and the new env blocks), keep `secret_ids` and `secret_readers`, plan and check that nothing is destroyed. Do not revert the whole commit: see the warning under Rollback. |
 | 6 | Migration `0004` and the first `deploy.yml` run (`auth-check` first), the seed reindex, the real upload, and the D15 experiment each follow their own approval (12.3 items 5 to 9, section 13). | Not part of this change. | See plan section 15. |
 
 Do not roll an M3 image to the Worker before step 5, and do not run step 5 before step 4b: the Worker revision would fail to start.
@@ -93,7 +98,7 @@ The targeted plan may also list dependencies it needs (`google_project_service.a
 Step 5 (full), 0 to add, 2 to change, 0 to destroy:
 
 - `google_cloud_run_v2_service.api`, in place: env `KS_UPLOADS_ENABLED = "true"` added.
-- `google_cloud_run_v2_service.worker`, in place: env `KS_OBJECT_STORE`, `KS_R2_ENDPOINT`, `KS_R2_BUCKET`, `KS_EMBEDDING_PROVIDER` added, and `KS_R2_ACCESS_KEY_ID`, `KS_R2_SECRET_ACCESS_KEY`, `KS_OPENAI_API_KEY` added as secret references to the three new containers at version `latest`.
+- `google_cloud_run_v2_service.worker`, in place: env `KS_OBJECT_STORE`, `KS_R2_ENDPOINT`, `KS_R2_BUCKET`, `KS_EMBEDDING_PROVIDER` added, and `KS_R2_ACCESS_KEY_ID`, `KS_R2_SECRET_ACCESS_KEY`, `KS_OPENAI_API_KEY` added as secret references to the three new containers at version `latest`. Also `template.max_instance_request_concurrency` set to `1` (the current value is expected to read as the platform default of 80; UNVERIFIED until the first real plan).
 
 Existing env blocks may appear reordered inside the same in-place update. That is cosmetic.
 
@@ -103,7 +108,7 @@ Stop and do not apply if the plan shows any of these:
 
 - a destroy or replace of any existing resource (the migration job, the seed job, the services, the service accounts, any secret container, the WIF provider)
 - any secret value, any `secret_data` or `google_secret_manager_secret_version`
-- a change to `timeout`, `max_instance_request_concurrency` or `resources` on the Worker while the sizing variables are unset (this would mean the provider reads the platform default as drift; UNVERIFIED until the first real plan)
+- a change to `timeout` or `resources` on the Worker, or any `max_instance_request_concurrency` value other than 1 (memory, CPU and the request timeout are unset on purpose, so a change there would mean the provider reads the platform default as drift; UNVERIFIED until the first real plan)
 - a binding of `ks-api-runtime` on a Worker secret, or of `ks-worker-runtime` on `r2-access-key-id` or `r2-secret-access-key`
 - `KS_EMBEDDING_PROVIDER` with any value other than `openai`
 
@@ -123,7 +128,7 @@ If alerts are enabled, the email notification channel may need verification befo
 ## Cost
 
 - Secret Manager: three more containers and up to five more versions. Pricing is unverified here; the amount is expected to be negligible.
-- Cloud Run: no change while sizing stays unset. A later memory or CPU increase raises the price of every Worker second; it is a measured decision (D2).
+- Cloud Run: concurrency 1 starts more instances under load (at most two) and adds no fixed cost; scale to zero stays. A later memory or CPU increase raises the price of every Worker second; it needs measured numbers from M3-AC23 and a separate approval (D2).
 - Alerts: nothing is created with the flag off. With it on, the metrics, policies and channel follow Cloud Logging and Cloud Monitoring pricing, which is unverified for this project.
 - OpenAI: capped by the 5 USD monthly project budget (D3). Whether OpenAI enforces the budget as a hard limit is checked in step 1. `KS_UPLOADS_ENABLED=false` and revoking the key are the stops (plan section 15).
 
