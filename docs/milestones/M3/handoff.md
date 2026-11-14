@@ -1,6 +1,6 @@
 # M3 handoff (WF-12)
 
-Status on 2026-11-13: M3 (Admin Upload and Ingestion) is implemented and tested locally. It is not deployed. Nothing in this milestone has run against production, R2, OpenAI or QStash. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
+Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) found a defect in the Pages proxy: it dropped the `Idempotency-Key` header, so every Admin upload answered 422. The fix is in the proxy allowlist and needs a deploy. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
 
 ## What the milestone adds
 
@@ -63,7 +63,7 @@ These are listed in plan section 12.3. Each needs its own approval and none has 
 2. Create the two R2 tokens (API read, write and delete; Worker read only), check with a test object that the API token can delete, and store the values.
 3. Check the QStash plan limits against the expected number of ingestion messages.
 4. Review and apply the Terraform for M3-09 using `infra-apply-runbook.md`, which holds the order, the expected plan, the rollback and the cost.
-5. Run the `auth-check` and then the `deploy` workflow. The migration job runs `0004` before the API and Worker roll out. The workflow has never run on GitHub, so expect to fix workflow problems.
+5. Run the `auth-check` and then the `deploy` workflow. The migration job runs `0004` before the API and Worker roll out. Both ran on 2026-11-14 and passed.
 6. Reindex the four seeded documents with the seed command.
 7. Sign in as Admin on production, upload one small PDF, check the permitted and a non-permitted department, and check the upload limit once through Cloudflare and Cloud Run.
 8. Approve the D15 experiment and its separate steps.

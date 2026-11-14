@@ -100,6 +100,7 @@ describe('open21 request headers', () => {
           origin: 'https://app.pages.dev',
           'user-agent': 'ua',
           'x-csrf-token': 'tok',
+          'idempotency-key': 'test-idempotency-header',
           'last-event-id': '3',
           'x-ks-proxy-secret': 'attacker',
           'x-ks-client-ip': '6.6.6.6',
@@ -123,6 +124,7 @@ describe('open21 request headers', () => {
         'accept',
         'accept-language',
         'cookie',
+        'idempotency-key',
         'last-event-id',
         'origin',
         'user-agent',
@@ -135,6 +137,20 @@ describe('open21 request headers', () => {
     expect(h.get('x-ks-proxy-secret')).toBe(SECRET);
     expect(h.get('x-ks-client-ip')).toBe('203.0.113.9');
     expect(h.get('cookie')).toBe('ks_session=abc');
+  });
+
+  it('m3_forwards_idempotency_key_for_admin_uploads_ADM_03', async () => {
+    const f = upstreamOk();
+    await handle(
+      req('/api/v1/admin/documents', {
+        method: 'POST',
+        headers: { 'idempotency-key': 'test-idempotency-header' },
+      }),
+      ENV,
+      f,
+    );
+    const h = f.mock.calls[0]?.[0].headers as Headers;
+    expect(h.get('idempotency-key')).toBe('test-idempotency-header');
   });
 
   it('doc11_forwards_range_and_if_range_on_get', async () => {
