@@ -17,7 +17,7 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Decisions taken during implementation
 
-- Worker sizing comes from `measurements.md`. The Owner approved these as initial values: concurrency 1, memory 512 MiB, Cloud Run request timeout 300 s, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. They rest on local measurements, so they are a starting point and not a production performance result. M3-AC23 stays open until the deployed Worker has processed a large, representative PDF (see the next section). The values are not to be changed or re-measured before then. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
+- Worker sizing comes from `measurements.md`. The Owner approved these as initial values: concurrency 1, memory 512 MiB, Cloud Run request timeout 300 s, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. They started as local measurements. M3-AC23 then measured a 300-page text PDF on the deployed Worker (see the production record), and the values stayed as they are. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
 - The Owner split two retriever clauses between M3 and M4 (see the next section). M3 does not contain a temporary retriever.
 - The ZIP panel has no "retry the files that were not imported" button. Retrying the same ZIP under a new key would create the finished entries again, so the Admin imports a new ZIP that holds only the failed files.
 - A missing source object fails the job as `INVALID_PDF` without retries. Embedding errors stay retryable.
