@@ -17,6 +17,7 @@ const FORWARD_REQUEST_HEADERS = [
   'content-type',
   'content-length',
   'cookie',
+  'idempotency-key',
   'last-event-id',
   'origin',
   'user-agent',
