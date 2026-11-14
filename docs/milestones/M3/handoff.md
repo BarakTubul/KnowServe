@@ -37,7 +37,7 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 Two production acceptance criteria are not met:
 
 - M3-AC23: time, peak memory and embedding cost for small, medium and the largest allowed PDF on the deployed Worker. The Owner requires at least one large, representative PDF to be measured there before the Worker values above count as validated. If the measurement shows the values are wrong, the change goes back to the Owner as a new decision.
-- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is not written yet.
+- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is `tests/d15/run_d15.py` and the steps, the tagged revision and the restore are in `d15-runbook.md`. Neither has run against production.
 
 Two criteria are split between M3 and M4 by the Owner's decision. The whole criteria are not deferred.
 
