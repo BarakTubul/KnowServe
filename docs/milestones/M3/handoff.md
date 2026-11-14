@@ -1,6 +1,6 @@
 # M3 handoff (WF-12)
 
-Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 and M3-AC25 are still open. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
+Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 passed with a 300-page text PDF. M3-AC25 is still open. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
 
 ## What the milestone adds
 
@@ -34,10 +34,9 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Acceptance criteria that stay open
 
-Two production acceptance criteria are not met:
+One production acceptance criterion is not met:
 
-- M3-AC23: time, peak memory and embedding cost for small, medium and the largest allowed PDF on the deployed Worker. The Owner requires at least one large, representative PDF to be measured there before the Worker values above count as validated. If the measurement shows the values are wrong, the change goes back to the Owner as a new decision.
-- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is `tests/d15/run_d15.py` and the steps, the tagged revision and the restore are in `d15-runbook.md`. Neither has run against production.
+- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is, except that its scenario 1 is dropped by the Owner (the `fail_then_ok` hook cannot succeed on an automatic redelivery, and the first retry of the cycle run shows the same redelivery). The runner is `tests/d15/run_d15.py` and the steps, the tagged revision and the restore are in `d15-runbook.md`. Neither has run against production. It needs its own approval for the exact steps.
 
 Two criteria are split between M3 and M4 by the Owner's decision. The whole criteria are not deferred.
 
@@ -65,6 +64,7 @@ M3-AC22 is met. The Owner ran these steps, each with its own approval.
 - Seed reindex: a temporary Cloud Run job from the Worker image ran `knowserve_worker.seed_ingest --allow-production` once and reported `ingested=4`. The job was deleted afterwards and was never part of Terraform.
 - First upload attempt: Admin uploads answered 422 because the Pages Function forwards an allowlist of request headers and `Idempotency-Key` was not on it. The local trial missed this because it used the Vite proxy. PR #39 added the header, and the `deploy` run 43631945442 on `3361588` rolled it out.
 - Second upload attempt: the API accepted the sample PDF with 202 at 19:33:21 UTC, QStash delivered the job to the Worker, which claimed it on attempt 1 at 19:33:23, published 2 chunks at 19:33:33 and finished the job. The status stream connected for the duration. No errors or retries appeared in either service.
+- M3-AC23 measurement (the Worker values stay as they are): a generated 300-page text PDF (3.6 MB, about 500 words a page, fictional) uploaded at 20:12:45 UTC was claimed on attempt 1 at 20:12:47 and finished at 20:14:17, so 90 s end to end against the 240 s handler timeout, and it produced 600 chunks. Peak Worker memory was about 292 MiB of 512 MiB (Cloud Run reports memory in coarse buckets, so this is approximate). A 19 MiB, image-heavy PDF with almost no text (1 chunk) took 12 s at about 205 MiB. The small two-page sample took about 10 s and 2 chunks. Embedding cost for the large file is estimated at under one US cent (at most about 307,000 tokens at the published `text-embedding-3-small` price; the exact count was not logged). Database growth is about 5 MB for 600 chunks, against the 1 GB Neon limit. No retry, timeout or error appeared. These are two documents on a warm instance, not a load test. The Owner required at least one large, representative document, and the result leaves about 2.7 times headroom on time and 1.75 times on memory.
 - Owner-reported checks: the permitted department saw the document and opened its PDF, a department without access did not see it, a file over 20 MiB was refused with the friendly message in the form, a direct 21 MiB upload through the proxy was refused, and the test document was deleted.
 
 ## Steps only the Owner can approve
