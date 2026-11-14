@@ -1,6 +1,6 @@
 # M3 handoff (WF-12)
 
-Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) found a defect in the Pages proxy: it dropped the `Idempotency-Key` header, so every Admin upload answered 422. The fix is in the proxy allowlist and needs a deploy. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
+Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 and M3-AC25 are still open. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
 
 ## What the milestone adds
 
@@ -34,9 +34,8 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Acceptance criteria that stay open
 
-Three production acceptance criteria are not met, because they need the cloud steps below:
+Two production acceptance criteria are not met:
 
-- M3-AC22: one real upload of a small PDF on production, through the Pages proxy, real QStash, the Worker, R2 and OpenAI, plus the permitted and a non-permitted department and the upload size limit through Cloudflare and Cloud Run.
 - M3-AC23: time, peak memory and embedding cost for small, medium and the largest allowed PDF on the deployed Worker. The Owner requires at least one large, representative PDF to be measured there before the Worker values above count as validated. If the measurement shows the values are wrong, the change goes back to the Owner as a new decision.
 - M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is not written yet.
 
@@ -55,9 +54,22 @@ Other notes:
 - M3-AC01 is covered in pieces (upload, Worker pipeline, visibility) and by the local trial. There is no single automated test that runs upload, Worker and a second department's library view in one flow.
 - The completed M3 parts are supported by the evidence section above: 998 backend tests with no skips, 235 frontend unit tests, the mocked Playwright Admin spec, two local real-API trials (the second on the final code), the OpenAPI and generated type drift checks, the Docker builds, Terraform format and validate, the secret scans, and the independent reviews.
 
+## Production acceptance record (2026-11-14)
+
+M3-AC22 is met. The Owner ran these steps, each with its own approval.
+
+- Setup: an OpenAI project with a 5 USD monthly budget and a key stored as a Secret Manager version (the service-account key form has no permission restriction, so the project budget is the cap). A read-only Worker R2 token scoped to the `knowserve-documents` bucket. The QStash free plan (1,000 messages a day, each delivery attempt counts) is far above the expected volume.
+- Terraform: the targeted apply of the three secret containers and their bindings (6 added), then the full apply (2 changed, 0 added, 0 destroyed): the API got `KS_UPLOADS_ENABLED=true`, and the Worker got the R2 and OpenAI settings and concurrency 1. The plans matched the runbook before each apply.
+- D6 check: with the repository's own R2 client, the API token wrote, read and deleted a probe object, and the Worker token read it but was refused a write and a delete (HTTP 403). The existing API token needed no replacement.
+- Deploy: the `auth-check` run (43628831657) and the `deploy` run (43629003879) on `main` commit `75d483f`. The migration job ran `0004` and the images were rolled out.
+- Seed reindex: a temporary Cloud Run job from the Worker image ran `knowserve_worker.seed_ingest --allow-production` once and reported `ingested=4`. The job was deleted afterwards and was never part of Terraform.
+- First upload attempt: Admin uploads answered 422 because the Pages Function forwards an allowlist of request headers and `Idempotency-Key` was not on it. The local trial missed this because it used the Vite proxy. PR #39 added the header, and the `deploy` run 43631945442 on `3361588` rolled it out.
+- Second upload attempt: the API accepted the sample PDF with 202 at 19:33:21 UTC, QStash delivered the job to the Worker, which claimed it on attempt 1 at 19:33:23, published 2 chunks at 19:33:33 and finished the job. The status stream connected for the duration. No errors or retries appeared in either service.
+- Owner-reported checks: the permitted department saw the document and opened its PDF, a department without access did not see it, a file over 20 MiB was refused with the friendly message in the form, a direct 21 MiB upload through the proxy was refused, and the test document was deleted.
+
 ## Steps only the Owner can approve
 
-These are listed in plan section 12.3. Each needs its own approval and none has been done.
+These are listed in plan section 12.3. Each needs its own approval. Steps 1 to 7 are done (see the record above). Step 8 is not.
 
 1. Create the OpenAI project with the monthly budget and store the key as a Secret Manager version.
 2. Create the two R2 tokens (API read, write and delete; Worker read only), check with a test object that the API token can delete, and store the values.
@@ -71,6 +83,7 @@ These are listed in plan section 12.3. Each needs its own approval and none has 
 ## Limits and known gaps
 
 - A limit refusal in the middle of a ZIP confirmation is recorded as that entry's final result. A ZIP with more than 10 valid entries meets the default in-flight cap of 10.
+- The local trial goes through the Vite dev proxy, so it cannot see header filtering in the Pages Function. The first production upload failed for that reason. A request header that a new route needs must also be added to the allowlist in `apps/frontend/functions/api/[[path]].ts` and to `docs/contracts/proxy.md`.
 - A forged session cookie passes the cheap cookie check in `body_limit.py`. The size cap still bounds the body, and the real authorization check follows.
 - The status stream checks the session when it connects. After a logout it can stay open until `KS_SSE_MAX_SECONDS` (120 s).
 - The Worker answers 500 for a terminal failure, so QStash redelivers up to three more times. Each redelivery finds the job `failed`, gets 200 and uses no attempt. D15 checks this on the real path.
