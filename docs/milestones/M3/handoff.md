@@ -1,6 +1,6 @@
 # M3 handoff (WF-12)
 
-Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 passed with a 300-page text PDF. M3-AC25 is still open. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
+Status on 2026-11-18: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 passed with a 300-page text PDF. M3-AC25 (the D15 failure and recovery experiment) passed on 2026-11-18, so every M3 acceptance criterion is met. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
 
 ## What the milestone adds
 
@@ -34,9 +34,35 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Acceptance criteria that stay open
 
-One production acceptance criterion is not met:
+None. M3-AC25 passed on 2026-11-18 (record below). Scenario 1 of plan section 12.2 was dropped by the Owner, because the `fail_then_ok` hook cannot succeed on an automatic redelivery and the first retry of the cycle run shows the same redelivery.
 
-- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is, except that its scenario 1 is dropped by the Owner (the `fail_then_ok` hook cannot succeed on an automatic redelivery, and the first retry of the cycle run shows the same redelivery). The runner is `tests/d15/run_d15.py` and the steps, the tagged revision and the restore are in `d15-runbook.md`. Neither has run against production. It needs its own approval for the exact steps.
+## D15 experiment record (M3-AC25, 2026-11-18)
+
+Run by the lead agent with the Owner's approvals for each step (A: tagged revision, B: dry run, C: scenarios, D: restore). The runner is `tests/d15/run_d15.py`, the steps are in `d15-runbook.md`. The tagged revision `knowserve-worker-00011-muj` (tag `d15`, test hooks on, 0% traffic) shared the production database. The serving revision was `00010-sg8`. All times are UTC.
+
+**Duplicate delivery.** One `noop` job was published twice at once (07:12:16). QStash delivered both messages with HTTP 200 (07:12:17 and 07:12:27). The job ended `done` with `attempts=1`, so there was one claim.
+
+**Failure, retry and cap.** A `fail_then_ok` job (correlation prefix `d15-`) was published at 07:14:06:
+
+| Delivery | Worker answer | Job after it | QStash next delivery |
+|---|---|---|---|
+| 07:14:07 | 500 | queued, attempts 1 | 07:14:19 |
+| 07:14:19 | 500 | queued, attempts 2 | 07:16:53 |
+| 07:16:54 | 500 | queued, attempts 3 | 07:46:02 |
+| 07:46:02 | 500 | failed, attempts 4 | none (`FAILED`) |
+
+The retry delays matched QStash's defaults (about 12 s, 148 s and 1808 s). The cap of 4 processing attempts held. No delivery followed the fourth during a 90 s wait. A manual retry at 07:47:49 published a new message, which answered 200. The job ended `done`, with attempts restarted at 1.
+
+**No document data touched.** The document, revision and chunk counts were 7, 7 and 612 before and after both scenarios. The jobs used only the test types `noop` and `fail_then_ok`. No R2 or OpenAI call was involved.
+
+**Request log.** The Worker request log for `/internal/jobs/run` shows exactly seven deliveries in the experiment window, all on `00011-muj` (two 200, four 500, one 200). The serving revision received none.
+
+**Restore (step D).**
+- The tag was removed, and a clean revision was deployed without `KS_ENABLE_SPIKE_FAILURE_HOOKS` and with the original public URL.
+- The first clean deploy (`00012-kjq`) failed its startup probe with no application logs, and the cause was not found. The identical redeploy (`00013-w58`) started normally.
+- My `update-traffic --to-latest` after the failed deploy moved all traffic to the latest ready revision, which was still the test revision `00011-muj`. It served from about 08:01 until `00013-w58` took the traffic a few minutes later. No job was created in that time, so the hooks were never used. Lesson for the runbook: send traffic to the new revision by name, and check the traffic split before `--to-latest`.
+- Final state: `00013-w58` serves 100% (latest), has no test flag, answers `/health/ready` with 200, and `terraform plan` reports no changes. The revisions `00011` and `00012` were deleted.
+- The experiment job rows stay in the `jobs` table as evidence.
 
 Two criteria are split between M3 and M4 by the Owner's decision. The whole criteria are not deferred.
 
@@ -69,7 +95,7 @@ M3-AC22 is met. The Owner ran these steps, each with its own approval.
 
 ## Steps only the Owner can approve
 
-These are listed in plan section 12.3. Each needs its own approval. Steps 1 to 7 are done (see the record above). Step 8 is not.
+These are listed in plan section 12.3. Each needs its own approval. Steps 1 to 8 are done (see the records above).
 
 1. Create the OpenAI project with the monthly budget and store the key as a Secret Manager version.
 2. Create the two R2 tokens (API read, write and delete; Worker read only), check with a test object that the API token can delete, and store the values.
@@ -86,7 +112,7 @@ These are listed in plan section 12.3. Each needs its own approval. Steps 1 to 7
 - The local trial goes through the Vite dev proxy, so it cannot see header filtering in the Pages Function. The first production upload failed for that reason. A request header that a new route needs must also be added to the allowlist in `apps/frontend/functions/api/[[path]].ts` and to `docs/contracts/proxy.md`.
 - A forged session cookie passes the cheap cookie check in `body_limit.py`. The size cap still bounds the body, and the real authorization check follows.
 - The status stream checks the session when it connects. After a logout it can stay open until `KS_SSE_MAX_SECONDS` (120 s).
-- The Worker answers 500 for a terminal failure, so QStash redelivers up to three more times. Each redelivery finds the job `failed`, gets 200 and uses no attempt. D15 checks this on the real path.
+- The Worker answers 500 for a terminal failure, so QStash redelivers up to three more times. Each redelivery finds the job `failed`, gets 200 and uses no attempt. D15 confirmed this on the real path (see the record above).
 - PyMuPDF4LLM is AGPL licensed and the tokenizer vocabulary is bundled in the repository (F16 and F17 in the plan).
 - `docker compose up -d firebase-auth` exits with "Unable to obtain permissions for firebase-debug.log" because the configuration is mounted read-only. `tests/trial/README.md` describes the workaround. The compose file was not changed.
 - The MON-06 alert filter matches any error log entry, so a retried transient failure can alert. Stuck outbox rows have no alert.

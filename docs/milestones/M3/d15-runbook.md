@@ -1,6 +1,6 @@
 # D15 experiment runbook (M3-AC25)
 
-Status: prepared, not run. The design is plan section 12.2. Every step below needs the Owner's separate approval, and the Owner runs them with their own credentials. The runner is `tests/d15/run_d15.py`. It is not part of any image.
+Status: run on 2026-11-18, passed (record in handoff.md). One lesson: after a failed deploy, send traffic to the new revision by name before using --to-latest. The design is plan section 12.2. Every step below needs the Owner's separate approval, and the Owner runs them with their own credentials. The runner is `tests/d15/run_d15.py`. It is not part of any image.
 
 ## What it proves
 

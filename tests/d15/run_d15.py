@@ -57,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from knowserve_core.db import create_engine, create_session_factory
 from knowserve_core.job_recovery import JobView, create_job, get_job_view, retry_job
 from knowserve_core.qstash import CORRELATION_HEADER, PublishError, build_envelope
+from knowserve_core.settings import normalize_database_url
 
 PROD_TAG_URL = re.compile(r"^https://d15---[a-z0-9.-]+\.run\.app$")
 LOCAL_URL = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
@@ -410,7 +411,7 @@ async def main_async(args: argparse.Namespace) -> int:
         )
         return 2
 
-    engine = create_engine(args.database_url, null_pool=True)
+    engine = create_engine(normalize_database_url(args.database_url), null_pool=True)
     factory = create_session_factory(engine)
     publisher = D15Publisher(
         args.qstash_url,
