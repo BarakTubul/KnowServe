@@ -1,6 +1,6 @@
 # M3 handoff (WF-12)
 
-Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) found a defect in the Pages proxy: it dropped the `Idempotency-Key` header, so every Admin upload answered 422. The fix is in the proxy allowlist and needs a deploy. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
+Status on 2026-11-18: M3 (Admin Upload and Ingestion) is merged to `main` (PR #38) and deployed to production. The Owner created the OpenAI key and the Worker's read-only R2 token, the Terraform change was applied, and the `deploy` workflow ran migration `0004` and rolled out the images. The four seeded documents were reindexed through the Worker pipeline (`ingested=4`). The real upload check (M3-AC22) passed on the second attempt. The first attempt found a defect in the Pages proxy, which dropped the `Idempotency-Key` header, so every Admin upload answered 422. PR #39 fixed it and was deployed. M3-AC23 passed with a 300-page text PDF. M3-AC25 (the D15 failure and recovery experiment) passed on 2026-11-18, so every M3 acceptance criterion is met. The plan is `plan.md`, the decisions are OPEN-31 (D1 to D15) and the task record is `tasks.md`.
 
 ## What the milestone adds
 
@@ -17,7 +17,7 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Decisions taken during implementation
 
-- Worker sizing comes from `measurements.md`. The Owner approved these as initial values: concurrency 1, memory 512 MiB, Cloud Run request timeout 300 s, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. They rest on local measurements, so they are a starting point and not a production performance result. M3-AC23 stays open until the deployed Worker has processed a large, representative PDF (see the next section). The values are not to be changed or re-measured before then. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
+- Worker sizing comes from `measurements.md`. The Owner approved these as initial values: concurrency 1, memory 512 MiB, Cloud Run request timeout 300 s, `KS_PDF_EXTRACTION_TIMEOUT_SECONDS` 120 and `KS_JOB_HANDLER_TIMEOUT_SECONDS` 240. They started as local measurements. M3-AC23 then measured a 300-page text PDF on the deployed Worker (see the production record), and the values stayed as they are. The rule that the handler timeout stays below the lease is gone because the heartbeat keeps the job claimed.
 - The Owner split two retriever clauses between M3 and M4 (see the next section). M3 does not contain a temporary retriever.
 - The ZIP panel has no "retry the files that were not imported" button. Retrying the same ZIP under a new key would create the finished entries again, so the Admin imports a new ZIP that holds only the failed files.
 - A missing source object fails the job as `INVALID_PDF` without retries. Embedding errors stay retryable.
@@ -34,11 +34,35 @@ Status on 2026-11-14: M3 (Admin Upload and Ingestion) is merged to `main` (PR #3
 
 ## Acceptance criteria that stay open
 
-Three production acceptance criteria are not met, because they need the cloud steps below:
+None. M3-AC25 passed on 2026-11-18 (record below). Scenario 1 of plan section 12.2 was dropped by the Owner, because the `fail_then_ok` hook cannot succeed on an automatic redelivery and the first retry of the cycle run shows the same redelivery.
 
-- M3-AC22: one real upload of a small PDF on production, through the Pages proxy, real QStash, the Worker, R2 and OpenAI, plus the permitted and a non-permitted department and the upload size limit through Cloudflare and Cloud Run.
-- M3-AC23: time, peak memory and embedding cost for small, medium and the largest allowed PDF on the deployed Worker. The Owner requires at least one large, representative PDF to be measured there before the Worker values above count as validated. If the measurement shows the values are wrong, the change goes back to the Owner as a new decision.
-- M3-AC25: the D15 failure and recovery experiment, approved as designed in plan section 12.2 and kept as it is. It needs its own approval for the exact steps. The runner is not written yet.
+## D15 experiment record (M3-AC25, 2026-11-18)
+
+Run by the lead agent with the Owner's approvals for each step (A: tagged revision, B: dry run, C: scenarios, D: restore). The runner is `tests/d15/run_d15.py`, the steps are in `d15-runbook.md`. The tagged revision `knowserve-worker-00011-muj` (tag `d15`, test hooks on, 0% traffic) shared the production database. The serving revision was `00010-sg8`. All times are UTC.
+
+**Duplicate delivery.** One `noop` job was published twice at once (07:12:16). QStash delivered both messages with HTTP 200 (07:12:17 and 07:12:27). The job ended `done` with `attempts=1`, so there was one claim.
+
+**Failure, retry and cap.** A `fail_then_ok` job (correlation prefix `d15-`) was published at 07:14:06:
+
+| Delivery | Worker answer | Job after it | QStash next delivery |
+|---|---|---|---|
+| 07:14:07 | 500 | queued, attempts 1 | 07:14:19 |
+| 07:14:19 | 500 | queued, attempts 2 | 07:16:53 |
+| 07:16:54 | 500 | queued, attempts 3 | 07:46:02 |
+| 07:46:02 | 500 | failed, attempts 4 | none (`FAILED`) |
+
+The retry delays matched QStash's defaults (about 12 s, 148 s and 1808 s). The cap of 4 processing attempts held. No delivery followed the fourth during a 90 s wait. A manual retry at 07:47:49 published a new message, which answered 200. The job ended `done`, with attempts restarted at 1.
+
+**No document data touched.** The document, revision and chunk counts were 7, 7 and 612 before and after both scenarios. The jobs used only the test types `noop` and `fail_then_ok`. No R2 or OpenAI call was involved.
+
+**Request log.** The Worker request log for `/internal/jobs/run` shows exactly seven deliveries in the experiment window, all on `00011-muj` (two 200, four 500, one 200). The serving revision received none.
+
+**Restore (step D).**
+- The tag was removed, and a clean revision was deployed without `KS_ENABLE_SPIKE_FAILURE_HOOKS` and with the original public URL.
+- The first clean deploy (`00012-kjq`) failed its startup probe with no application logs, and the cause was not found. The identical redeploy (`00013-w58`) started normally.
+- My `update-traffic --to-latest` after the failed deploy moved all traffic to the latest ready revision, which was still the test revision `00011-muj`. It served from about 08:01 until `00013-w58` took the traffic a few minutes later. No job was created in that time, so the hooks were never used. Lesson for the runbook: send traffic to the new revision by name, and check the traffic split before `--to-latest`.
+- Final state: `00013-w58` serves 100% (latest), has no test flag, answers `/health/ready` with 200, and `terraform plan` reports no changes. The revisions `00011` and `00012` were deleted.
+- The experiment job rows stay in the `jobs` table as evidence.
 
 Two criteria are split between M3 and M4 by the Owner's decision. The whole criteria are not deferred.
 
@@ -55,9 +79,23 @@ Other notes:
 - M3-AC01 is covered in pieces (upload, Worker pipeline, visibility) and by the local trial. There is no single automated test that runs upload, Worker and a second department's library view in one flow.
 - The completed M3 parts are supported by the evidence section above: 998 backend tests with no skips, 235 frontend unit tests, the mocked Playwright Admin spec, two local real-API trials (the second on the final code), the OpenAPI and generated type drift checks, the Docker builds, Terraform format and validate, the secret scans, and the independent reviews.
 
+## Production acceptance record (2026-11-14)
+
+M3-AC22 is met. The Owner ran these steps, each with its own approval.
+
+- Setup: an OpenAI project with a 5 USD monthly budget and a key stored as a Secret Manager version (the service-account key form has no permission restriction, so the project budget is the cap). A read-only Worker R2 token scoped to the `knowserve-documents` bucket. The QStash free plan (1,000 messages a day, each delivery attempt counts) is far above the expected volume.
+- Terraform: the targeted apply of the three secret containers and their bindings (6 added), then the full apply (2 changed, 0 added, 0 destroyed): the API got `KS_UPLOADS_ENABLED=true`, and the Worker got the R2 and OpenAI settings and concurrency 1. The plans matched the runbook before each apply.
+- D6 check: with the repository's own R2 client, the API token wrote, read and deleted a probe object, and the Worker token read it but was refused a write and a delete (HTTP 403). The existing API token needed no replacement.
+- Deploy: the `auth-check` run (43628831657) and the `deploy` run (43629003879) on `main` commit `75d483f`. The migration job ran `0004` and the images were rolled out.
+- Seed reindex: a temporary Cloud Run job from the Worker image ran `knowserve_worker.seed_ingest --allow-production` once and reported `ingested=4`. The job was deleted afterwards and was never part of Terraform.
+- First upload attempt: Admin uploads answered 422 because the Pages Function forwards an allowlist of request headers and `Idempotency-Key` was not on it. The local trial missed this because it used the Vite proxy. PR #39 added the header, and the `deploy` run 43631945442 on `3361588` rolled it out.
+- Second upload attempt: the API accepted the sample PDF with 202 at 19:33:21 UTC, QStash delivered the job to the Worker, which claimed it on attempt 1 at 19:33:23, published 2 chunks at 19:33:33 and finished the job. The status stream connected for the duration. No errors or retries appeared in either service.
+- M3-AC23 measurement (the Worker values stay as they are): a generated 300-page text PDF (3.6 MB, about 500 words a page, fictional) uploaded at 20:12:45 UTC was claimed on attempt 1 at 20:12:47 and finished at 20:14:17, so 90 s end to end against the 240 s handler timeout, and it produced 600 chunks. Peak Worker memory was about 292 MiB of 512 MiB (Cloud Run reports memory in coarse buckets, so this is approximate). A 19 MiB, image-heavy PDF with almost no text (1 chunk) took 12 s at about 205 MiB. The small two-page sample took about 10 s and 2 chunks. Embedding cost for the large file is estimated at under one US cent (at most about 307,000 tokens at the published `text-embedding-3-small` price; the exact count was not logged). Database growth is about 5 MB for 600 chunks, against the 1 GB Neon limit. No retry, timeout or error appeared. These are two documents on a warm instance, not a load test. The Owner required at least one large, representative document, and the result leaves about 2.7 times headroom on time and 1.75 times on memory.
+- Owner-reported checks: the permitted department saw the document and opened its PDF, a department without access did not see it, a file over 20 MiB was refused with the friendly message in the form, a direct 21 MiB upload through the proxy was refused, and the test document was deleted.
+
 ## Steps only the Owner can approve
 
-These are listed in plan section 12.3. Each needs its own approval and none has been done.
+These are listed in plan section 12.3. Each needs its own approval. Steps 1 to 8 are done (see the records above).
 
 1. Create the OpenAI project with the monthly budget and store the key as a Secret Manager version.
 2. Create the two R2 tokens (API read, write and delete; Worker read only), check with a test object that the API token can delete, and store the values.
@@ -71,9 +109,10 @@ These are listed in plan section 12.3. Each needs its own approval and none has 
 ## Limits and known gaps
 
 - A limit refusal in the middle of a ZIP confirmation is recorded as that entry's final result. A ZIP with more than 10 valid entries meets the default in-flight cap of 10.
+- The local trial goes through the Vite dev proxy, so it cannot see header filtering in the Pages Function. The first production upload failed for that reason. A request header that a new route needs must also be added to the allowlist in `apps/frontend/functions/api/[[path]].ts` and to `docs/contracts/proxy.md`.
 - A forged session cookie passes the cheap cookie check in `body_limit.py`. The size cap still bounds the body, and the real authorization check follows.
 - The status stream checks the session when it connects. After a logout it can stay open until `KS_SSE_MAX_SECONDS` (120 s).
-- The Worker answers 500 for a terminal failure, so QStash redelivers up to three more times. Each redelivery finds the job `failed`, gets 200 and uses no attempt. D15 checks this on the real path.
+- The Worker answers 500 for a terminal failure, so QStash redelivers up to three more times. Each redelivery finds the job `failed`, gets 200 and uses no attempt. D15 confirmed this on the real path (see the record above).
 - PyMuPDF4LLM is AGPL licensed and the tokenizer vocabulary is bundled in the repository (F16 and F17 in the plan).
 - `docker compose up -d firebase-auth` exits with "Unable to obtain permissions for firebase-debug.log" because the configuration is mounted read-only. `tests/trial/README.md` describes the workaround. The compose file was not changed.
 - The MON-06 alert filter matches any error log entry, so a retried transient failure can alert. Stuck outbox rows have no alert.

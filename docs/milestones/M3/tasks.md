@@ -35,4 +35,4 @@ All slices are merged into `m3/integration`. Each had its own worktree and branc
 - Frontend: `pnpm -r lint|format:check|typecheck|test|build` and `check:api` clean; mocked Playwright admin spec passes.
 - Local real-API trial (CP6): `tests/trial/` harness and `tests/e2e/trial.admin.spec.ts` passed against the real API and Worker with the Firebase Auth Emulator, a local queue stand-in, a filesystem object store and fake embeddings.
 - Docker builds of `api` and `worker`, `terraform fmt`, `init -backend=false`, `validate`, the Terraform secret check and gitleaks over the working tree all passed.
-- Not run and not authorized: production migration, deploy, `terraform apply`/plan against state, OpenAI/R2/QStash configuration, production reindex and upload checks, the D15 experiment.
+- Not run and not authorized: production migration, deploy, `terraform apply`/plan against state, OpenAI/R2/QStash configuration, production reindex and upload checks. Run later with the Owner's approval: see `handoff.md` (the D15 experiment passed on 2026-11-18).
